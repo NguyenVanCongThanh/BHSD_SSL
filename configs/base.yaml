@@ -31,10 +31,12 @@ method:
   weight_decay: 0.0001
 
 logging:
-  use_wandb: false
+  use_wandb: false          # Toggle Weights & Biases experiment tracking
+  save_wandb_model: true    # Auto-upload checkpoints (.pth) to W&B Cloud Artifacts
   wandb_project: "PICK_BHSD"
-  wandb_entity: null
-  wandb_run_name: null
+  wandb_entity: null        # W&B team/username (leave null for default account)
+  wandb_run_name: null      # Custom run name (defaults to {exp_name}_{method}_fold{fold})
+  wandb_id: null            # Specific Run ID to attach to (optional, defaults to auto-resolved)
   val_interval: 500
   val_stride_xy: 32
   val_stride_z: 8

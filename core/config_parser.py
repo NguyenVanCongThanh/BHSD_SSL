@@ -137,6 +137,7 @@ SECTION_MAPPING = {
     'wandb_project': 'logging',
     'wandb_entity': 'logging',
     'wandb_run_name': 'logging',
+    'wandb_id': 'logging',
     'val_interval': 'logging',
     'val_stride_xy': 'logging',
     'val_stride_z': 'logging',

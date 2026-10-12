@@ -1,6 +1,7 @@
 """
 Abstract Base Method / Trainer for Semi-Supervised and Supervised Learning Algorithms.
 Provides unified training loops, validation engine, checkpointing, and logging (W&B / TensorBoard).
+Integrated with WandbManager for cloud artifacts and auto-resume.
 """
 
 from typing import Dict, Any, Optional, Tuple, List
@@ -23,6 +24,7 @@ from data.samplers import TwoStreamBatchSampler
 from data.transforms3d import RandomRotFlip, RandomCrop, ToTensor
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import CLASS_NAMES_MULTICLASS, CLASS_NAMES_BINARY, format_dice_summary
+from utils.wandb_manager import WandbManager
 
 
 class BaseMethod(abc.ABC):
@@ -45,11 +47,11 @@ class BaseMethod(abc.ABC):
         self.class_names = CLASS_NAMES_BINARY if self.is_binary else CLASS_NAMES_MULTICLASS
         self.patch_size = tuple(getattr(self.cfg.data, 'patch_size', [32, 160, 160]))
         self.fold = int(getattr(self.cfg.experiment, 'fold', 0))
+        self.exp_name = getattr(self.cfg.experiment, 'name', 'experiment')
 
         # Snapshot path
         exp_dir = getattr(self.cfg.experiment, 'exp_dir', '../experiments')
-        exp_name = getattr(self.cfg.experiment, 'name', 'experiment')
-        self.snapshot_path = os.path.join(exp_dir, exp_name, f"fold_{self.fold}")
+        self.snapshot_path = os.path.join(exp_dir, self.exp_name, f"fold_{self.fold}")
         os.makedirs(self.snapshot_path, exist_ok=True)
 
         # Multi-GPU support
@@ -142,31 +144,20 @@ class BaseMethod(abc.ABC):
         os.makedirs(log_dir, exist_ok=True)
         self.writer = SummaryWriter(log_dir)
 
-        self.use_wandb = bool(getattr(self.cfg.logging, 'use_wandb', False))
-        if self.use_wandb:
-            try:
-                import wandb
-                project = getattr(self.cfg.logging, 'wandb_project', 'MedSSL_BHSD')
-                entity = getattr(self.cfg.logging, 'wandb_entity', None)
-                run_name = getattr(self.cfg.logging, 'wandb_run_name', None)
-                if not run_name:
-                    exp_name = getattr(self.cfg.experiment, 'name', 'run')
-                    method_name = getattr(self.cfg.method, 'name', 'method')
-                    run_name = f"{exp_name}_{method_name}_fold{self.fold}"
+        # Initialize W&B via central manager
+        self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
+        self.use_wandb = self.wandb_manager.enabled
 
-                wandb.init(
-                    project=project,
-                    entity=entity,
-                    name=run_name,
-                    config=self.cfg.to_dict(),
-                    reinit=True
-                )
-                logging.info(f"[W&B] Initialized run '{run_name}' in project '{project}'")
-            except Exception as e:
-                logging.warning(f"[W&B] Initialization failed: {e}. Continuing without W&B.")
-                self.use_wandb = False
-
-    def save_checkpoint(self, path: str, iter_num: int, best_dice: float, phase: str = 'train'):
+    def save_checkpoint(
+        self,
+        path: str,
+        iter_num: int,
+        best_dice: float,
+        phase: str = 'train',
+        artifact_name: Optional[str] = None,
+        artifact_type: str = "checkpoint",
+        aliases: Optional[List[str]] = None
+    ):
         raw_net = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
         state = {
             'net': raw_net.state_dict(),
@@ -177,6 +168,17 @@ class BaseMethod(abc.ABC):
             'config': self.cfg.to_dict()
         }
         torch.save(state, str(path))
+
+        # Upload to W&B Artifacts if enabled
+        if artifact_name and self.wandb_manager.enabled and self.wandb_manager.save_artifacts:
+            self.wandb_manager.log_artifact(
+                file_path=str(path),
+                name=artifact_name,
+                artifact_type=artifact_type,
+                description=f"Checkpoint at iter {iter_num} ({phase}) with best_mDice: {best_dice:.4f}",
+                aliases=aliases or ["latest"],
+                metadata={'iter_num': iter_num, 'best_dice': best_dice, 'phase': phase}
+            )
 
     def load_checkpoint(self, path: str) -> Tuple[int, float]:
         state = torch.load(str(path), map_location=self.device)
@@ -230,12 +232,23 @@ class BaseMethod(abc.ABC):
         best_dice = 0.0
 
         latest_pth = os.path.join(self.snapshot_path, "checkpoint_latest.pth")
+        
+        # Cloud auto-restore if local checkpoint is missing
+        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled:
+            logging.info("[RESUME] Local checkpoint not found. Attempting auto-restore from W&B Cloud Storage...")
+            self.wandb_manager.restore_artifact(
+                artifact_name=f"{self.exp_name}_latest",
+                dest_dir=self.snapshot_path,
+                tag="latest"
+            )
+
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
             logging.info(f"[RESUME] Resumed training from iter {iter_num} | best_mDice: {best_dice:.4f}")
 
         if iter_num >= max_iterations:
             logging.info(f"Training already completed ({iter_num}/{max_iterations}). Exiting.")
+            self.wandb_manager.finish()
             return
 
         remaining_iters = max(max_iterations - iter_num, 0)
@@ -258,11 +271,9 @@ class BaseMethod(abc.ABC):
                 self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], iter_num)
 
                 # W&B logging
-                if self.use_wandb:
-                    import wandb
-                    wandb_dict = {f"train/{k}": v for k, v in loss_dict.items()}
-                    wandb_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
-                    wandb.log(wandb_dict, step=iter_num)
+                wandb_dict = {f"train/{k}": v for k, v in loss_dict.items()}
+                wandb_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
+                self.wandb_manager.log_metrics(wandb_dict, step=iter_num)
 
                 # Console progress log
                 if iter_num % 10 == 0 or iter_num == 1:
@@ -297,17 +308,36 @@ class BaseMethod(abc.ABC):
                     if val_mdice > best_dice:
                         best_dice = val_mdice
                         best_pth = os.path.join(self.snapshot_path, "best_model.pth")
-                        self.save_checkpoint(best_pth, iter_num, best_dice, 'train')
+                        self.save_checkpoint(
+                            path=best_pth,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase='train',
+                            artifact_name=f"{self.exp_name}_best_model",
+                            artifact_type="model",
+                            aliases=["latest", "best"]
+                        )
                         logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
+                        self.wandb_manager.update_summary({
+                            'best_mDice': best_dice,
+                            'best_iter': iter_num
+                        })
 
-                    self.save_checkpoint(latest_pth, iter_num, best_dice, 'train')
+                    # Save and upload latest checkpoint
+                    self.save_checkpoint(
+                        path=latest_pth,
+                        iter_num=iter_num,
+                        best_dice=best_dice,
+                        phase='train',
+                        artifact_name=f"{self.exp_name}_latest",
+                        artifact_type="checkpoint",
+                        aliases=["latest"]
+                    )
 
-                    if self.use_wandb:
-                        import wandb
-                        val_log = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
-                        for c, d in enumerate(per_class):
-                            val_log[f'val/dice_{class_names[c]}'] = d
-                        wandb.log(val_log, step=iter_num)
+                    val_log = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
+                    for c, d in enumerate(per_class):
+                        val_log[f'val/dice_{class_names[c]}'] = d
+                    self.wandb_manager.log_metrics(val_log, step=iter_num)
 
                     self.model.train()
                     iter_t0 = time.time()
@@ -319,4 +349,9 @@ class BaseMethod(abc.ABC):
 
         self.save_checkpoint(latest_pth, iter_num, best_dice, 'train')
         self.writer.close()
+        self.wandb_manager.update_summary({
+            'final_mDice': best_dice,
+            'completed_iters': iter_num
+        })
+        self.wandb_manager.finish()
         logging.info(f"Training finished | Best mDice: {best_dice:.4f}")
