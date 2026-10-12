@@ -1,0 +1,19 @@
+# Cross Pseudo Supervision (CPS) Configuration for BHSD
+experiment:
+  name: "BHSD_cps_5folds"
+  task: "multiclass"
+  num_classes: 6
+
+model:
+  name: "vnet_single"
+  in_channels: 1
+
+method:
+  name: "cps"
+  max_iteration: 12000
+  base_lr: 0.01
+  cps_weight: 1.5
+  consistency_rampup: 40.0
+
+logging:
+  val_interval: 500

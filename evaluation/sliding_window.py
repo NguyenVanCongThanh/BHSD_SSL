@@ -1,0 +1,211 @@
+"""
+Unified 3D Sliding-Window Inference Engine for Volumetric Medical Segmentation.
+Optimized for BHSD (Brain Hemorrhage Segmentation Dataset) with AMP FP16 and low VRAM footprint.
+Single Source of Truth across training, validation, and benchmarking.
+"""
+
+from typing import Dict, List, Optional, Tuple, Union
+import time
+import logging
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from evaluation.metrics import (
+    CLASS_NAMES_MULTICLASS,
+    CLASS_NAMES_BINARY,
+    cal_multiclass_dice,
+    cal_binary_dice,
+    format_dice_summary,
+)
+
+
+def _forward_model(model: nn.Module, patch_tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Safely extract segmentation logits from diverse model output signatures:
+    - Composite/PICK: returns (features, main_outputs, feat_de) -> use [1]
+    - Standard Net: returns logits tensor
+    - Dict output: returns dict with 'seg' or 'out'
+    """
+    out = model(patch_tensor)
+    if isinstance(out, (tuple, list)):
+        # PICK standard: (_, main_output, _) or (out_seg, features)
+        if len(out) >= 2 and isinstance(out[1], torch.Tensor) and out[1].ndim >= 4:
+            return out[1]
+        return out[0]
+    elif isinstance(out, dict):
+        if 'seg' in out:
+            return out['seg']
+        if 'out' in out:
+            return out['out']
+        return list(out.values())[0]
+    return out
+
+
+def sliding_window_inference_3d(
+    model: nn.Module,
+    image: np.ndarray,
+    num_classes: int,
+    patch_size: Tuple[int, int, int] = (32, 160, 160),
+    stride_z: int = 8,
+    stride_xy: int = 32,
+    use_amp: bool = True,
+    device: Optional[torch.device] = None
+) -> np.ndarray:
+    """
+    Run 3D sliding-window inference on a single 3D volume.
+    
+    Args:
+        model: PyTorch model in eval mode.
+        image: 3D numpy array of shape (Z, Y, X).
+        num_classes: Number of segmentation classes (2 for binary, 6 for multiclass).
+        patch_size: Patch dimensions (pz, py, px).
+        stride_z: Stride along slice (Z) dimension.
+        stride_xy: Stride along axial (Y, X) dimensions.
+        use_amp: If True, uses torch.cuda.amp.autocast() for FP16 speedup.
+        device: Torch device (defaults to cuda if available).
+        
+    Returns:
+        np.ndarray: Predicted discrete segmentation map of shape (Z, Y, X) with class integers.
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    z, y, x = image.shape
+    pz, py, px = patch_size
+
+    # 1. Symmetric padding if volume is smaller than patch size
+    pad_z = max(pz - z, 0)
+    pad_y = max(py - y, 0)
+    pad_x = max(px - x, 0)
+    if pad_z > 0 or pad_y > 0 or pad_x > 0:
+        image = np.pad(
+            image,
+            [(0, pad_z), (0, pad_y), (0, pad_x)],
+            mode='constant',
+            constant_values=0
+        )
+
+    w_z, w_y, w_x = image.shape
+
+    # 2. Compute step counts
+    sz = max(int(np.ceil((w_z - pz) / stride_z)) + 1, 1)
+    sy = max(int(np.ceil((w_y - py) / stride_xy)) + 1, 1)
+    sx = max(int(np.ceil((w_x - px) / stride_xy)) + 1, 1)
+
+    score_map = np.zeros((num_classes, w_z, w_y, w_x), dtype=np.float32)
+    cnt = np.zeros((w_z, w_y, w_x), dtype=np.float32)
+
+    model.eval()
+    with torch.no_grad():
+        for iz in range(sz):
+            zs = min(iz * stride_z, w_z - pz)
+            for iy in range(sy):
+                ys = min(iy * stride_xy, w_y - py)
+                for ix in range(sx):
+                    xs = min(ix * stride_xy, w_x - px)
+
+                    patch = image[zs:zs + pz, ys:ys + py, xs:xs + px]
+                    patch_tensor = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).to(device=device, dtype=torch.float32)
+
+                    if use_amp and device.type == 'cuda':
+                        with torch.cuda.amp.autocast():
+                            logits = _forward_model(model, patch_tensor)
+                    else:
+                        logits = _forward_model(model, patch_tensor)
+
+                    prob = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+
+                    score_map[:, zs:zs + pz, ys:ys + py, xs:xs + px] += prob
+                    cnt[zs:zs + pz, ys:ys + py, xs:xs + px] += 1.0
+
+    score_map = score_map / np.expand_dims(cnt, axis=0)
+    pred = np.argmax(score_map, axis=0)[:z, :y, :x]
+    return pred
+
+
+def evaluate_dataset_sliding_window(
+    model: nn.Module,
+    val_dataset,
+    num_classes: int = 6,
+    is_binary: bool = False,
+    patch_size: Tuple[int, int, int] = (32, 160, 160),
+    stride_z: int = 8,
+    stride_xy: int = 32,
+    use_amp: bool = True,
+    device: Optional[torch.device] = None,
+    log_progress: bool = True
+) -> Tuple[float, List[float]]:
+    """
+    Run 3D sliding window inference across a full validation dataset.
+    
+    Args:
+        model: Trained PyTorch model.
+        val_dataset: BHSDDataset or similar iterable dataset.
+        num_classes: Number of classes (2 for binary, 6 for multiclass).
+        is_binary: True if binary task, False if multi-class.
+        patch_size: 3D patch dimensions.
+        stride_z: Z stride.
+        stride_xy: XY stride.
+        use_amp: Whether to use FP16 AMP.
+        device: Target torch device.
+        log_progress: Whether to print progress periodically.
+        
+    Returns:
+        Tuple of (mean_dice, per_class_dices).
+    """
+    model.eval()
+    all_case_dices: List[List[float]] = []
+    total_cases = len(val_dataset)
+    t0 = time.time()
+
+    if log_progress:
+        logging.info(
+            f"  [Validation] Evaluating {total_cases} cases "
+            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp})..."
+        )
+
+    for i in range(total_cases):
+        sample_item = val_dataset[i]
+        sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
+        image, label = sample['image'], sample['label']
+
+        if isinstance(image, torch.Tensor):
+            image = image.squeeze().cpu().numpy()
+        if isinstance(label, torch.Tensor):
+            label = label.squeeze().cpu().numpy()
+
+        pred = sliding_window_inference_3d(
+            model=model,
+            image=image,
+            num_classes=num_classes,
+            patch_size=patch_size,
+            stride_z=stride_z,
+            stride_xy=stride_xy,
+            use_amp=use_amp,
+            device=device
+        )
+
+        if is_binary:
+            dice = cal_binary_dice(pred, label)
+            all_case_dices.append([dice])
+        else:
+            case_dices = cal_multiclass_dice(pred, label, num_classes=num_classes)
+            all_case_dices.append(case_dices)
+
+        if log_progress and ((i + 1) % 10 == 0 or (i + 1) == total_cases):
+            elapsed = time.time() - t0
+            pct = ((i + 1) / total_cases) * 100
+            logging.info(f"  [Validation Progress] Done {i + 1}/{total_cases} cases ({pct:.0f}%) | {elapsed:.1f}s")
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    if len(all_case_dices) == 0:
+        return 0.0, [0.0] * (1 if is_binary else num_classes - 1)
+
+    mean_per_class = np.mean(np.array(all_case_dices), axis=0).tolist()
+    mean_dice = float(np.mean(mean_per_class))
+
+    return mean_dice, mean_per_class

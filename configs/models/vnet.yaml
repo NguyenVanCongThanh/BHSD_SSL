@@ -1,0 +1,7 @@
+# Model Configuration: VNet
+model:
+  name: "vnet"
+  in_channels: 1
+  normalization: "batchnorm"
+  has_dropout: true
+  n_filters: 16

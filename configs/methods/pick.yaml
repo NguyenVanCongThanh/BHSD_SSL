@@ -1,0 +1,24 @@
+# PICK Configuration for BHSD (Multi-class / Binary)
+experiment:
+  name: "BHSD_multiclass_PICK_5folds"
+  task: "multiclass"
+  num_classes: 6
+  phase: "all"              # "all", "pre_train", or "self_train"
+  resume: false
+
+model:
+  name: "vnet"
+  in_channels: 1
+
+method:
+  name: "pick"
+  pre_max_iteration: 4000
+  self_max_iteration: 12000
+  base_lr: 0.01
+  lambda_mim: 0.2
+  mask_ratio: 0.666667
+  consistency: 1.0
+
+logging:
+  val_interval: 500
+  val_stride_xy: 32

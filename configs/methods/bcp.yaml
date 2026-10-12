@@ -1,0 +1,19 @@
+# Bidirectional Copy-Paste (BCP) Configuration for BHSD
+experiment:
+  name: "BHSD_bcp_5folds"
+  task: "multiclass"
+  num_classes: 6
+
+model:
+  name: "vnet_single"
+  in_channels: 1
+
+method:
+  name: "bcp"
+  max_iteration: 12000
+  base_lr: 0.01
+  mask_ratio: 0.666667
+  u_weight: 0.5
+
+logging:
+  val_interval: 500

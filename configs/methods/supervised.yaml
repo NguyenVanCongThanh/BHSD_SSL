@@ -1,0 +1,21 @@
+# Supervised Baseline Configuration for BHSD (Lower Bound)
+experiment:
+  name: "BHSD_supervised_baseline"
+  task: "multiclass"
+  num_classes: 6
+
+model:
+  name: "vnet_single"
+  in_channels: 1
+
+method:
+  name: "supervised"
+  max_iteration: 6000
+  base_lr: 0.01
+
+data:
+  labeled_bs: 4
+  batch_size: 4
+
+logging:
+  val_interval: 500

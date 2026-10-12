@@ -1,0 +1,6 @@
+# Model Configuration: UNet3D
+model:
+  name: "unet3d"
+  in_channels: 1
+  has_dropout: true
+  feat_channels: [32, 64, 128, 256, 512]

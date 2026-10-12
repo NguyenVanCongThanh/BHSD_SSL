@@ -26,16 +26,10 @@ echo "==========================================================================
 echo "=== BẮT ĐẦU CHẠY PICK MULTI-CLASS FOLD $FOLD_ID (Slurm Job ID: $SLURM_JOB_ID, Task: $FOLD_ID) ==="
 echo "=========================================================================="
 
-# 5. Khởi chạy huấn luyện
-python BHSD_multiclass_PICK_train.py \
-    --root_path /home/u001015/notebook/preprocessed_bhsd_pick/ \
-    --exp BHSD_multiclass_PICK_5folds \
+# 5. Khởi chạy huấn luyện qua điểm chạy hợp nhất MedSSL-BHSD
+python train.py \
+    --config configs/methods/pick.yaml \
     --fold $FOLD_ID \
-    --model VNet \
-    --labelnum 15 \
-    --max_samples 2200 \
-    --batch_size 4 \
-    --labeled_bs 2 \
     --gpu 0
 
 echo "=== HOÀN TẤT HUẤN LUYỆN PICK MULTI-CLASS CHO FOLD $FOLD_ID ==="
