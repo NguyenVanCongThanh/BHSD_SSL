@@ -63,11 +63,11 @@ class PICKMethod(BaseMethod):
         iter_num = 0
         best_dice = 0.0
 
-        writer = SummaryWriter(os.path.join(self.pre_snapshot_path, 'log'))
+        writer = SummaryWriter(os.path.join(self.pre_snapshot_path, 'log')) if is_main_process() else None
         latest_pth = os.path.join(self.pre_snapshot_path, "checkpoint_latest.pth")
 
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
-        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled:
+        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled and is_main_process():
             logging.info("[RESUME] Local pre-train checkpoint not found. Attempting auto-restore from W&B Cloud...")
             self.wandb_manager.restore_artifact(
                 artifact_name=f"{self.exp_name}_pretrain_latest",
@@ -75,12 +75,16 @@ class PICKMethod(BaseMethod):
                 tag="latest"
             )
 
+        if self.is_ddp:
+            torch.distributed.barrier()
+
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
             logging.info(f"[RESUME] Resumed pre-training from iter {iter_num} | best_mDice: {best_dice:.4f}")
             if iter_num >= self.pre_max_iteration:
                 logging.info(f"[RESUME] Pre-training already completed ({iter_num}/{self.pre_max_iteration}). Skipping.")
-                writer.close()
+                if writer is not None:
+                    writer.close()
                 return
 
         remaining_iters = max(self.pre_max_iteration - iter_num, 0)
@@ -88,6 +92,11 @@ class PICKMethod(BaseMethod):
         iter_t0 = time.time()
 
         for epoch in range(max_epoch):
+            if self.is_ddp and hasattr(self, 'batch_sampler') and hasattr(self.batch_sampler, 'set_epoch'):
+                self.batch_sampler.set_epoch(epoch)
+            elif self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
+                self.train_sampler.set_epoch(epoch)
+
             for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
                 volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)
                 label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
@@ -139,24 +148,26 @@ class PICKMethod(BaseMethod):
 
                 iter_num += 1
 
-                writer.add_scalar('loss/total', loss.item(), iter_num)
-                writer.add_scalar('loss/main', loss_main.item(), iter_num)
-                writer.add_scalar('loss/mim', loss_mim.item(), iter_num)
-                writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
-                writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
+                if is_main_process():
+                    if writer is not None:
+                        writer.add_scalar('loss/total', loss.item(), iter_num)
+                        writer.add_scalar('loss/main', loss_main.item(), iter_num)
+                        writer.add_scalar('loss/mim', loss_mim.item(), iter_num)
+                        writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
+                        writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
 
-                # W&B Logging
-                self.wandb_manager.log_metrics({
-                    'train/loss_total': loss.item(),
-                    'train/loss_main': loss_main.item(),
-                    'train/loss_mim': loss_mim.item(),
-                    'train/loss_aux': loss_aux.item(),
-                    'train/lr': optimizer.param_groups[0]['lr'],
-                    'phase': 'pre_train',
-                    'pre_train/iter': iter_num,
-                }, step=iter_num)
+                    # W&B Logging
+                    self.wandb_manager.log_metrics({
+                        'train/loss_total': loss.item(),
+                        'train/loss_main': loss_main.item(),
+                        'train/loss_mim': loss_mim.item(),
+                        'train/loss_aux': loss_aux.item(),
+                        'train/lr': optimizer.param_groups[0]['lr'],
+                        'phase': 'pre_train',
+                        'pre_train/iter': iter_num,
+                    }, step=iter_num)
 
-                if iter_num % 10 == 0 or iter_num == 1:
+                if is_main_process() and (iter_num % 10 == 0 or iter_num == 1):
                     elapsed_10 = time.time() - iter_t0
                     sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
                     rem_steps = max(self.pre_max_iteration - iter_num, 0)
@@ -173,52 +184,57 @@ class PICKMethod(BaseMethod):
                     iter_t0 = time.time()
 
                 if iter_num % self.val_interval == 0:
-                    logging.info(f"\n>>> [Pre-train Validation] Periodic evaluation at Iter {iter_num}...")
-                    val_mdice, per_class = self.validate()
-                    summary_str = format_dice_summary(per_class, self.class_names[1:])
-                    logging.info(f"<<< [Pre-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
+                    if is_main_process():
+                        logging.info(f"\n>>> [Pre-train Validation] Periodic evaluation at Iter {iter_num}...")
+                        val_mdice, per_class = self.validate()
+                        summary_str = format_dice_summary(per_class, self.class_names[1:])
+                        logging.info(f"<<< [Pre-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
 
-                    writer.add_scalar('val/mDice', val_mdice, iter_num)
-                    for c, d in enumerate(per_class):
-                        writer.add_scalar(f'val/dice_{self.class_names[c+1]}', d, iter_num)
+                        if writer is not None:
+                            writer.add_scalar('val/mDice', val_mdice, iter_num)
+                            for c, d in enumerate(per_class):
+                                writer.add_scalar(f'val/dice_{self.class_names[c+1]}', d, iter_num)
 
-                    if val_mdice > best_dice:
-                        best_dice = val_mdice
-                        best_model_path = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
+                        if val_mdice > best_dice:
+                            best_dice = val_mdice
+                            best_model_path = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
+                            self.save_checkpoint(
+                                path=best_model_path,
+                                iter_num=iter_num,
+                                best_dice=best_dice,
+                                phase='pre_train',
+                                artifact_name=f"{self.exp_name}_pretrain_best",
+                                artifact_type="model",
+                                aliases=["latest", "best"]
+                            )
+                            logging.info(f"  [★ NEW BEST MODEL] Saved pre-train best model: mDice {best_dice:.4f}")
+                            self.wandb_manager.update_summary({
+                                'pretrain/best_mDice': best_dice,
+                                'pretrain/best_iter': iter_num
+                            })
+
+                        # Save and upload latest checkpoint
                         self.save_checkpoint(
-                            path=best_model_path,
+                            path=latest_pth,
                             iter_num=iter_num,
                             best_dice=best_dice,
                             phase='pre_train',
-                            artifact_name=f"{self.exp_name}_pretrain_best",
-                            artifact_type="model",
-                            aliases=["latest", "best"]
+                            artifact_name=f"{self.exp_name}_pretrain_latest",
+                            artifact_type="checkpoint",
+                            aliases=["latest"]
                         )
-                        logging.info(f"  [★ NEW BEST MODEL] Saved pre-train best model: mDice {best_dice:.4f}")
-                        self.wandb_manager.update_summary({
-                            'pretrain/best_mDice': best_dice,
-                            'pretrain/best_iter': iter_num
-                        })
 
-                    # Save and upload latest checkpoint
-                    self.save_checkpoint(
-                        path=latest_pth,
-                        iter_num=iter_num,
-                        best_dice=best_dice,
-                        phase='pre_train',
-                        artifact_name=f"{self.exp_name}_pretrain_latest",
-                        artifact_type="checkpoint",
-                        aliases=["latest"]
-                    )
+                        val_metrics = {
+                            'val/mDice': val_mdice,
+                            'val/best_mDice': best_dice,
+                            'pre_train/val_mDice': val_mdice
+                        }
+                        for c, d in enumerate(per_class):
+                            val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+                        self.wandb_manager.log_metrics(val_metrics, step=iter_num)
 
-                    val_metrics = {
-                        'val/mDice': val_mdice,
-                        'val/best_mDice': best_dice,
-                        'pre_train/val_mDice': val_mdice
-                    }
-                    for c, d in enumerate(per_class):
-                        val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
-                    self.wandb_manager.log_metrics(val_metrics, step=iter_num)
+                    if self.is_ddp:
+                        torch.distributed.barrier()
 
                     self.model.train()
                     iter_t0 = time.time()
@@ -228,13 +244,14 @@ class PICKMethod(BaseMethod):
             if iter_num >= self.pre_max_iteration:
                 break
 
-        self.save_checkpoint(latest_pth, iter_num, best_dice, 'pre_train')
-        best_pth = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
-        if not os.path.exists(best_pth):
-            self.save_checkpoint(best_pth, iter_num, best_dice, 'pre_train')
-
-        writer.close()
-        logging.info(f"=== [PICK] PRE-TRAINING FINISHED | Best mDice: {best_dice:.4f} ===")
+        if is_main_process():
+            self.save_checkpoint(latest_pth, iter_num, best_dice, 'pre_train')
+            best_pth = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
+            if not os.path.exists(best_pth):
+                self.save_checkpoint(best_pth, iter_num, best_dice, 'pre_train')
+            if writer is not None:
+                writer.close()
+            logging.info(f"=== [PICK] PRE-TRAINING FINISHED | Best mDice: {best_dice:.4f} ===")
 
     def run_self_train(self):
         logging.info("=== [PICK] STARTING SELF-TRAINING PHASE ===")
@@ -243,11 +260,11 @@ class PICKMethod(BaseMethod):
         iter_num = 0
         best_dice = 0.0
 
-        writer = SummaryWriter(os.path.join(self.self_snapshot_path, 'log'))
+        writer = SummaryWriter(os.path.join(self.self_snapshot_path, 'log')) if is_main_process() else None
         latest_pth = os.path.join(self.self_snapshot_path, "checkpoint_latest.pth")
 
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
-        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled:
+        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled and is_main_process():
             logging.info("[RESUME] Local self-train checkpoint not found. Attempting auto-restore from W&B Cloud...")
             self.wandb_manager.restore_artifact(
                 artifact_name=f"{self.exp_name}_self_latest",
@@ -255,12 +272,16 @@ class PICKMethod(BaseMethod):
                 tag="latest"
             )
 
+        if self.is_ddp:
+            torch.distributed.barrier()
+
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
             logging.info(f"[RESUME] Resumed self-training from iter {iter_num} | best_mDice: {best_dice:.4f}")
             if iter_num >= self.self_max_iteration:
                 logging.info(f"[RESUME] Self-training already completed ({iter_num}/{self.self_max_iteration}). Skipping.")
-                writer.close()
+                if writer is not None:
+                    writer.close()
                 return
         else:
             # Load pre-trained weights
@@ -270,13 +291,16 @@ class PICKMethod(BaseMethod):
             else:
                 best_pre = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
                 # Auto-restore pre-train weights from W&B if missing locally!
-                if not os.path.exists(best_pre) and self.wandb_manager.enabled:
+                if not os.path.exists(best_pre) and self.wandb_manager.enabled and is_main_process():
                     logging.info("[RESUME] Pre-train weights not found locally. Attempting restore from W&B Cloud...")
                     self.wandb_manager.restore_artifact(
                         artifact_name=f"{self.exp_name}_pretrain_best",
                         dest_dir=self.pre_snapshot_path,
                         tag="latest"
                     )
+
+                if self.is_ddp:
+                    torch.distributed.barrier()
 
                 if os.path.exists(best_pre):
                     pretrain_candidate = best_pre
@@ -295,6 +319,11 @@ class PICKMethod(BaseMethod):
         iter_t0 = time.time()
 
         for epoch in range(max_epoch):
+            if self.is_ddp and hasattr(self, 'batch_sampler') and hasattr(self.batch_sampler, 'set_epoch'):
+                self.batch_sampler.set_epoch(epoch)
+            elif self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
+                self.train_sampler.set_epoch(epoch)
+
             for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
                 volume_batch = sampled_batch['image'].to(self.device)
                 label_batch = sampled_batch['label'].to(self.device)
@@ -352,24 +381,26 @@ class PICKMethod(BaseMethod):
 
                 iter_num += 1
 
-                writer.add_scalar('loss/total', loss.item(), iter_num)
-                writer.add_scalar('loss/main', loss_main.item(), iter_num)
-                writer.add_scalar('loss/mim', loss_mim.item(), iter_num)
-                writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
-                writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
+                if is_main_process():
+                    if writer is not None:
+                        writer.add_scalar('loss/total', loss.item(), iter_num)
+                        writer.add_scalar('loss/main', loss_main.item(), iter_num)
+                        writer.add_scalar('loss/mim', loss_mim.item(), iter_num)
+                        writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
+                        writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
 
-                global_step = self.pre_max_iteration + iter_num
-                self.wandb_manager.log_metrics({
-                    'train/loss_total': loss.item(),
-                    'train/loss_main': loss_main.item(),
-                    'train/loss_mim': loss_mim.item(),
-                    'train/loss_aux': loss_aux.item(),
-                    'train/lr': optimizer.param_groups[0]['lr'],
-                    'phase': 'self_train',
-                    'self_train/iter': iter_num,
-                }, step=global_step)
+                    global_step = self.pre_max_iteration + iter_num
+                    self.wandb_manager.log_metrics({
+                        'train/loss_total': loss.item(),
+                        'train/loss_main': loss_main.item(),
+                        'train/loss_mim': loss_mim.item(),
+                        'train/loss_aux': loss_aux.item(),
+                        'train/lr': optimizer.param_groups[0]['lr'],
+                        'phase': 'self_train',
+                        'self_train/iter': iter_num,
+                    }, step=global_step)
 
-                if iter_num % 10 == 0 or iter_num == 1:
+                if is_main_process() and (iter_num % 10 == 0 or iter_num == 1):
                     elapsed_10 = time.time() - iter_t0
                     sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
                     rem_steps = max(self.self_max_iteration - iter_num, 0)
@@ -386,53 +417,58 @@ class PICKMethod(BaseMethod):
                     iter_t0 = time.time()
 
                 if iter_num % self.val_interval == 0:
-                    logging.info(f"\n>>> [Self-train Validation] Periodic evaluation at Iter {iter_num}...")
-                    val_mdice, per_class = self.validate()
-                    summary_str = format_dice_summary(per_class, self.class_names[1:])
-                    logging.info(f"<<< [Self-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
+                    if is_main_process():
+                        logging.info(f"\n>>> [Self-train Validation] Periodic evaluation at Iter {iter_num}...")
+                        val_mdice, per_class = self.validate()
+                        summary_str = format_dice_summary(per_class, self.class_names[1:])
+                        logging.info(f"<<< [Self-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
 
-                    writer.add_scalar('val/mDice', val_mdice, iter_num)
-                    for c, d in enumerate(per_class):
-                        writer.add_scalar(f'val/dice_{self.class_names[c+1]}', d, iter_num)
+                        if writer is not None:
+                            writer.add_scalar('val/mDice', val_mdice, iter_num)
+                            for c, d in enumerate(per_class):
+                                writer.add_scalar(f'val/dice_{self.class_names[c+1]}', d, iter_num)
 
-                    if val_mdice > best_dice:
-                        best_dice = val_mdice
-                        best_model_path = os.path.join(self.self_snapshot_path, "VNet_best_model.pth")
+                        if val_mdice > best_dice:
+                            best_dice = val_mdice
+                            best_model_path = os.path.join(self.self_snapshot_path, "VNet_best_model.pth")
+                            self.save_checkpoint(
+                                path=best_model_path,
+                                iter_num=iter_num,
+                                best_dice=best_dice,
+                                phase='self_train',
+                                artifact_name=f"{self.exp_name}_best_model",
+                                artifact_type="model",
+                                aliases=["latest", "best"]
+                            )
+                            logging.info(f"  [★ NEW BEST MODEL] Saved self-train best model: mDice {best_dice:.4f}")
+                            self.wandb_manager.update_summary({
+                                'self_train/best_mDice': best_dice,
+                                'self_train/best_iter': iter_num,
+                                'best_mDice': best_dice
+                            })
+
+                        # Save and upload latest checkpoint
                         self.save_checkpoint(
-                            path=best_model_path,
+                            path=latest_pth,
                             iter_num=iter_num,
                             best_dice=best_dice,
                             phase='self_train',
-                            artifact_name=f"{self.exp_name}_best_model",
-                            artifact_type="model",
-                            aliases=["latest", "best"]
+                            artifact_name=f"{self.exp_name}_self_latest",
+                            artifact_type="checkpoint",
+                            aliases=["latest"]
                         )
-                        logging.info(f"  [★ NEW BEST MODEL] Saved self-train best model: mDice {best_dice:.4f}")
-                        self.wandb_manager.update_summary({
-                            'self_train/best_mDice': best_dice,
-                            'self_train/best_iter': iter_num,
-                            'best_mDice': best_dice
-                        })
 
-                    # Save and upload latest checkpoint
-                    self.save_checkpoint(
-                        path=latest_pth,
-                        iter_num=iter_num,
-                        best_dice=best_dice,
-                        phase='self_train',
-                        artifact_name=f"{self.exp_name}_self_latest",
-                        artifact_type="checkpoint",
-                        aliases=["latest"]
-                    )
+                        val_metrics = {
+                            'val/mDice': val_mdice,
+                            'val/best_mDice': best_dice,
+                            'self_train/val_mDice': val_mdice
+                        }
+                        for c, d in enumerate(per_class):
+                            val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+                        self.wandb_manager.log_metrics(val_metrics, step=global_step)
 
-                    val_metrics = {
-                        'val/mDice': val_mdice,
-                        'val/best_mDice': best_dice,
-                        'self_train/val_mDice': val_mdice
-                    }
-                    for c, d in enumerate(per_class):
-                        val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
-                    self.wandb_manager.log_metrics(val_metrics, step=global_step)
+                    if self.is_ddp:
+                        torch.distributed.barrier()
 
                     self.model.train()
                     iter_t0 = time.time()
@@ -442,17 +478,18 @@ class PICKMethod(BaseMethod):
             if iter_num >= self.self_max_iteration:
                 break
 
-        self.save_checkpoint(latest_pth, iter_num, best_dice, 'self_train')
-        best_pth = os.path.join(self.self_snapshot_path, "VNet_best_model.pth")
-        if not os.path.exists(best_pth):
-            self.save_checkpoint(best_pth, iter_num, best_dice, 'self_train')
-
-        writer.close()
-        self.wandb_manager.update_summary({
-            'final_mDice': best_dice,
-            'completed_iters': iter_num
-        })
-        logging.info(f"=== [PICK] SELF-TRAINING FINISHED | Best mDice: {best_dice:.4f} ===")
+        if is_main_process():
+            self.save_checkpoint(latest_pth, iter_num, best_dice, 'self_train')
+            best_pth = os.path.join(self.self_snapshot_path, "VNet_best_model.pth")
+            if not os.path.exists(best_pth):
+                self.save_checkpoint(best_pth, iter_num, best_dice, 'self_train')
+            if writer is not None:
+                writer.close()
+            self.wandb_manager.update_summary({
+                'final_mDice': best_dice,
+                'completed_iters': iter_num
+            })
+            logging.info(f"=== [PICK] SELF-TRAINING FINISHED | Best mDice: {best_dice:.4f} ===")
 
     def train(self):
         """Execute requested phase: pre_train, self_train, or all."""

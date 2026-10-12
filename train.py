@@ -27,9 +27,10 @@ import models   # Trigger model registrations
 import methods  # Trigger method registrations
 
 
-def setup_logger():
+def setup_logger(is_main: bool = True):
+    log_level = logging.INFO if is_main else logging.WARN
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='[%(asctime)s] [%(levelname)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[logging.StreamHandler(sys.stdout)]
@@ -37,23 +38,29 @@ def setup_logger():
 
 
 def main():
-    setup_logger()
-
     parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Training Entrypoint")
     parser.add_argument('--config', type=str, default='configs/methods/pick.yaml', help='Path to YAML experiment config')
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID (e.g. 0, 0,1, auto)')
     parser.add_argument('--fold', type=int, default=None, help='Fold override (0..4)')
     parser.add_argument('--task', type=str, default=None, choices=['multiclass', 'binary'], help='Task override')
     parser.add_argument('--resume', action='store_true', default=None, help='Resume training override')
+    parser.add_argument('--ddp', action='store_true', help='Enable DistributedDataParallel (DDP)')
 
     known_args, unknown_args = parser.parse_known_args()
 
-    # Apply GPU environment before torch operations
-    if known_args.gpu not in ('auto', 'all', None):
+    # DDP detection: via --ddp flag or torchrun environment variables (RANK, WORLD_SIZE)
+    from core.distributed import init_distributed_mode, cleanup_distributed, is_main_process
+    is_ddp = init_distributed_mode(ddp_requested=known_args.ddp)
+    setup_logger(is_main=is_main_process())
+
+    # Apply GPU environment for non-DDP runs (preserving existing DP behavior as default)
+    if not is_ddp and known_args.gpu not in ('auto', 'all', None):
         os.environ['CUDA_VISIBLE_DEVICES'] = str(known_args.gpu)
 
     # Pass known overrides and unknown CLI args to config parser
     cli_overrides = list(unknown_args)
+    if is_ddp:
+        cli_overrides.extend(['--experiment.ddp', 'true'])
     if known_args.fold is not None:
         cli_overrides.extend(['--experiment.fold', str(known_args.fold)])
     if known_args.task is not None:
@@ -101,7 +108,11 @@ def main():
     logging.info(f"[Registry] Built trainer method '{method_name}' successfully.")
 
     # 3. Execute Training
-    trainer.train()
+    try:
+        trainer.train()
+    finally:
+        if is_ddp:
+            cleanup_distributed()
 
 
 if __name__ == "__main__":

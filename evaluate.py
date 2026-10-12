@@ -23,6 +23,7 @@ from data.dataset_bhsd import BHSDDataset
 from evaluation.benchmark import benchmark_5folds
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import format_dice_summary, CLASS_NAMES_MULTICLASS, CLASS_NAMES_BINARY
+from evaluation.complexity import profile_model_complexity, format_complexity_summary
 import models
 
 
@@ -48,6 +49,8 @@ def main():
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID')
     parser.add_argument('--stride_xy', type=int, default=32, help='XY stride for sliding window')
     parser.add_argument('--stride_z', type=int, default=8, help='Z stride for sliding window')
+    parser.add_argument('--profile', action='store_true', help='Measure computational complexity (FLOPs, params, latency, VRAM)')
+    parser.add_argument('--patch_size', nargs=3, type=int, default=[32, 160, 160], help='Input patch dimensions (Z Y X) for profiling')
     args = parser.parse_args()
 
     if args.gpu not in ('auto', 'all', None):
@@ -106,6 +109,11 @@ def main():
         print(f"Mean Dice: {mdice:.4f}")
         print(f"Per-Class: {summary_str}")
         print("=" * 60)
+
+        if args.profile:
+            input_shape = (1, 1, args.patch_size[0], args.patch_size[1], args.patch_size[2])
+            metrics = profile_model_complexity(model, input_size=input_shape, device=device)
+            print("\n" + format_complexity_summary(metrics))
     else:
         print("[ERROR] Please provide either --exp_dir (for 5-fold benchmark) or --checkpoint (for single evaluation).")
         parser.print_help()
