@@ -1,7 +1,8 @@
 """
 PICK (Pseudo-label Informed CutMix / Context Masking Knowledge) Algorithm for BHSD.
 Unified implementation for both Binary (Hemorrhage) and Multi-class (6 classes).
-Seamlessly manages both Pre-training and Self-training phases with sliding-window validation and W&B logging.
+Seamlessly manages both Pre-training and Self-training phases with sliding-window validation
+and full W&B Cloud Artifacts + Auto-Restore integration.
 """
 
 from typing import Dict, Any, Optional, Tuple, List
@@ -52,7 +53,7 @@ class PICKMethod(BaseMethod):
         self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
 
     def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int):
-        """Not directly used by PICK as it splits into pre_train and self_train phases."""
+        """Not directly used by PICK as it splits into run_pre_train and run_self_train phases."""
         pass
 
     def run_pre_train(self):
@@ -66,6 +67,14 @@ class PICKMethod(BaseMethod):
         latest_pth = os.path.join(self.pre_snapshot_path, "checkpoint_latest.pth")
 
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
+        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled:
+            logging.info("[RESUME] Local pre-train checkpoint not found. Attempting auto-restore from W&B Cloud...")
+            self.wandb_manager.restore_artifact(
+                artifact_name=f"{self.exp_name}_pretrain_latest",
+                dest_dir=self.pre_snapshot_path,
+                tag="latest"
+            )
+
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
             logging.info(f"[RESUME] Resumed pre-training from iter {iter_num} | best_mDice: {best_dice:.4f}")
@@ -136,17 +145,16 @@ class PICKMethod(BaseMethod):
                 writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
                 writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
 
-                if self.use_wandb:
-                    import wandb
-                    wandb.log({
-                        'train/loss_total': loss.item(),
-                        'train/loss_main': loss_main.item(),
-                        'train/loss_mim': loss_mim.item(),
-                        'train/loss_aux': loss_aux.item(),
-                        'train/lr': optimizer.param_groups[0]['lr'],
-                        'phase': 'pre_train',
-                        'pre_train/iter': iter_num,
-                    }, step=iter_num)
+                # W&B Logging
+                self.wandb_manager.log_metrics({
+                    'train/loss_total': loss.item(),
+                    'train/loss_main': loss_main.item(),
+                    'train/loss_mim': loss_mim.item(),
+                    'train/loss_aux': loss_aux.item(),
+                    'train/lr': optimizer.param_groups[0]['lr'],
+                    'phase': 'pre_train',
+                    'pre_train/iter': iter_num,
+                }, step=iter_num)
 
                 if iter_num % 10 == 0 or iter_num == 1:
                     elapsed_10 = time.time() - iter_t0
@@ -177,17 +185,40 @@ class PICKMethod(BaseMethod):
                     if val_mdice > best_dice:
                         best_dice = val_mdice
                         best_model_path = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
-                        self.save_checkpoint(best_model_path, iter_num, best_dice, 'pre_train')
+                        self.save_checkpoint(
+                            path=best_model_path,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase='pre_train',
+                            artifact_name=f"{self.exp_name}_pretrain_best",
+                            artifact_type="model",
+                            aliases=["latest", "best"]
+                        )
                         logging.info(f"  [★ NEW BEST MODEL] Saved pre-train best model: mDice {best_dice:.4f}")
+                        self.wandb_manager.update_summary({
+                            'pretrain/best_mDice': best_dice,
+                            'pretrain/best_iter': iter_num
+                        })
 
-                    self.save_checkpoint(latest_pth, iter_num, best_dice, 'pre_train')
+                    # Save and upload latest checkpoint
+                    self.save_checkpoint(
+                        path=latest_pth,
+                        iter_num=iter_num,
+                        best_dice=best_dice,
+                        phase='pre_train',
+                        artifact_name=f"{self.exp_name}_pretrain_latest",
+                        artifact_type="checkpoint",
+                        aliases=["latest"]
+                    )
 
-                    if self.use_wandb:
-                        import wandb
-                        val_metrics = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
-                        for c, d in enumerate(per_class):
-                            val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
-                        wandb.log(val_metrics, step=iter_num)
+                    val_metrics = {
+                        'val/mDice': val_mdice,
+                        'val/best_mDice': best_dice,
+                        'pre_train/val_mDice': val_mdice
+                    }
+                    for c, d in enumerate(per_class):
+                        val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+                    self.wandb_manager.log_metrics(val_metrics, step=iter_num)
 
                     self.model.train()
                     iter_t0 = time.time()
@@ -216,6 +247,14 @@ class PICKMethod(BaseMethod):
         latest_pth = os.path.join(self.self_snapshot_path, "checkpoint_latest.pth")
 
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
+        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled:
+            logging.info("[RESUME] Local self-train checkpoint not found. Attempting auto-restore from W&B Cloud...")
+            self.wandb_manager.restore_artifact(
+                artifact_name=f"{self.exp_name}_self_latest",
+                dest_dir=self.self_snapshot_path,
+                tag="latest"
+            )
+
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
             logging.info(f"[RESUME] Resumed self-training from iter {iter_num} | best_mDice: {best_dice:.4f}")
@@ -230,6 +269,15 @@ class PICKMethod(BaseMethod):
                 pretrain_candidate = self.pretrain_checkpoint
             else:
                 best_pre = os.path.join(self.pre_snapshot_path, "VNet_best_model.pth")
+                # Auto-restore pre-train weights from W&B if missing locally!
+                if not os.path.exists(best_pre) and self.wandb_manager.enabled:
+                    logging.info("[RESUME] Pre-train weights not found locally. Attempting restore from W&B Cloud...")
+                    self.wandb_manager.restore_artifact(
+                        artifact_name=f"{self.exp_name}_pretrain_best",
+                        dest_dir=self.pre_snapshot_path,
+                        tag="latest"
+                    )
+
                 if os.path.exists(best_pre):
                     pretrain_candidate = best_pre
                 elif os.path.exists(os.path.join(self.pre_snapshot_path, "checkpoint_latest.pth")):
@@ -310,18 +358,16 @@ class PICKMethod(BaseMethod):
                 writer.add_scalar('loss/aux', loss_aux.item(), iter_num)
                 writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], iter_num)
 
-                if self.use_wandb:
-                    import wandb
-                    global_step = self.pre_max_iteration + iter_num
-                    wandb.log({
-                        'train/loss_total': loss.item(),
-                        'train/loss_main': loss_main.item(),
-                        'train/loss_mim': loss_mim.item(),
-                        'train/loss_aux': loss_aux.item(),
-                        'train/lr': optimizer.param_groups[0]['lr'],
-                        'phase': 'self_train',
-                        'self_train/iter': iter_num,
-                    }, step=global_step)
+                global_step = self.pre_max_iteration + iter_num
+                self.wandb_manager.log_metrics({
+                    'train/loss_total': loss.item(),
+                    'train/loss_main': loss_main.item(),
+                    'train/loss_mim': loss_mim.item(),
+                    'train/loss_aux': loss_aux.item(),
+                    'train/lr': optimizer.param_groups[0]['lr'],
+                    'phase': 'self_train',
+                    'self_train/iter': iter_num,
+                }, step=global_step)
 
                 if iter_num % 10 == 0 or iter_num == 1:
                     elapsed_10 = time.time() - iter_t0
@@ -352,18 +398,41 @@ class PICKMethod(BaseMethod):
                     if val_mdice > best_dice:
                         best_dice = val_mdice
                         best_model_path = os.path.join(self.self_snapshot_path, "VNet_best_model.pth")
-                        self.save_checkpoint(best_model_path, iter_num, best_dice, 'self_train')
+                        self.save_checkpoint(
+                            path=best_model_path,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase='self_train',
+                            artifact_name=f"{self.exp_name}_best_model",
+                            artifact_type="model",
+                            aliases=["latest", "best"]
+                        )
                         logging.info(f"  [★ NEW BEST MODEL] Saved self-train best model: mDice {best_dice:.4f}")
+                        self.wandb_manager.update_summary({
+                            'self_train/best_mDice': best_dice,
+                            'self_train/best_iter': iter_num,
+                            'best_mDice': best_dice
+                        })
 
-                    self.save_checkpoint(latest_pth, iter_num, best_dice, 'self_train')
+                    # Save and upload latest checkpoint
+                    self.save_checkpoint(
+                        path=latest_pth,
+                        iter_num=iter_num,
+                        best_dice=best_dice,
+                        phase='self_train',
+                        artifact_name=f"{self.exp_name}_self_latest",
+                        artifact_type="checkpoint",
+                        aliases=["latest"]
+                    )
 
-                    if self.use_wandb:
-                        import wandb
-                        global_step = self.pre_max_iteration + iter_num
-                        val_metrics = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
-                        for c, d in enumerate(per_class):
-                            val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
-                        wandb.log(val_metrics, step=global_step)
+                    val_metrics = {
+                        'val/mDice': val_mdice,
+                        'val/best_mDice': best_dice,
+                        'self_train/val_mDice': val_mdice
+                    }
+                    for c, d in enumerate(per_class):
+                        val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+                    self.wandb_manager.log_metrics(val_metrics, step=global_step)
 
                     self.model.train()
                     iter_t0 = time.time()
@@ -379,11 +448,18 @@ class PICKMethod(BaseMethod):
             self.save_checkpoint(best_pth, iter_num, best_dice, 'self_train')
 
         writer.close()
+        self.wandb_manager.update_summary({
+            'final_mDice': best_dice,
+            'completed_iters': iter_num
+        })
         logging.info(f"=== [PICK] SELF-TRAINING FINISHED | Best mDice: {best_dice:.4f} ===")
 
     def train(self):
         """Execute requested phase: pre_train, self_train, or all."""
-        if self.phase in ('pre_train', 'all'):
-            self.run_pre_train()
-        if self.phase in ('self_train', 'all'):
-            self.run_self_train()
+        try:
+            if self.phase in ('pre_train', 'all'):
+                self.run_pre_train()
+            if self.phase in ('self_train', 'all'):
+                self.run_self_train()
+        finally:
+            self.wandb_manager.finish()

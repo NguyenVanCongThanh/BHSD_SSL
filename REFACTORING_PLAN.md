@@ -324,3 +324,11 @@ flowchart TD
 - [x] Thêm phương pháp `methods/bcp.py` (Bidirectional Copy-Paste).
 - [x] Nối mạng `VNet`, `UNet3D` và `UNETR` vào Model Registry (`core/registry.py`).
 - [x] Tạo `evaluate.py` làm điểm chạy benchmark thống nhất 5 folds và đánh giá từng ca đơn lẻ.
+
+### Giai đoạn 5: Tích hợp Weights & Biases (W&B Cloud Artifacts & Preemption Resilience)
+- [x] Xây dựng `utils/wandb_manager.py` (`WandbManager`): Đóng gói kết nối W&B, kiểm soát ngoại lệ, tự động suy giảm xuống local logging nếu không có mạng/thư viện.
+- [x] Tích hợp W&B Cloud Artifacts: Tự động tải `best_model.pth` và `checkpoint_latest.pth` lên W&B Storage kèm metadata & tag (`latest`, `best`).
+- [x] Tích hợp W&B Cloud Auto-Restore: Tự động kéo checkpoint từ W&B Artifacts về máy chủ khi chạy trên cụm GPU pre-emptible hoặc khi mất dữ liệu cục bộ.
+- [x] Bổ sung Run Summary tracking (`best_mDice`, `final_mDice`, `completed_iters`) và đồng bộ teardown với `wandb.finish()`.
+- [x] Cấu hình linh hoạt qua file YAML (`configs/base.yaml`, `configs/methods/pick.yaml`) và CLI overrides (`--use_wandb`, `--save_wandb_model`, `--wandb_project`, v.v.).
+

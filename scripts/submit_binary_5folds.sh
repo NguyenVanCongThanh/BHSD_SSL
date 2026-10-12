@@ -26,12 +26,13 @@ echo "==========================================================================
 echo "=== BẮT ĐẦU CHẠY PICK BINARY FOLD $FOLD_ID (Slurm Job ID: $SLURM_JOB_ID, Task: $FOLD_ID) ==="
 echo "=========================================================================="
 
-# 5. Khởi chạy huấn luyện qua điểm chạy hợp nhất MedSSL-BHSD
+# 5. Khởi chạy huấn luyện qua điểm chạy hợp nhất MedSSL-BHSD (hỗ trợ truyền thêm cờ như --use_wandb)
 python train.py \
     --config configs/methods/pick.yaml \
     --fold $FOLD_ID \
     --task binary \
     --experiment.name BHSD_binary_PICK_5folds \
-    --gpu 0
+    --gpu 0 \
+    "$@"
 
 echo "=== HOÀN TẤT HUẤN LUYỆN PICK BINARY CHO FOLD $FOLD_ID ==="
