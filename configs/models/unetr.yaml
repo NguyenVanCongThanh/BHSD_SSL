@@ -1,0 +1,7 @@
+# Model Configuration: UNETR
+model:
+  name: "unetr"
+  in_channels: 1
+  embed_dim: 768
+  patch_size: 16
+  num_heads: 12

@@ -1,0 +1,40 @@
+# Base Configuration for MedSSL-BHSD Framework
+experiment:
+  name: "BHSD_multiclass_PICK_5folds"
+  task: "multiclass"        # "multiclass" (6 classes: 0..5) or "binary" (0 vs 1)
+  num_classes: 6            # 6 for multiclass, 2 for binary
+  fold: 0                   # 0..4 for 5-fold cross-validation
+  seed: 1337
+  deterministic: true
+  exp_dir: "/home/u001015/experiments"
+  resume: false
+  phase: "all"              # "all", "pre_train", or "self_train"
+
+data:
+  root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15              # Number of labeled samples (e.g. 15 for ~10% or 30 for ~20%)
+  max_samples: 2200         # Upper bound of sample pool
+
+model:
+  name: "vnet"              # "vnet", "unet3d", "unetr", "vnet_single"
+  in_channels: 1
+  normalization: "batchnorm"
+  has_dropout: true
+
+method:
+  name: "pick"              # "pick", "supervised", "mean_teacher", "cps", "bcp"
+  base_lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0001
+
+logging:
+  use_wandb: false
+  wandb_project: "PICK_BHSD"
+  wandb_entity: null
+  wandb_run_name: null
+  val_interval: 500
+  val_stride_xy: 32
+  val_stride_z: 8
