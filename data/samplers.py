@@ -4,9 +4,11 @@ Includes:
 - TwoStreamBatchSampler: Balanced interleaving of labeled and unlabeled data streams.
 """
 
-from typing import List, Iterator, Tuple
+from typing import List, Iterator, Tuple, Optional
 import itertools
 import numpy as np
+import torch
+import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 
 
@@ -70,3 +72,82 @@ class TwoStreamBatchSampler(Sampler):
 
     def __len__(self) -> int:
         return len(self.primary_indices) // self.primary_batch_size
+
+
+class DistributedTwoStreamBatchSampler(Sampler):
+    """
+    Distributed version of TwoStreamBatchSampler for DDP training.
+    Partitions primary and secondary indices evenly across ranks.
+    Ensures each GPU worker processes an independent subset of the dataset.
+    """
+    def __init__(
+        self,
+        primary_indices: List[int],
+        secondary_indices: List[int],
+        batch_size: int,
+        secondary_batch_size: int,
+        num_replicas: Optional[int] = None,
+        rank: Optional[int] = None,
+        seed: int = 1337
+    ):
+        if num_replicas is None or rank is None:
+            if dist.is_available() and dist.is_initialized():
+                num_replicas = dist.get_world_size()
+                rank = dist.get_rank()
+            else:
+                num_replicas = 1
+                rank = 0
+
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.epoch = 0
+        self.seed = seed
+
+        # Subsample indices for this rank
+        self.primary_indices = list(primary_indices)
+        self.secondary_indices = list(secondary_indices)
+        self.secondary_batch_size = secondary_batch_size
+        self.primary_batch_size = batch_size - secondary_batch_size
+
+        assert self.primary_batch_size > 0, "Primary batch size must be > 0"
+        assert self.secondary_batch_size > 0, "Secondary batch size must be > 0"
+
+    def set_epoch(self, epoch: int):
+        """Set epoch for deterministic reshuffling across iterations."""
+        self.epoch = epoch
+
+    def _get_rank_indices(self, indices: List[int], shuffle: bool = True) -> List[int]:
+        if shuffle:
+            g = np.random.RandomState(self.seed + self.epoch)
+            shuffled = g.permutation(indices).tolist()
+        else:
+            shuffled = list(indices)
+        # Partition among replicas
+        return [idx for i, idx in enumerate(shuffled) if i % self.num_replicas == self.rank]
+
+    def __iter__(self) -> Iterator[List[int]]:
+        rank_primary = self._get_rank_indices(self.primary_indices, shuffle=True)
+        rank_secondary = self._get_rank_indices(self.secondary_indices, shuffle=True)
+
+        # Fallback if partition size is smaller than batch size
+        if len(rank_primary) < self.primary_batch_size:
+            rank_primary = self.primary_indices[:self.primary_batch_size]
+        if len(rank_secondary) < self.secondary_batch_size:
+            rank_secondary = self.secondary_indices[:self.secondary_batch_size]
+
+        primary_iter = iterate_once(rank_primary)
+        secondary_iter = iterate_eternally(rank_secondary)
+
+        return (
+            list(primary_batch + secondary_batch)
+            for (primary_batch, secondary_batch)
+            in zip(
+                grouper(primary_iter, self.primary_batch_size),
+                grouper(secondary_iter, self.secondary_batch_size)
+            )
+        )
+
+    def __len__(self) -> int:
+        num_primary = len(self.primary_indices) // self.num_replicas
+        return max(1, num_primary // self.primary_batch_size)
+

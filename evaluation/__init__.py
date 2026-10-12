@@ -15,6 +15,10 @@ from evaluation.sliding_window import (
     sliding_window_inference_3d,
     evaluate_dataset_sliding_window,
 )
+from evaluation.complexity import (
+    profile_model_complexity,
+    format_complexity_summary,
+)
 
 __all__ = [
     "CLASS_NAMES_MULTICLASS",
@@ -25,4 +29,6 @@ __all__ = [
     "format_dice_summary",
     "sliding_window_inference_3d",
     "evaluate_dataset_sliding_window",
+    "profile_model_complexity",
+    "format_complexity_summary",
 ]

@@ -19,8 +19,15 @@ from torchvision import transforms
 from tensorboardX import SummaryWriter
 
 from core.config_parser import Config
+from core.distributed import (
+    is_dist_avail_and_initialized,
+    get_rank,
+    get_world_size,
+    is_main_process,
+    reduce_tensor
+)
 from data.dataset_bhsd import BHSDDataset
-from data.samplers import TwoStreamBatchSampler
+from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
 from data.transforms3d import RandomRotFlip, RandomCrop, ToTensor
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import CLASS_NAMES_MULTICLASS, CLASS_NAMES_BINARY, format_dice_summary
@@ -35,7 +42,15 @@ class BaseMethod(abc.ABC):
     def __init__(self, model: nn.Module, cfg: Config):
         self.model = model
         self.cfg = cfg
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.is_ddp = is_dist_avail_and_initialized()
+        self.rank = get_rank()
+        self.world_size = get_world_size()
+
+        if self.is_ddp:
+            local_rank = int(os.environ.get('LOCAL_RANK', 0))
+            self.device = torch.device(f'cuda:{local_rank}')
+        else:
+            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         # Environment & deterministic setup
         self._setup_environment()
@@ -52,10 +67,23 @@ class BaseMethod(abc.ABC):
         # Snapshot path
         exp_dir = getattr(self.cfg.experiment, 'exp_dir', '../experiments')
         self.snapshot_path = os.path.join(exp_dir, self.exp_name, f"fold_{self.fold}")
-        os.makedirs(self.snapshot_path, exist_ok=True)
+        if is_main_process():
+            os.makedirs(self.snapshot_path, exist_ok=True)
 
-        # Multi-GPU support
-        if torch.cuda.is_available():
+        # Multi-GPU support (DDP vs DP Default)
+        if self.is_ddp:
+            # Distributed Data Parallel mode
+            local_rank = int(os.environ.get('LOCAL_RANK', 0))
+            self.model = self.model.to(self.device)
+            self.model = nn.parallel.DistributedDataParallel(
+                self.model,
+                device_ids=[local_rank],
+                output_device=local_rank,
+                find_unused_parameters=True
+            )
+            logging.info(f"[Model] DDP initialized on GPU {local_rank} (Rank {self.rank}/{self.world_size})")
+        elif torch.cuda.is_available():
+            # DataParallel default (preserving backward compatibility)
             if torch.cuda.device_count() > 1:
                 self.model = nn.DataParallel(self.model).to(self.device)
                 logging.info(f"[Model] Multi-GPU enabled with {torch.cuda.device_count()} GPUs (DataParallel)")
@@ -119,17 +147,38 @@ class BaseMethod(abc.ABC):
         unlabeled_idxs = list(range(labelnum, max_samples))
 
         unlabeled_bs = batch_size - labeled_bs
-        if unlabeled_bs > 0 and len(unlabeled_idxs) > 0:
-            batch_sampler = TwoStreamBatchSampler(
-                labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs
-            )
-            self.trainloader = DataLoader(
-                self.db_train, batch_sampler=batch_sampler, num_workers=4, pin_memory=False
-            )
+        if self.is_ddp:
+            if unlabeled_bs > 0 and len(unlabeled_idxs) > 0:
+                self.batch_sampler = DistributedTwoStreamBatchSampler(
+                    labeled_idxs,
+                    unlabeled_idxs,
+                    batch_size=batch_size,
+                    secondary_batch_size=unlabeled_bs,
+                    num_replicas=self.world_size,
+                    rank=self.rank
+                )
+                self.trainloader = DataLoader(
+                    self.db_train, batch_sampler=self.batch_sampler, num_workers=2, pin_memory=True
+                )
+            else:
+                self.train_sampler = torch.utils.data.distributed.DistributedSampler(
+                    self.db_train, num_replicas=self.world_size, rank=self.rank, shuffle=True
+                )
+                self.trainloader = DataLoader(
+                    self.db_train, batch_size=batch_size, sampler=self.train_sampler, num_workers=2, pin_memory=True
+                )
         else:
-            self.trainloader = DataLoader(
-                self.db_train, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=False
-            )
+            if unlabeled_bs > 0 and len(unlabeled_idxs) > 0:
+                batch_sampler = TwoStreamBatchSampler(
+                    labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs
+                )
+                self.trainloader = DataLoader(
+                    self.db_train, batch_sampler=batch_sampler, num_workers=4, pin_memory=False
+                )
+            else:
+                self.trainloader = DataLoader(
+                    self.db_train, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=False
+                )
 
     def setup_optimizer(self):
         base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
@@ -141,12 +190,16 @@ class BaseMethod(abc.ABC):
 
     def setup_logging(self):
         log_dir = os.path.join(self.snapshot_path, 'log')
-        os.makedirs(log_dir, exist_ok=True)
-        self.writer = SummaryWriter(log_dir)
-
-        # Initialize W&B via central manager
-        self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
-        self.use_wandb = self.wandb_manager.enabled
+        if is_main_process():
+            os.makedirs(log_dir, exist_ok=True)
+            self.writer = SummaryWriter(log_dir)
+            self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
+            self.use_wandb = self.wandb_manager.enabled
+        else:
+            self.writer = None
+            self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
+            self.wandb_manager.enabled = False
+            self.use_wandb = False
 
     def save_checkpoint(
         self,
@@ -158,7 +211,10 @@ class BaseMethod(abc.ABC):
         artifact_type: str = "checkpoint",
         aliases: Optional[List[str]] = None
     ):
-        raw_net = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
+        if not is_main_process():
+            return
+
+        raw_net = self.model.module if isinstance(self.model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else self.model
         state = {
             'net': raw_net.state_dict(),
             'opt': self.optimizer.state_dict() if self.optimizer is not None else None,
@@ -183,7 +239,7 @@ class BaseMethod(abc.ABC):
     def load_checkpoint(self, path: str) -> Tuple[int, float]:
         state = torch.load(str(path), map_location=self.device)
         net_dict = state.get('net', state)
-        raw_net = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
+        raw_net = self.model.module if isinstance(self.model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else self.model
         clean_dict = {k[7:] if k.startswith('module.') else k: v for k, v in net_dict.items()}
         raw_net.load_state_dict(clean_dict, strict=False)
 
@@ -256,6 +312,11 @@ class BaseMethod(abc.ABC):
         iter_t0 = time.time()
 
         for epoch in range(max_epoch):
+            if self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
+                self.train_sampler.set_epoch(epoch)
+            elif self.is_ddp and hasattr(self, 'batch_sampler') and hasattr(self.batch_sampler, 'set_epoch'):
+                self.batch_sampler.set_epoch(epoch)
+
             for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
                 loss, loss_dict = self.train_step(sampled_batch, mim_mask, iter_num)
 
@@ -265,18 +326,19 @@ class BaseMethod(abc.ABC):
 
                 iter_num += 1
 
-                # TensorBoard logging
-                for k, v in loss_dict.items():
-                    self.writer.add_scalar(f"loss/{k}", v, iter_num)
-                self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], iter_num)
+                # TensorBoard & W&B logging (Rank 0 only)
+                if is_main_process():
+                    if self.writer is not None:
+                        for k, v in loss_dict.items():
+                            self.writer.add_scalar(f"loss/{k}", v, iter_num)
+                        self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], iter_num)
 
-                # W&B logging
-                wandb_dict = {f"train/{k}": v for k, v in loss_dict.items()}
-                wandb_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
-                self.wandb_manager.log_metrics(wandb_dict, step=iter_num)
+                    wandb_dict = {f"train/{k}": v for k, v in loss_dict.items()}
+                    wandb_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
+                    self.wandb_manager.log_metrics(wandb_dict, step=iter_num)
 
-                # Console progress log
-                if iter_num % 10 == 0 or iter_num == 1:
+                # Console progress log (Rank 0 only)
+                if is_main_process() and (iter_num % 10 == 0 or iter_num == 1):
                     elapsed_10 = time.time() - iter_t0
                     sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
                     rem_steps = max(max_iterations - iter_num, 0)
@@ -293,51 +355,56 @@ class BaseMethod(abc.ABC):
                     )
                     iter_t0 = time.time()
 
-                # Periodic Validation
+                # Periodic Validation (Rank 0 only)
                 if iter_num % val_interval == 0:
-                    logging.info(f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}...")
-                    val_mdice, per_class = self.validate()
-                    class_names = self.class_names[1:]
-                    summary_str = format_dice_summary(per_class, class_names)
-                    logging.info(f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
+                    if is_main_process():
+                        logging.info(f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}...")
+                        val_mdice, per_class = self.validate()
+                        class_names = self.class_names[1:]
+                        summary_str = format_dice_summary(per_class, class_names)
+                        logging.info(f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
 
-                    self.writer.add_scalar('val/mDice', val_mdice, iter_num)
-                    for c, d in enumerate(per_class):
-                        self.writer.add_scalar(f'val/dice_{class_names[c]}', d, iter_num)
+                        if self.writer is not None:
+                            self.writer.add_scalar('val/mDice', val_mdice, iter_num)
+                            for c, d in enumerate(per_class):
+                                self.writer.add_scalar(f'val/dice_{class_names[c]}', d, iter_num)
 
-                    if val_mdice > best_dice:
-                        best_dice = val_mdice
-                        best_pth = os.path.join(self.snapshot_path, "best_model.pth")
+                        if val_mdice > best_dice:
+                            best_dice = val_mdice
+                            best_pth = os.path.join(self.snapshot_path, "best_model.pth")
+                            self.save_checkpoint(
+                                path=best_pth,
+                                iter_num=iter_num,
+                                best_dice=best_dice,
+                                phase='train',
+                                artifact_name=f"{self.exp_name}_best_model",
+                                artifact_type="model",
+                                aliases=["latest", "best"]
+                            )
+                            logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
+                            self.wandb_manager.update_summary({
+                                'best_mDice': best_dice,
+                                'best_iter': iter_num
+                            })
+
+                        # Save and upload latest checkpoint
                         self.save_checkpoint(
-                            path=best_pth,
+                            path=latest_pth,
                             iter_num=iter_num,
                             best_dice=best_dice,
                             phase='train',
-                            artifact_name=f"{self.exp_name}_best_model",
-                            artifact_type="model",
-                            aliases=["latest", "best"]
+                            artifact_name=f"{self.exp_name}_latest",
+                            artifact_type="checkpoint",
+                            aliases=["latest"]
                         )
-                        logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
-                        self.wandb_manager.update_summary({
-                            'best_mDice': best_dice,
-                            'best_iter': iter_num
-                        })
 
-                    # Save and upload latest checkpoint
-                    self.save_checkpoint(
-                        path=latest_pth,
-                        iter_num=iter_num,
-                        best_dice=best_dice,
-                        phase='train',
-                        artifact_name=f"{self.exp_name}_latest",
-                        artifact_type="checkpoint",
-                        aliases=["latest"]
-                    )
+                        val_log = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
+                        for c, d in enumerate(per_class):
+                            val_log[f'val/dice_{class_names[c]}'] = d
+                        self.wandb_manager.log_metrics(val_log, step=iter_num)
 
-                    val_log = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
-                    for c, d in enumerate(per_class):
-                        val_log[f'val/dice_{class_names[c]}'] = d
-                    self.wandb_manager.log_metrics(val_log, step=iter_num)
+                    if self.is_ddp:
+                        torch.distributed.barrier()
 
                     self.model.train()
                     iter_t0 = time.time()
