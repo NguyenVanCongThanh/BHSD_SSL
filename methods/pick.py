@@ -352,8 +352,9 @@ class PICKMethod(BaseMethod):
 
                 unimg_a, unimg_b = unimg[:sub_bs], unimg[sub_bs:]
 
+                raw_net = self.model.module if hasattr(self.model, 'module') else self.model
                 with torch.no_grad():
-                    _, un_main_outputs, _ = self.model(unimg)
+                    _, un_main_outputs, _ = raw_net(unimg)
                     un_prob = F.softmax(un_main_outputs, dim=1)
                     fg_un_prob = un_prob[:, 1:, :, :, :].sum(dim=1, keepdim=True)
                     un_ps_lab = (fg_un_prob > 0.5).float()

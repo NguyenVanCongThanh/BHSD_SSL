@@ -81,7 +81,11 @@ class BaseMethod(abc.ABC):
                 output_device=local_rank,
                 find_unused_parameters=True
             )
-            logging.info(f"[Model] DDP initialized on GPU {local_rank} (Rank {self.rank}/{self.world_size})")
+            # Enable static graph for multi-branch architectures (PICK: main + mim + aux decoders)
+            # This prevents "marked as ready twice" error when calling forward multiple times per iteration
+            if hasattr(self.model, '_set_static_graph'):
+                self.model._set_static_graph()
+            logging.info(f"[Model] DDP initialized on GPU {local_rank} (Rank {self.rank}/{self.world_size}) with static graph enabled")
         elif torch.cuda.is_available():
             # DataParallel default (preserving backward compatibility)
             if torch.cuda.device_count() > 1:
