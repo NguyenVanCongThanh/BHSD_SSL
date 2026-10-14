@@ -36,6 +36,7 @@ class WandbManager:
         else:
             self.enabled = False
 
+    def _init_wandb(self):
         try:
             import wandb
             import re
