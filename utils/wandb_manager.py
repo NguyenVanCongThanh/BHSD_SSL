@@ -36,10 +36,17 @@ class WandbManager:
         else:
             self.enabled = False
 
-    def _init_wandb(self):
         try:
             import wandb
             import re
+
+            # Ensure any lingering run in current process is finished cleanly
+            if wandb.run is not None:
+                try:
+                    wandb.finish()
+                except Exception:
+                    pass
+
             if not self.run_name:
                 exp_name = getattr(self.cfg.experiment, 'name', 'exp')
                 method_name = getattr(self.cfg.method, 'name', 'method')
@@ -48,12 +55,6 @@ class WandbManager:
             is_resume = bool(getattr(self.cfg.experiment, 'resume', False))
             custom_id = getattr(self.cfg.logging, 'wandb_id', None)
 
-            # Phân định cơ chế Run ID và Resume:
-            # 1. Nếu có chỉ định wandb_id cụ thể -> Sử dụng chính xác ID đó.
-            # 2. Nếu chạy với cờ --resume (tiếp tục huấn luyện sau ngắt quãng) -> Sử dụng deterministic ID
-            #    kết hợp resume="allow" để tự động ghi nối tiếp vào Run cũ (không tạo run mới phân mảnh).
-            # 3. Nếu chạy mới hoàn toàn (resume=False) -> Không chỉ định ID (W&B tự sinh mã ngẫu nhiên duy nhất),
-            #    đảm bảo mỗi lần chạy lại tạo một Run độc lập hoàn toàn.
             if custom_id:
                 run_id = str(custom_id)
                 resume_mode = "allow" if is_resume else None
@@ -71,7 +72,7 @@ class WandbManager:
                 'entity': self.entity,
                 'name': self.run_name,
                 'config': config_dict,
-                'reinit': True
+                'reinit': 'finish_previous'
             }
             if run_id is not None:
                 init_kwargs['id'] = run_id
