@@ -34,7 +34,7 @@ class ConvBlock(nn.Module):
                 ops.append(nn.InstanceNorm3d(n_filters_out))
             elif normalization != 'none':
                 raise ValueError(f"Unknown normalization: {normalization}")
-            ops.append(nn.ReLU(inplace=True))
+            ops.append(nn.ReLU(inplace=False))
 
         self.conv = nn.Sequential(*ops)
 
@@ -64,10 +64,10 @@ class ResidualConvBlock(nn.Module):
             elif normalization != 'none':
                 raise ValueError(f"Unknown normalization: {normalization}")
             if i != n_stages - 1:
-                ops.append(nn.ReLU(inplace=True))
+                ops.append(nn.ReLU(inplace=False))
 
         self.conv = nn.Sequential(*ops)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.relu(self.conv(x) + x)
@@ -93,7 +93,7 @@ class DownsamplingConvBlock(nn.Module):
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
             raise ValueError(f"Unknown normalization: {normalization}")
-        ops.append(nn.ReLU(inplace=True))
+        ops.append(nn.ReLU(inplace=False))
         self.conv = nn.Sequential(*ops)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -120,7 +120,7 @@ class UpsamplingDeconvBlock(nn.Module):
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
             raise ValueError(f"Unknown normalization: {normalization}")
-        ops.append(nn.ReLU(inplace=True))
+        ops.append(nn.ReLU(inplace=False))
         self.conv = nn.Sequential(*ops)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -147,7 +147,7 @@ class Upsampling(nn.Module):
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
             raise ValueError(f"Unknown normalization: {normalization}")
-        ops.append(nn.ReLU(inplace=True))
+        ops.append(nn.ReLU(inplace=False))
         self.conv = nn.Sequential(*ops)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
