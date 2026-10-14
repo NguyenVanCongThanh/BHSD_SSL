@@ -29,10 +29,13 @@ class RandomRotFlip(object):
 class RandomCrop(object):
     """
     Random crop of a 3D volume to target output_size (Z, Y, X).
+    Supports nnUNet-style foreground oversampling: with probability `foreground_prob`,
+    the crop is centered on a random foreground lesion voxel.
     Applies symmetric zero-padding if any dimension of the volume is smaller than the target.
     """
-    def __init__(self, output_size: Tuple[int, int, int]):
+    def __init__(self, output_size: Tuple[int, int, int], foreground_prob: float = 0.33):
         self.output_size = output_size
+        self.foreground_prob = foreground_prob
 
     def __call__(self, sample: Dict) -> Dict:
         image, label = sample['image'], sample['label']
@@ -50,9 +53,26 @@ class RandomCrop(object):
             label = np.pad(label, [pad_z, pad_y, pad_x], mode='constant', constant_values=0)
             z, y, x = image.shape
 
-        z1 = np.random.randint(0, max(z - self.output_size[0] + 1, 1))
-        y1 = np.random.randint(0, max(y - self.output_size[1] + 1, 1))
-        x1 = np.random.randint(0, max(x - self.output_size[2] + 1, 1))
+        # nnUNet-style Foreground Oversampling
+        force_fg = (np.random.random() < self.foreground_prob)
+        fg_coords = None
+        if force_fg and np.any(label > 0):
+            fg_coords = np.argwhere(label > 0)
+
+        if fg_coords is not None and len(fg_coords) > 0:
+            target_idx = np.random.randint(0, len(fg_coords))
+            cz, cy, cx = fg_coords[target_idx]
+            # Center the crop around the selected foreground voxel with random jitter
+            z1 = int(cz - self.output_size[0] // 2 + np.random.randint(-4, 5))
+            y1 = int(cy - self.output_size[1] // 2 + np.random.randint(-16, 17))
+            x1 = int(cx - self.output_size[2] // 2 + np.random.randint(-16, 17))
+            z1 = max(0, min(z1, z - self.output_size[0]))
+            y1 = max(0, min(y1, y - self.output_size[1]))
+            x1 = max(0, min(x1, x - self.output_size[2]))
+        else:
+            z1 = np.random.randint(0, max(z - self.output_size[0] + 1, 1))
+            y1 = np.random.randint(0, max(y - self.output_size[1] + 1, 1))
+            x1 = np.random.randint(0, max(x - self.output_size[2] + 1, 1))
 
         sample['image'] = image[
             z1:z1 + self.output_size[0],

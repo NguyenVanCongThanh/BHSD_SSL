@@ -33,6 +33,7 @@ class PICKMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(PICKMethod, self).__init__(model, cfg)
 
+        self.base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
         self.pre_max_iteration = int(getattr(self.cfg.method, 'pre_max_iteration', 4000))
         self.self_max_iteration = int(getattr(self.cfg.method, 'self_max_iteration', 12000))
         self.lambda_mim = float(getattr(self.cfg.method, 'lambda_mim', getattr(self.cfg.method, 'lambda_', 0.2)))
@@ -50,8 +51,8 @@ class PICKMethod(BaseMethod):
         os.makedirs(self.pre_snapshot_path, exist_ok=True)
         os.makedirs(self.self_snapshot_path, exist_ok=True)
 
-        # Loss function
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
+        # Loss function (exclude background from Dice for multi-class)
+        self.dice_loss = mask_DiceLoss(nclass=self.num_classes, include_background=False)
 
     def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int):
         """Not directly used by PICK as it splits into run_pre_train and run_self_train phases."""
@@ -122,7 +123,7 @@ class PICKMethod(BaseMethod):
                 fg_prob = main_prob[num_cutmix:, 1:, :, :, :].sum(dim=1, keepdim=True)
                 main_ps_lab = (fg_prob > threshold).float()
 
-                mask_region = main_ps_lab if iter_num > 2000 else mim_mask
+                mask_region = torch.clamp(mim_mask + main_ps_lab, 0.0, 1.0) if iter_num > 2000 else mim_mask
                 mim_batch = volume_batch * (1 - mask_region)
                 mim_outputs = self.model(mim_batch, mode='mim')
 
@@ -146,6 +147,11 @@ class PICKMethod(BaseMethod):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                # Polynomial learning rate decay (nnUNet standard)
+                lr_ = self.base_lr * (1.0 - iter_num / self.pre_max_iteration) ** 0.9
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr_
 
                 iter_num += 1
 
@@ -355,14 +361,23 @@ class PICKMethod(BaseMethod):
                     img_mask, _ = context_mask(img_a, self.mask_ratio)
 
                 cutmix_batch_f = img_a * img_mask + unimg_a * (1 - img_mask)
-                cutmix_label_f = lab_a * img_mask
                 cutmix_batch_b = unimg_b * img_mask + img_b * (1 - img_mask)
-                cutmix_label_b = lab_b * (1 - img_mask)
-                cutmix_label = torch.cat((cutmix_label_f, cutmix_label_b), dim=0)
 
+                # Forward CutMix through model without in-place tensor modification
                 _, main_outputs, _ = self.model(torch.cat((cutmix_batch_f, cutmix_batch_b), dim=0))
-                main_outputs[:sub_bs] = main_outputs[:sub_bs] * img_mask
-                main_outputs[sub_bs:] = main_outputs[sub_bs:] * (1 - img_mask)
+                out_f = main_outputs[:sub_bs]
+                out_b = main_outputs[sub_bs:]
+
+                # Masked supervised loss on labeled regions
+                mask_f = img_mask.float()
+                loss_ce_f = (F.cross_entropy(out_f, lab_a, reduction='none') * mask_f).sum() / (mask_f.sum() + 1e-6)
+                loss_dice_f = self.dice_loss(out_f, lab_a, mask=mask_f)
+
+                mask_b = (1.0 - img_mask).float()
+                loss_ce_b = (F.cross_entropy(out_b, lab_b, reduction='none') * mask_b).sum() / (mask_b.sum() + 1e-6)
+                loss_dice_b = self.dice_loss(out_b, lab_b, mask=mask_b)
+
+                loss_main = (loss_ce_f + loss_dice_f + loss_ce_b + loss_dice_b) / 4
 
                 mask_region = un_ps_lab
                 mim_batch = unimg * (1 - mask_region)
@@ -371,10 +386,6 @@ class PICKMethod(BaseMethod):
                 re_batch = unimg * (1 - mask_region) + mim_outputs.detach() * mask_region
                 re_batch = torch.flip(re_batch, dims=[2])
                 aux_outputs = self.model(torch.cat((re_batch, laimg), dim=0), mode='aux')
-
-                loss_main_ce = F.cross_entropy(main_outputs, cutmix_label)
-                loss_main_dice = self.dice_loss(main_outputs, cutmix_label)
-                loss_main = (loss_main_ce + loss_main_dice) / 2
 
                 loss_mim = F.l1_loss(unimg, mim_outputs, reduction='none')
                 loss_mim = self.lambda_mim * (loss_mim * mask_region).sum() / (mask_region.sum() + 1e-5)
@@ -388,6 +399,11 @@ class PICKMethod(BaseMethod):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                # Polynomial learning rate decay (nnUNet standard)
+                lr_ = self.base_lr * (1.0 - iter_num / self.self_max_iteration) ** 0.9
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr_
 
                 iter_num += 1
 
