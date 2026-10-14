@@ -30,8 +30,11 @@ class WandbManager:
         self.run = None
         self.run_id = None
 
-        if self.enabled:
+        from core.distributed import is_main_process
+        if self.enabled and is_main_process():
             self._init_wandb()
+        else:
+            self.enabled = False
 
     def _init_wandb(self):
         try:

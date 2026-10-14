@@ -42,6 +42,7 @@ class PICKMethod(BaseMethod):
 
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.val_interval = int(getattr(self.cfg.logging, 'val_interval', 500))
+        self.save_interval = int(getattr(self.cfg.logging, 'save_interval', 50))
 
         # Snapshot paths for pre-train and self-train
         self.pre_snapshot_path = os.path.join(self.snapshot_path, "pre_train")
@@ -182,6 +183,15 @@ class PICKMethod(BaseMethod):
                         f"VRAM: {vram_used:.1f}GB"
                     )
                     iter_t0 = time.time()
+
+                if iter_num % self.save_interval == 0 and iter_num % self.val_interval != 0:
+                    if is_main_process():
+                        self.save_checkpoint(
+                            path=latest_pth,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase='pre_train'
+                        )
 
                 if iter_num % self.val_interval == 0:
                     if is_main_process():
@@ -415,6 +425,15 @@ class PICKMethod(BaseMethod):
                         f"VRAM: {vram_used:.1f}GB"
                     )
                     iter_t0 = time.time()
+
+                if iter_num % self.save_interval == 0 and iter_num % self.val_interval != 0:
+                    if is_main_process():
+                        self.save_checkpoint(
+                            path=latest_pth,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase='self_train'
+                        )
 
                 if iter_num % self.val_interval == 0:
                     if is_main_process():

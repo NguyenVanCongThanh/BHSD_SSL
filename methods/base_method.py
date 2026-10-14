@@ -256,8 +256,9 @@ class BaseMethod(abc.ABC):
     def validate(self) -> Tuple[float, List[float]]:
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
         stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
+        raw_net = self.model.module if hasattr(self.model, 'module') else self.model
         return evaluate_dataset_sliding_window(
-            model=self.model,
+            model=raw_net,
             val_dataset=self.db_val,
             num_classes=self.num_classes,
             is_binary=self.is_binary,
