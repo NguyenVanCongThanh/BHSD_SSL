@@ -79,6 +79,7 @@ class BaseMethod(abc.ABC):
                 self.model,
                 device_ids=[local_rank],
                 output_device=local_rank,
+                broadcast_buffers=False,
                 find_unused_parameters=True
             )
             # Enable static graph for multi-branch architectures (PICK: main + mim + aux decoders)
