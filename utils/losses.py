@@ -6,9 +6,11 @@ import pdb
 import numpy as np
 
 class mask_DiceLoss(nn.Module):
-    def __init__(self, nclass, class_weights=None, smooth=1e-5):
+    def __init__(self, nclass, class_weights=None, smooth=1e-5, include_background=False):
         super(mask_DiceLoss, self).__init__()
         self.smooth = smooth
+        self.nclass = nclass
+        self.include_background = include_background
         if class_weights is None:
             # default weight is all 1
             self.class_weights = nn.Parameter(torch.ones((1, nclass)).type(torch.float32), requires_grad=False)
@@ -30,18 +32,21 @@ class mask_DiceLoss(nn.Module):
         union = pred_one_hot + target_one_hot
 
         if mask is not None:
-            mask = mask.view(N, 1, -1)
-            inter = (inter.view(N, nclass, -1) * mask).sum(2)
-            union = (union.view(N, nclass, -1) * mask).sum(2)
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            if mask.shape[0] != N:
+                mask = mask.expand(N, -1, -1, -1)
+            mask = mask.reshape(N, 1, -1)
+            inter = (inter * mask).sum(2)
+            union = (union * mask).sum(2)
         else:
-            # N x C
-            inter = inter.view(N, nclass, -1).sum(2)
-            union = union.view(N, nclass, -1).sum(2)
+            inter = inter.sum(2)
+            union = union.sum(2)
 
         # smooth to prevent overfitting
-        # [https://github.com/pytorch/pytorch/issues/1249]
-        # NxC
         dice = (2 * inter + self.smooth) / (union + self.smooth)
+        if not self.include_background and nclass > 1:
+            dice = dice[:, 1:]
         return 1 - dice.mean()
 
     def forward(self, logits, target, mask=None):
@@ -62,18 +67,21 @@ class mask_DiceLoss(nn.Module):
         union = pred_one_hot + target_one_hot
 
         if mask is not None:
-            mask = mask.view(N, 1, -1)
-            inter = (inter.view(N, nclass, -1) * mask).sum(2)
-            union = (union.view(N, nclass, -1) * mask).sum(2)
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(0)
+            if mask.shape[0] != N:
+                mask = mask.expand(N, -1, -1, -1)
+            mask = mask.reshape(N, 1, -1)
+            inter = (inter * mask).sum(2)
+            union = (union * mask).sum(2)
         else:
-            # N x C
-            inter = inter.view(N, nclass, -1).sum(2)
-            union = union.view(N, nclass, -1).sum(2)
+            inter = inter.sum(2)
+            union = union.sum(2)
 
         # smooth to prevent overfitting
-        # [https://github.com/pytorch/pytorch/issues/1249]
-        # NxC
         dice = (2 * inter + self.smooth) / (union + self.smooth)
+        if not self.include_background and nclass > 1:
+            dice = dice[:, 1:]
         return 1 - dice.mean()
 
 class DiceLoss(nn.Module):
