@@ -79,7 +79,21 @@ class WandbManager:
             if resume_mode is not None:
                 init_kwargs['resume'] = resume_mode
 
-            self.run = wandb.init(**init_kwargs)
+            try:
+                self.run = wandb.init(**init_kwargs)
+            except Exception as init_err:
+                err_msg = str(init_err).lower()
+                if any(k in err_msg for k in ["deleted", "in use", "in_use", "usageerror", "conflict"]):
+                    logging.warning(
+                        f"[W&B CLOUD] Run ID '{run_id}' xung đột hoặc đã bị xoá trên web ({init_err}). "
+                        f"Tự động fallback sang Run ID mới để duy trì đồng bộ W&B Cloud..."
+                    )
+                    init_kwargs.pop('id', None)
+                    init_kwargs.pop('resume', None)
+                    self.run = wandb.init(**init_kwargs)
+                else:
+                    raise init_err
+
             self.run_id = self.run.id
             logging.info(
                 f"[W&B CLOUD] Initialized Run '{self.run_name}' (ID: {self.run_id}, resume={resume_mode}) "
