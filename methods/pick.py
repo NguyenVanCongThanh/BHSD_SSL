@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 from core.registry import METHODS
+from core.distributed import is_main_process
 from methods.base_method import BaseMethod
 from utils.losses import mask_DiceLoss
 from data.masking import context_mask
