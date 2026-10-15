@@ -99,6 +99,12 @@ class BaseMethod(abc.ABC):
             self.model = self.model.to(self.device)
             logging.warning("[Model] No GPU detected, running on CPU!")
 
+        # Mixed Precision (AMP) & GradScaler setup
+        self.use_amp = bool(getattr(self.cfg.experiment, 'amp', True)) and torch.cuda.is_available()
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        if self.use_amp and is_main_process():
+            logging.info("[AMP] Mixed precision (FP16) training enabled with torch.cuda.amp.GradScaler.")
+
         # Setup components
         self.setup_dataloaders()
         self.setup_optimizer()
@@ -192,6 +198,29 @@ class BaseMethod(abc.ABC):
         self.optimizer = optim.SGD(
             self.model.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay
         )
+
+    def update_learning_rate(self, iter_num: int, max_iterations: int) -> float:
+        """
+        Update learning rate per iteration with support for Polynomial Decay (nnU-Net style).
+        lr = base_lr * (1 - iter / max_iter) ^ power
+        """
+        scheduler_type = str(getattr(self.cfg.method, 'lr_scheduler', 'poly')).lower()
+        base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
+
+        if scheduler_type == 'poly':
+            power = float(getattr(self.cfg.method, 'poly_power', 0.9))
+            decay = max(1.0 - (iter_num / max(max_iterations, 1)), 0.0) ** power
+            current_lr = max(base_lr * decay, 1e-6)
+        elif scheduler_type == 'cosine':
+            import math
+            current_lr = base_lr * 0.5 * (1.0 + math.cos(math.pi * iter_num / max(max_iterations, 1)))
+        else:
+            # Constant base learning rate
+            current_lr = base_lr
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = current_lr
+        return current_lr
 
     def setup_logging(self):
         log_dir = os.path.join(self.snapshot_path, 'log')
@@ -335,11 +364,17 @@ class BaseMethod(abc.ABC):
                 self.batch_sampler.set_epoch(epoch)
 
             for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
+                cur_lr = self.update_learning_rate(iter_num, max_iterations)
                 loss, loss_dict = self.train_step(sampled_batch, mim_mask, iter_num)
 
                 self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                if self.use_amp:
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
 
                 iter_num += 1
 

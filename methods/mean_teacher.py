@@ -133,38 +133,39 @@ class MeanTeacherMethod(BaseMethod):
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
-        # Forward student
-        student_out = self.model(volume_batch)
-        if isinstance(student_out, (tuple, list)):
-            student_logits = student_out[1] if len(student_out) >= 2 and isinstance(student_out[1], torch.Tensor) and student_out[1].ndim >= 4 else student_out[0]
-        else:
-            student_logits = student_out
-
-        # Teacher perturbation: gentle Gaussian intensity noise + clipping
-        with torch.no_grad():
-            noise = torch.clamp(torch.randn_like(volume_batch) * 0.05, -0.1, 0.1)
-            teacher_input = volume_batch + noise
-            teacher_out = self.ema_model(teacher_input)
-            if isinstance(teacher_out, (tuple, list)):
-                teacher_logits = teacher_out[1] if len(teacher_out) >= 2 and isinstance(teacher_out[1], torch.Tensor) and teacher_out[1].ndim >= 4 else teacher_out[0]
+        with torch.amp.autocast('cuda', enabled=self.use_amp):
+            # Forward student
+            student_out = self.model(volume_batch)
+            if isinstance(student_out, (tuple, list)):
+                student_logits = student_out[1] if len(student_out) >= 2 and isinstance(student_out[1], torch.Tensor) and student_out[1].ndim >= 4 else student_out[0]
             else:
-                teacher_logits = teacher_out
+                student_logits = student_out
 
-        # Supervised loss on labeled samples (0..labeled_bs)
-        lab_logits = student_logits[:self.labeled_bs]
-        lab_targets = label_batch[:self.labeled_bs]
-        loss_ce = F.cross_entropy(lab_logits, lab_targets)
-        loss_dice = self.dice_loss(lab_logits, lab_targets)
-        loss_supervised = (loss_ce + loss_dice) / 2.0
+            # Teacher perturbation: gentle Gaussian intensity noise + clipping
+            with torch.no_grad():
+                noise = torch.clamp(torch.randn_like(volume_batch) * 0.05, -0.1, 0.1)
+                teacher_input = volume_batch + noise
+                teacher_out = self.ema_model(teacher_input)
+                if isinstance(teacher_out, (tuple, list)):
+                    teacher_logits = teacher_out[1] if len(teacher_out) >= 2 and isinstance(teacher_out[1], torch.Tensor) and teacher_out[1].ndim >= 4 else teacher_out[0]
+                else:
+                    teacher_logits = teacher_out
 
-        # Consistency loss across full batch (labeled + unlabeled)
-        loss_consistency = self.compute_consistency_loss(student_logits, teacher_logits)
+            # Supervised loss on labeled samples (0..labeled_bs)
+            lab_logits = student_logits[:self.labeled_bs]
+            lab_targets = label_batch[:self.labeled_bs]
+            loss_ce = F.cross_entropy(lab_logits, lab_targets)
+            loss_dice = self.dice_loss(lab_logits, lab_targets)
+            loss_supervised = (loss_ce + loss_dice) / 2.0
 
-        # Dynamic rampup weight
-        cur_epoch = iter_num / max(len(self.trainloader), 1)
-        consistency_weight = self.get_current_consistency_weight(cur_epoch)
+            # Consistency loss across full batch (labeled + unlabeled)
+            loss_consistency = self.compute_consistency_loss(student_logits, teacher_logits)
 
-        total_loss = loss_supervised + consistency_weight * loss_consistency
+            # Dynamic rampup weight
+            cur_epoch = iter_num / max(len(self.trainloader), 1)
+            consistency_weight = self.get_current_consistency_weight(cur_epoch)
+
+            total_loss = loss_supervised + consistency_weight * loss_consistency
 
         # EMA update to Teacher
         raw_net = self.get_raw_model()

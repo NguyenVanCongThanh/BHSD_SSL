@@ -106,6 +106,8 @@ SECTION_MAPPING = {
     'self_max_iteration': 'method',
     'max_iteration': 'method',
     'base_lr': 'method',
+    'lr_scheduler': 'method',
+    'poly_power': 'method',
     'consistency': 'method',
     'consistency_rampup': 'method',
     'lambda_': 'method',
@@ -125,6 +127,7 @@ SECTION_MAPPING = {
     'deterministic': 'experiment',
     'exp_dir': 'experiment',
     'resume': 'experiment',
+    'amp': 'experiment',
     'phase': 'experiment',
     'pretrain_checkpoint': 'experiment',
 

@@ -4,12 +4,13 @@ experiment:
   task: "multiclass"
   num_classes: 6
   fold: 0
+  amp: true                           # Mixed precision (FP16) training with GradScaler
 
 model:
-  name: "vnet_single"
+  name: "nnunet3d"                    # 5-stage nnU-Net 3D with InstanceNorm & LeakyReLU
   in_channels: 1
-  has_dropout: true
-  normalization: "groupnorm"
+  base_filters: 32
+  has_dropout: false
 
 method:
   name: "mean_teacher"
@@ -17,6 +18,8 @@ method:
   base_lr: 0.01
   momentum: 0.9
   weight_decay: 0.0001
+  lr_scheduler: "poly"                # Polynomial decay: lr = base_lr * (1 - iter/max_iter)^power
+  poly_power: 0.9                     # Standard nnU-Net power factor
   ema_decay: 0.99
   consistency: 1.0
   consistency_rampup: 40.0
