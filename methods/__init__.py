@@ -8,6 +8,7 @@ from methods.supervised import SupervisedMethod
 from methods.mean_teacher import MeanTeacherMethod
 from methods.cps import CPSMethod
 from methods.bcp import BCPMethod
+from methods.lefed import LeFeDMethod
 
 __all__ = [
     "BaseMethod",
@@ -16,4 +17,5 @@ __all__ = [
     "MeanTeacherMethod",
     "CPSMethod",
     "BCPMethod",
+    "LeFeDMethod",
 ]

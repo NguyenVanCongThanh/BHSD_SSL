@@ -1,20 +1,37 @@
-# Mean Teacher Configuration for BHSD
+# Enhanced Mean Teacher Configuration for BHSD Multi-class 3D Segmentation
 experiment:
   name: "BHSD_mean_teacher_5folds"
   task: "multiclass"
   num_classes: 6
+  fold: 0
 
 model:
   name: "vnet_single"
   in_channels: 1
+  has_dropout: true
+  normalization: "groupnorm"
 
 method:
   name: "mean_teacher"
   max_iteration: 12000
   base_lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0001
+  ema_decay: 0.99
   consistency: 1.0
   consistency_rampup: 40.0
-  ema_decay: 0.99
+  consistency_type: "weighted_mse"    # Options: weighted_mse, dice, kl, mse
+  bg_consistency_weight: 0.1          # Downweight background (class 0) to mitigate voxel imbalance
+  confidence_thresh: 0.85             # Only enforce consistency on confident teacher predictions
+
+data:
+  batch_size: 4
+  labeled_bs: 2
+  patch_size: [32, 160, 160]
 
 logging:
   val_interval: 500
+  save_interval: 50
+  val_stride_xy: 32
+  val_stride_z: 8
+  use_wandb: false
