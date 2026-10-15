@@ -66,13 +66,13 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
     logging.info(f"[DDP] Initializing process group: rank={rank}, world_size={world_size}, "
                  f"local_rank={local_rank}, backend={dist_backend}")
     
-    # Anti-deadlock: Đặt timeout rõ ràng (120s) thay vì treo vô hạn nếu node gặp trục trặc mạng/P2P
+    # Anti-deadlock: Đặt timeout 1800s (30 phút) để Rank 1 có đủ thời gian chờ Rank 0 chạy sliding window validation (38 ca 3D)
     dist.init_process_group(
         backend=dist_backend,
         init_method="env://",
         world_size=world_size,
         rank=rank,
-        timeout=timedelta(seconds=120)
+        timeout=timedelta(seconds=1800)
     )
     print(f"[DDP-Rank{rank}] Đang đồng bộ barrier khởi tạo...", flush=True)
     dist.barrier()

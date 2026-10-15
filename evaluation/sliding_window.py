@@ -110,7 +110,7 @@ def sliding_window_inference_3d(
                     patch_tensor = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).to(device=device, dtype=torch.float32)
 
                     if use_amp and device.type == 'cuda':
-                        with torch.cuda.amp.autocast():
+                        with torch.amp.autocast('cuda'):
                             logits = _forward_model(model, patch_tensor)
                     else:
                         logits = _forward_model(model, patch_tensor)
@@ -194,10 +194,12 @@ def evaluate_dataset_sliding_window(
             case_dices = cal_multiclass_dice(pred, label, num_classes=num_classes)
             all_case_dices.append(case_dices)
 
-        if log_progress and ((i + 1) % 10 == 0 or (i + 1) == total_cases):
+        if log_progress and ((i + 1) % 5 == 0 or (i + 1) == total_cases):
             elapsed = time.time() - t0
             pct = ((i + 1) / total_cases) * 100
-            logging.info(f"  [Validation Progress] Done {i + 1}/{total_cases} cases ({pct:.0f}%) | {elapsed:.1f}s")
+            msg = f"  [Validation Progress] Done {i + 1}/{total_cases} cases ({pct:.0f}%) | {elapsed:.1f}s"
+            logging.info(msg)
+            print(msg, flush=True)
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

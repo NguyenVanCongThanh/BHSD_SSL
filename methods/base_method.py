@@ -364,11 +364,15 @@ class BaseMethod(abc.ABC):
                 # Periodic Validation (Rank 0 only)
                 if iter_num % val_interval == 0:
                     if is_main_process():
-                        logging.info(f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}...")
+                        msg = f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}..."
+                        logging.info(msg)
+                        print(msg, flush=True)
                         val_mdice, per_class = self.validate()
                         class_names = self.class_names[1:]
                         summary_str = format_dice_summary(per_class, class_names)
-                        logging.info(f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
+                        end_msg = f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
+                        logging.info(end_msg)
+                        print(end_msg, flush=True)
 
                         if self.writer is not None:
                             self.writer.add_scalar('val/mDice', val_mdice, iter_num)
