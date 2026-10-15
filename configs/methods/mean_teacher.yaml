@@ -27,10 +27,11 @@ method:
 data:
   batch_size: 4
   labeled_bs: 2
+  labelnum: 154
   patch_size: [32, 160, 160]
 
 logging:
-  val_interval: 500
+  val_interval: 200
   save_interval: 50
   val_stride_xy: 32
   val_stride_z: 8
