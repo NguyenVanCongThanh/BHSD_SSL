@@ -1,0 +1,24 @@
+{
+  "id": "thnhnguynvncng/kaggle-bhsd-mean-teacher-dual-gpu",
+  "title": "kaggle_bhsd_mean_teacher_dual_gpu",
+  "code_file": "kaggle_bhsd_mean_teacher_dual_gpu.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [
+    "deep-learning",
+    "semi-supervised-learning",
+    "medical-imaging",
+    "brain-hemorrhage",
+    "mean-teacher"
+  ],
+  "dataset_sources": [
+    "thnhnguynvncng/bhsd-fold0"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
