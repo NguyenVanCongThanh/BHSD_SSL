@@ -258,10 +258,20 @@ class BaseMethod(abc.ABC):
         best_dice = state.get('best_dice', 0.0)
         return iter_num, best_dice
 
-    def validate(self) -> Tuple[float, List[float]]:
+    def log_visual_samples(self, visual_records: List[Dict[str, Any]], step: int):
+        """Build and log interactive segmentation masks to W&B."""
+        if not self.wandb_manager.enabled or not visual_records:
+            return
+        from utils.visualizer import create_wandb_segmentation_samples
+        class_labels = {i: name for i, name in enumerate(self.class_names)}
+        wandb_images = create_wandb_segmentation_samples(visual_records, class_labels)
+        self.wandb_manager.log_visual_predictions(wandb_images, step=step)
+
+    def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
         stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
         raw_net = self.model.module if hasattr(self.model, 'module') else self.model
+        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
         return evaluate_dataset_sliding_window(
             model=raw_net,
             val_dataset=self.db_val,
@@ -272,7 +282,8 @@ class BaseMethod(abc.ABC):
             stride_xy=stride_xy,
             use_amp=True,
             device=self.device,
-            log_progress=True
+            log_progress=True,
+            return_visual_samples=num_vis
         )
 
     @abc.abstractmethod
@@ -367,7 +378,15 @@ class BaseMethod(abc.ABC):
                         msg = f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}..."
                         logging.info(msg)
                         print(msg, flush=True)
-                        val_mdice, per_class = self.validate()
+                        val_visualize = bool(getattr(self.cfg.logging, 'val_visualize', True))
+                        should_vis = self.wandb_manager.enabled and val_visualize
+
+                        if should_vis:
+                            val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
+                            self.log_visual_samples(visual_samples, step=iter_num)
+                        else:
+                            val_mdice, per_class = self.validate(return_visuals=False)
+
                         class_names = self.class_names[1:]
                         summary_str = format_dice_summary(per_class, class_names)
                         end_msg = f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"

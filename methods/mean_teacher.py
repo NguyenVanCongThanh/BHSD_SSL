@@ -242,7 +242,7 @@ class MeanTeacherMethod(BaseMethod):
         best_dice = state.get('best_dice', 0.0)
         return iter_num, best_dice
 
-    def validate(self) -> Tuple[float, List[float]]:
+    def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
         """
         Evaluate sliding window on Teacher (EMA) model as primary metric.
         Teacher typically achieves significantly higher and smoother mDice than Student.
@@ -250,6 +250,7 @@ class MeanTeacherMethod(BaseMethod):
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
         stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
         self.ema_model.eval()
+        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
 
         return evaluate_dataset_sliding_window(
             model=self.ema_model,
@@ -261,5 +262,6 @@ class MeanTeacherMethod(BaseMethod):
             stride_xy=stride_xy,
             use_amp=True,
             device=self.device,
-            log_progress=True
+            log_progress=True,
+            return_visual_samples=num_vis
         )

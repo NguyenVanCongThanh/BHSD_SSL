@@ -116,6 +116,17 @@ class WandbManager:
         except Exception as e:
             logging.debug(f"[W&B] Failed to log metrics at step {step}: {e}")
 
+    def log_visual_predictions(self, images: List[Any], step: Optional[int] = None, key: str = "val/predictions"):
+        """Log rich visual predictions (e.g. wandb.Image with masks) to W&B."""
+        if not self.enabled or self.run is None or not images:
+            return
+        try:
+            import wandb
+            wandb.log({key: images}, step=step)
+            logging.info(f"[W&B] Logged {len(images)} visual prediction samples at step {step}")
+        except Exception as e:
+            logging.warning(f"[W&B] Failed to log visual predictions at step {step}: {e}")
+
     def log_artifact(
         self,
         file_path: str,

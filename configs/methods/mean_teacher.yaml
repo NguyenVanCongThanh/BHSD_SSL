@@ -35,3 +35,5 @@ logging:
   val_stride_xy: 32
   val_stride_z: 8
   use_wandb: false
+  val_visualize: true
+  num_vis_samples: 4

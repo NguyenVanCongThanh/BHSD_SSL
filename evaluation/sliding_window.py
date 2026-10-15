@@ -135,8 +135,9 @@ def evaluate_dataset_sliding_window(
     stride_xy: int = 32,
     use_amp: bool = True,
     device: Optional[torch.device] = None,
-    log_progress: bool = True
-) -> Tuple[float, List[float]]:
+    log_progress: bool = True,
+    return_visual_samples: int = 0
+) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
     
@@ -151,12 +152,17 @@ def evaluate_dataset_sliding_window(
         use_amp: Whether to use FP16 AMP.
         device: Target torch device.
         log_progress: Whether to print progress periodically.
+        return_visual_samples: Number of visual sample records to return (0 = disable).
         
     Returns:
-        Tuple of (mean_dice, per_class_dices).
+        If return_visual_samples == 0:
+            Tuple of (mean_dice, per_class_dices).
+        If return_visual_samples > 0:
+            Tuple of (mean_dice, per_class_dices, visual_records).
     """
     model.eval()
     all_case_dices: List[List[float]] = []
+    visual_records: List[Dict[str, Any]] = []
     total_cases = len(val_dataset)
     t0 = time.time()
 
@@ -170,6 +176,7 @@ def evaluate_dataset_sliding_window(
         sample_item = val_dataset[i]
         sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
         image, label = sample['image'], sample['label']
+        case_name = sample.get('case', f"case_{i:03d}")
 
         if isinstance(image, torch.Tensor):
             image = image.squeeze().cpu().numpy()
@@ -190,9 +197,21 @@ def evaluate_dataset_sliding_window(
         if is_binary:
             dice = cal_binary_dice(pred, label)
             all_case_dices.append([dice])
+            case_dice_metric = dice
         else:
             case_dices = cal_multiclass_dice(pred, label, num_classes=num_classes)
             all_case_dices.append(case_dices)
+            case_dice_metric = case_dices
+
+        # Collect sample for visualization if requested
+        if return_visual_samples > 0 and len(visual_records) < return_visual_samples:
+            visual_records.append({
+                'case': str(case_name),
+                'image': image,
+                'label': label,
+                'pred': pred,
+                'dice': case_dice_metric
+            })
 
         if log_progress and ((i + 1) % 5 == 0 or (i + 1) == total_cases):
             elapsed = time.time() - t0
@@ -204,10 +223,16 @@ def evaluate_dataset_sliding_window(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    empty_classes = [0.0] * (1 if is_binary else num_classes - 1)
     if len(all_case_dices) == 0:
-        return 0.0, [0.0] * (1 if is_binary else num_classes - 1)
+        if return_visual_samples > 0:
+            return 0.0, empty_classes, []
+        return 0.0, empty_classes
 
     mean_per_class = np.mean(np.array(all_case_dices), axis=0).tolist()
     mean_dice = float(np.mean(mean_per_class))
+
+    if return_visual_samples > 0:
+        return mean_dice, mean_per_class, visual_records
 
     return mean_dice, mean_per_class
