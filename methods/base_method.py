@@ -4,7 +4,7 @@ Provides unified training loops, validation engine, checkpointing, and logging (
 Integrated with WandbManager for cloud artifacts and auto-resume.
 """
 
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 import abc
 import os
 import sys

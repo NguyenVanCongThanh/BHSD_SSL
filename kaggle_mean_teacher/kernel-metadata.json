@@ -8,13 +8,7 @@
   "enable_gpu": true,
   "enable_tpu": false,
   "enable_internet": true,
-  "keywords": [
-    "deep-learning",
-    "semi-supervised-learning",
-    "medical-imaging",
-    "brain-hemorrhage",
-    "mean-teacher"
-  ],
+  "keywords": [],
   "dataset_sources": [
     "thnhnguynvncng/bhsd-fold0"
   ],
