@@ -34,8 +34,17 @@
 
 ## 3. Các Giải Pháp & Thay Đổi Đã Triển Khai (Implemented Solutions)
 
-### 3.1. Cập nhật mã nguồn hệ thống: [`core/distributed.py`](file:///home/u001015/BHSD_SSL/core/distributed.py)
-* **Thêm NCCL Timeout 120s**:
+4. **Deadlock / Timeout do Lệch Pha ở Bước Periodic Validation (`dist.barrier()`)**:
+   - Trong `base_method.py`, khi đến chu kỳ `val_interval` (mỗi 500 iters), chỉ có **Rank 0** thực thi `self.validate()` (chạy trượt sliding-window cho toàn bộ 38 ca 3D tập val, tốn ~2-3 phút).
+   - Trong khi đó, **Rank 1** không làm gì cả và nhảy ngay đến `torch.distributed.barrier()`.
+   - Nếu cấu hình timeout NCCL quá ngắn (ví dụ: 120 giây), Rank 1 chờ Rank 0 quá 120s sẽ văng lỗi `RuntimeError: Timed out waiting for send operation to complete`, kéo sập toàn bộ cluster `torchrun`.
+
+---
+
+## 3. Các Giải Pháp & Thay Đổi Đã Triển Khai (Implemented Solutions)
+
+### 3.1. Cập nhật mã nguồn hệ thống:
+* **Thiết lập Timeout 1800s (30 phút) trong [`core/distributed.py`](file:///home/u001015/BHSD_SSL/core/distributed.py)**:
   ```python
   from datetime import timedelta
   dist.init_process_group(
@@ -43,11 +52,13 @@
       init_method="env://",
       world_size=world_size,
       rank=rank,
-      timeout=timedelta(seconds=120)  # Tự động ném lỗi nếu quá 2 phút không bắt tay được
+      timeout=timedelta(seconds=1800)  # Đủ thời gian cho Rank 0 chạy sliding window validation
   )
   ```
-* **Thêm log chi tiết từng chặng của từng Rank (`flush=True`)**:
-  * In rõ `[DDP-Rank X] Đang khởi tạo...`, `Đang đồng bộ barrier...`, `Khởi tạo DDP thành công!`. Giúp debug chính xác vị trí bị nghẽn.
+* **Cập nhật Modern AMP trong [`evaluation/sliding_window.py`](file:///home/u001015/BHSD_SSL/evaluation/sliding_window.py)**:
+  * Thay thế `torch.cuda.amp.autocast()` lỗi thời bằng `torch.amp.autocast('cuda')`.
+* **Thêm log chi tiết từng ca Val với `print(..., flush=True)`**:
+  * Định kỳ mỗi 5 ca bệnh in ra: `[Validation Progress] Done X/38 cases (Y%) | Zs`, giúp người dùng theo dõi trực tiếp tiến độ suy luận thay vì màn hình im lặng.
 
 ### 3.2. Cập nhật Notebook Kaggle & Generator Tool:
 *Files liên quan: [`kaggle_mean_teacher/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](file:///home/u001015/BHSD_SSL/kaggle_mean_teacher/kaggle_bhsd_mean_teacher_dual_gpu.ipynb), [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](file:///home/u001015/BHSD_SSL/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb), [`tools/generate_mean_teacher_notebook.py`](file:///home/u001015/BHSD_SSL/tools/generate_mean_teacher_notebook.py)*.

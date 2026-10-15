@@ -300,7 +300,6 @@ def build_mean_teacher_notebook():
                 "env[\"NCCL_DEBUG\"] = \"WARN\"\n",
                 "env[\"NCCL_IB_DISABLE\"] = \"1\"\n",
                 "env[\"NCCL_P2P_DISABLE\"] = \"1\"\n",
-                "env[\"TORCH_DISTRIBUTED_DEBUG\"] = \"DETAIL\"\n",
                 "\n",
                 "if use_ddp:\n",
                 "    print(f\"[*] Phát hiện {num_gpus} GPU -> Khởi chạy chế độ DDP (torchrun) port={master_port}...\", flush=True)\n",
