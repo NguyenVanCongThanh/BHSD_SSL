@@ -99,7 +99,10 @@ def benchmark_5folds(
         # Build model
         model = model_builder(model_name, in_channels=1, num_classes=num_classes)
         state = torch.load(str(ckpt_path), map_location=device)
-        net_dict = state.get('net', state)
+        # Prioritize teacher weights (ema_net) if evaluating Mean Teacher checkpoints
+        net_dict = state.get('ema_net', None)
+        if net_dict is None:
+            net_dict = state.get('net', state)
         clean_dict = {k[7:] if k.startswith('module.') else k: v for k, v in net_dict.items()}
         model.load_state_dict(clean_dict, strict=False)
         model.to(device)
