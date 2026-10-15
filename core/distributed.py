@@ -58,19 +58,25 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
     else:
         return False
 
+    from datetime import timedelta
     torch.cuda.set_device(local_rank)
     dist_backend = "nccl" if torch.cuda.is_available() else "gloo"
     
+    print(f"[DDP-Rank{rank}] Đang khởi tạo process group (local_rank={local_rank}, world_size={world_size}, backend={dist_backend})...", flush=True)
     logging.info(f"[DDP] Initializing process group: rank={rank}, world_size={world_size}, "
                  f"local_rank={local_rank}, backend={dist_backend}")
     
+    # Anti-deadlock: Đặt timeout rõ ràng (120s) thay vì treo vô hạn nếu node gặp trục trặc mạng/P2P
     dist.init_process_group(
         backend=dist_backend,
         init_method="env://",
         world_size=world_size,
-        rank=rank
+        rank=rank,
+        timeout=timedelta(seconds=120)
     )
+    print(f"[DDP-Rank{rank}] Đang đồng bộ barrier khởi tạo...", flush=True)
     dist.barrier()
+    print(f"[DDP-Rank{rank}] Khởi tạo DDP thành công! Đã vượt qua barrier.", flush=True)
     return True
 
 
