@@ -49,9 +49,9 @@ class MeanTeacherMethod(BaseMethod):
         super(MeanTeacherMethod, self).__init__(model, cfg)
 
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
-        self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
-        self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
-        self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.99))
+        self.consistency = float(getattr(self.cfg.method, 'consistency', 0.2))
+        self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 2000.0))
+        self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.999))
         self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'weighted_mse')).lower()
         self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
 
@@ -69,10 +69,10 @@ class MeanTeacherMethod(BaseMethod):
             self.ds_consistency = True
 
         # Background vs Foregrounds weight balance for consistency
-        # Class 0: Background (98-99% volume) -> downweighted to 0.1
+        # Class 0: Background (98-99% volume) -> downweighted to 0.05
         # Class 1..5: Hemorrhage subtypes -> full weight 1.0
         if not self.is_binary and self.num_classes == 6:
-            bg_weight = float(getattr(self.cfg.method, 'bg_consistency_weight', 0.1))
+            bg_weight = float(getattr(self.cfg.method, 'bg_consistency_weight', 0.05))
             self.class_weights = torch.tensor([bg_weight, 1.0, 1.0, 1.0, 1.0, 1.0], device=self.device).view(1, -1, 1, 1, 1)
         else:
             self.class_weights = None
@@ -93,53 +93,89 @@ class MeanTeacherMethod(BaseMethod):
             return self.model.module
         return self.model
 
-    def get_current_consistency_weight(self, epoch: float) -> float:
-        """Sigmoid rampup curve across epochs."""
+    def get_current_consistency_weight(self, iter_num: int, epoch: float) -> float:
+        """Sigmoid rampup curve: supports either step-based (>100) or epoch-based rampup."""
         if self.consistency_rampup <= 0:
             return self.consistency
+        if self.consistency_rampup > 100:
+            return self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
         return self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+
+    def compute_soft_dice_consistency(self, student_prob: torch.Tensor, teacher_prob: torch.Tensor) -> torch.Tensor:
+        """
+        Continuous Probability-to-Probability Soft Dice Consistency on Foregrounds (classes 1..5).
+        Completely ignores Background (class 0) to guarantee zero confirmation bias towards background.
+        """
+        fg_s = student_prob[:, 1:] if self.num_classes > 1 and not self.is_binary else student_prob
+        fg_t = teacher_prob[:, 1:] if self.num_classes > 1 and not self.is_binary else teacher_prob
+
+        # Spatial sum over 3D volume (D, H, W)
+        dims = (2, 3, 4)
+        intersection = torch.sum(fg_s * fg_t, dim=dims)
+        cardinality = torch.sum(fg_s ** 2 + fg_t ** 2, dim=dims)
+
+        smooth = 1e-5
+        dice_score = (2.0 * intersection + smooth) / (cardinality + smooth)
+        # Average over foreground classes and batch
+        return 1.0 - torch.mean(dice_score)
 
     def compute_consistency_loss(self, student_logits: torch.Tensor, teacher_logits: torch.Tensor) -> torch.Tensor:
         """
-        Compute consistency loss with confidence thresholding and class balancing.
+        Compute consistency loss with class balancing and foreground-focused metrics.
+        Supports:
+        - 'dice': Continuous Soft Dice on foreground lesions (0% background impact, immune to collapse).
+        - 'hybrid': 50% Soft Dice + 50% Class-balanced Channel MSE.
+        - 'weighted_mse': Class-balanced channel MSE (downweights background).
         """
         student_prob = F.softmax(student_logits, dim=1)
         teacher_prob = F.softmax(teacher_logits, dim=1)
 
-        # 1. Confidence thresholding (filter out noisy teacher predictions)
+        # 1. Pure Continuous Soft Dice on Foreground Classes (Recommended for extreme class imbalance)
+        if self.consistency_type == 'dice':
+            return self.compute_soft_dice_consistency(student_prob, teacher_prob)
+
+        # 2. Hybrid Consistency: Soft Dice + Class-balanced Channel MSE
+        elif self.consistency_type == 'hybrid':
+            loss_dice = self.compute_soft_dice_consistency(student_prob, teacher_prob)
+            sq_diff = (student_prob - teacher_prob) ** 2
+            mse_per_class = sq_diff.mean(dim=(0, 2, 3, 4))
+            if self.class_weights is not None:
+                w = self.class_weights.view(-1)
+                loss_mse = (mse_per_class * w).sum() / (w.sum() + 1e-6)
+            else:
+                loss_mse = mse_per_class.mean()
+            return 0.5 * loss_mse + 0.5 * loss_dice
+
+        # 3. Confidence thresholding (if enabled > 0.0)
         if self.confidence_thresh > 0.0:
             max_prob, _ = torch.max(teacher_prob, dim=1, keepdim=True)
             conf_mask = (max_prob >= self.confidence_thresh).float()
         else:
             conf_mask = None
 
-        # 2. Consistency loss calculation
-        if self.consistency_type == 'weighted_mse':
+        # 4. Class-balanced Channel MSE
+        if self.consistency_type in ('weighted_mse', 'mse', 'class_balanced_mse'):
             sq_diff = (student_prob - teacher_prob) ** 2
-            if self.class_weights is not None:
-                sq_diff = sq_diff * self.class_weights
 
             if conf_mask is not None:
-                loss_cons = (sq_diff * conf_mask).sum() / (conf_mask.sum() * student_prob.shape[1] + 1e-6)
+                sq_diff = sq_diff * conf_mask
+                mask_sum = conf_mask.sum(dim=(0, 2, 3, 4)) + 1e-6
+                mse_per_class = sq_diff.sum(dim=(0, 2, 3, 4)) / mask_sum
             else:
-                loss_cons = sq_diff.mean()
+                mse_per_class = sq_diff.mean(dim=(0, 2, 3, 4))
 
-        elif self.consistency_type == 'dice':
-            # Soft dice consistency
-            pseudo_target = teacher_prob.argmax(dim=1)
-            loss_cons = self.dice_loss(student_logits, pseudo_target, mask=conf_mask)
+            if self.class_weights is not None:
+                w = self.class_weights.view(-1)
+                loss_cons = (mse_per_class * w).sum() / (w.sum() + 1e-6)
+            else:
+                loss_cons = mse_per_class.mean()
 
         elif self.consistency_type == 'kl':
             # KL divergence: Teacher -> Student
             loss_cons = F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='batchmean')
 
         else:
-            # Default unweighted MSE
-            sq_diff = (student_prob - teacher_prob) ** 2
-            if conf_mask is not None:
-                loss_cons = (sq_diff * conf_mask).sum() / (conf_mask.sum() * student_prob.shape[1] + 1e-6)
-            else:
-                loss_cons = sq_diff.mean()
+            loss_cons = ((student_prob - teacher_prob) ** 2).mean()
 
         return loss_cons
 
@@ -212,9 +248,9 @@ class MeanTeacherMethod(BaseMethod):
             else:
                 loss_consistency = loss_cons_main
 
-            # Dynamic rampup weight
+            # Dynamic rampup weight (supports iteration-based or epoch-based)
             cur_epoch = iter_num / max(len(self.trainloader), 1)
-            consistency_weight = self.get_current_consistency_weight(cur_epoch)
+            consistency_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
 
             total_loss = loss_supervised + consistency_weight * loss_consistency
 

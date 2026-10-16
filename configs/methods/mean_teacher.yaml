@@ -22,12 +22,12 @@ method:
   weight_decay: 0.0001
   lr_scheduler: "poly"                # Polynomial decay: lr = base_lr * (1 - iter/max_iter)^power
   poly_power: 0.9                     # Standard nnU-Net power factor
-  ema_decay: 0.99
-  consistency: 1.0
-  consistency_rampup: 40.0
-  consistency_type: "weighted_mse"    # Options: weighted_mse, dice, kl, mse
-  bg_consistency_weight: 0.1          # Downweight background (class 0) to mitigate voxel imbalance
-  confidence_thresh: 0.85             # Only enforce consistency on confident teacher predictions
+  ema_decay: 0.999                    # Stabilized EMA decay (0.999 instead of 0.99) to prevent confirmation bias
+  consistency: 0.2                    # Balanced consistency weight (0.2 instead of 1.0) so supervised loss leads
+  consistency_rampup: 2000.0          # Smooth step-based rampup over first 2000 iters (~16% of total steps)
+  consistency_type: "dice"             # Continuous Soft Dice on foreground lesions (eliminates MSE voxel-bias)
+  bg_consistency_weight: 0.05         # Downweight background channel to prevent background dominance
+  confidence_thresh: 0.0              # Disabled (0.0): prevents discarding uncertain lesion voxels
   deep_supervision:
     weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 scales
     consistency_multiscale: true          # Apply consistency alignment to intermediate decoder heads
