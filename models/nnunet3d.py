@@ -51,11 +51,13 @@ class nnUNet3D(nn.Module):
         num_classes: int = 6,
         base_filters: int = 32,
         has_dropout: bool = False,
+        deep_supervision: bool = False,
         **kwargs
     ):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
+        self.deep_supervision = deep_supervision
 
         # Filter capacity configuration across 5 stages
         f = [base_filters, base_filters * 2, base_filters * 4, base_filters * 8, min(base_filters * 10, 320)]
@@ -94,6 +96,12 @@ class nnUNet3D(nn.Module):
         # Final segmentation head (1x1x1 Conv)
         self.final_conv = nn.Conv3d(f[0], num_classes, kernel_size=1)
 
+        # Auxiliary heads for deep supervision (dec2, dec3, dec4)
+        if self.deep_supervision:
+            self.ds_conv2 = nn.Conv3d(f[1], num_classes, kernel_size=1)
+            self.ds_conv3 = nn.Conv3d(f[2], num_classes, kernel_size=1)
+            self.ds_conv4 = nn.Conv3d(f[3], num_classes, kernel_size=1)
+
         self._init_weights()
 
     def _init_weights(self):
@@ -109,7 +117,7 @@ class nnUNet3D(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor):
         # Encoder
         x1 = self.enc1(x)
         x2 = self.enc2(self.pool1(x1))
@@ -138,4 +146,14 @@ class nnUNet3D(nn.Module):
         d1 = self.dec1(d1)
 
         logits = self.final_conv(d1)
+
+        if self.deep_supervision and self.training:
+            return {
+                "seg": logits,
+                "aux": [
+                    self.ds_conv2(d2),  # Scale 0.5
+                    self.ds_conv3(d3),  # Scale 0.25
+                    self.ds_conv4(d4)   # Scale 0.125
+                ]
+            }
         return logits

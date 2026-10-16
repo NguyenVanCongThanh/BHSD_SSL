@@ -14,6 +14,7 @@ from core.registry import METHODS
 from methods.base_method import BaseMethod
 from utils.losses import mask_DiceLoss
 from utils.ramps import sigmoid_rampup
+from utils.deep_supervision import extract_multiscale_outputs, compute_ds_weights
 
 
 @METHODS.register("cps")
@@ -48,26 +49,63 @@ class CPSMethod(BaseMethod):
 
         self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
 
-    def _extract_logits(self, net_out) -> torch.Tensor:
-        if isinstance(net_out, (tuple, list)):
-            return net_out[1] if len(net_out) >= 2 and isinstance(net_out[1], torch.Tensor) and net_out[1].ndim >= 4 else net_out[0]
-        return net_out
+        # Deep supervision configuration
+        self.ds_enabled = bool(
+            getattr(self.cfg.model, 'deep_supervision', False) or
+            getattr(self.cfg.method, 'deep_supervision', False)
+        )
+        ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
+        if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
+            self.ds_weights = list(getattr(ds_cfg, 'weights', [0.533, 0.267, 0.133, 0.067]))
+        else:
+            self.ds_weights = [0.533, 0.267, 0.133, 0.067]
+
+    def _compute_multi_scale_sup_loss(self, main_lab: torch.Tensor, aux_labs: list, targets: torch.Tensor) -> Tuple[torch.Tensor, float]:
+        l_ce = F.cross_entropy(main_lab, targets)
+        l_dice = self.dice_loss(main_lab, targets)
+        l_main = (l_ce + l_dice) / 2.0
+
+        if not self.ds_enabled or len(aux_labs) == 0:
+            return l_main, 0.0
+
+        all_labs = [main_lab] + aux_labs
+        num_scales = len(all_labs)
+        if len(self.ds_weights) >= num_scales:
+            norm_w = [w / sum(self.ds_weights[:num_scales]) for w in self.ds_weights[:num_scales]]
+        else:
+            norm_w = compute_ds_weights(num_scales)
+
+        total_sup = norm_w[0] * l_main
+        ds_accum = 0.0
+        target_shape = targets.shape[1:]
+        for idx in range(1, num_scales):
+            aux = all_labs[idx]
+            if aux.shape[2:] != target_shape:
+                aux = F.interpolate(aux, size=target_shape, mode='trilinear', align_corners=False)
+            stage_loss = (F.cross_entropy(aux, targets) + self.dice_loss(aux, targets)) / 2.0
+            total_sup = total_sup + norm_w[idx] * stage_loss
+            ds_accum = ds_accum + norm_w[idx] * float(stage_loss.item())
+
+        return total_sup, ds_accum
 
     def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
         # Forward network 1 and network 2
-        logits1 = self._extract_logits(self.model(volume_batch))
-        logits2 = self._extract_logits(self.model2(volume_batch))
+        logits1, aux1 = extract_multiscale_outputs(self.model(volume_batch))
+        logits2, aux2 = extract_multiscale_outputs(self.model2(volume_batch))
 
-        # 1. Supervised loss on labeled partition
+        # 1. Supervised loss on labeled partition with optional deep supervision
         lab_logits1 = logits1[:self.labeled_bs]
         lab_logits2 = logits2[:self.labeled_bs]
         lab_targets = label_batch[:self.labeled_bs]
 
-        loss_sup1 = (F.cross_entropy(lab_logits1, lab_targets) + self.dice_loss(lab_logits1, lab_targets)) / 2.0
-        loss_sup2 = (F.cross_entropy(lab_logits2, lab_targets) + self.dice_loss(lab_logits2, lab_targets)) / 2.0
+        aux1_lab = [a[:self.labeled_bs] for a in aux1]
+        aux2_lab = [a[:self.labeled_bs] for a in aux2]
+
+        loss_sup1, ds_accum1 = self._compute_multi_scale_sup_loss(lab_logits1, aux1_lab, lab_targets)
+        loss_sup2, ds_accum2 = self._compute_multi_scale_sup_loss(lab_logits2, aux2_lab, lab_targets)
 
         # 2. Cross pseudo-labels from argmax predictions
         with torch.no_grad():
@@ -100,4 +138,8 @@ class CPSMethod(BaseMethod):
             "cps2": float(loss_cps2.item()),
             "weight": float(cur_weight)
         }
+        if self.ds_enabled and len(aux1) > 0:
+            loss_dict["ds1"] = float(ds_accum1)
+            loss_dict["ds2"] = float(ds_accum2)
+
         return total_loss1, loss_dict

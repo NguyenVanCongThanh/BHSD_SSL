@@ -96,9 +96,13 @@ def main():
         'num_classes': num_classes,
         'has_dropout': has_dropout
     }
-    # Optional parameters for VNet
+    # Optional parameters for models (e.g. VNet, nnUNet3D)
     if hasattr(cfg.model, 'normalization'):
         model_kwargs['normalization'] = cfg.model.normalization
+    if hasattr(cfg.model, 'deep_supervision'):
+        model_kwargs['deep_supervision'] = cfg.model.deep_supervision
+    if hasattr(cfg.model, 'base_filters'):
+        model_kwargs['base_filters'] = cfg.model.base_filters
 
     model = MODELS.build(model_name, **model_kwargs)
     logging.info(f"[Registry] Built model '{model_name}' successfully.")

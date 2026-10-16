@@ -11,6 +11,7 @@ model:
   in_channels: 1
   base_filters: 32
   has_dropout: false
+  deep_supervision: true              # Multi-scale auxiliary heads on intermediate decoder layers
 
 method:
   name: "mean_teacher"
@@ -26,6 +27,9 @@ method:
   consistency_type: "weighted_mse"    # Options: weighted_mse, dice, kl, mse
   bg_consistency_weight: 0.1          # Downweight background (class 0) to mitigate voxel imbalance
   confidence_thresh: 0.85             # Only enforce consistency on confident teacher predictions
+  deep_supervision:
+    weights: [0.533, 0.267, 0.133, 0.067] # Exponential decay weights for 4 scales (nnU-Net rule)
+    consistency_multiscale: true          # Apply consistency alignment to intermediate decoder heads
 
 data:
   batch_size: 4

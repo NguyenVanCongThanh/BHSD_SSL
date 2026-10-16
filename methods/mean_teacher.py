@@ -19,6 +19,7 @@ from core.distributed import is_main_process
 from methods.base_method import BaseMethod
 from utils.losses import mask_DiceLoss
 from utils.ramps import sigmoid_rampup
+from utils.deep_supervision import extract_multiscale_outputs, compute_ds_weights
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 
 
@@ -53,6 +54,19 @@ class MeanTeacherMethod(BaseMethod):
         self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.99))
         self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'weighted_mse')).lower()
         self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
+
+        # Deep supervision configuration
+        self.ds_enabled = bool(
+            getattr(self.cfg.model, 'deep_supervision', False) or
+            getattr(self.cfg.method, 'deep_supervision', False)
+        )
+        ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
+        if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
+            self.ds_weights = list(getattr(ds_cfg, 'weights', [0.533, 0.267, 0.133, 0.067]))
+            self.ds_consistency = bool(getattr(ds_cfg, 'consistency_multiscale', True))
+        else:
+            self.ds_weights = [0.533, 0.267, 0.133, 0.067]
+            self.ds_consistency = True
 
         # Background vs Foregrounds weight balance for consistency
         # Class 0: Background (98-99% volume) -> downweighted to 0.1
@@ -136,30 +150,64 @@ class MeanTeacherMethod(BaseMethod):
         with torch.amp.autocast('cuda', enabled=self.use_amp):
             # Forward student
             student_out = self.model(volume_batch)
-            if isinstance(student_out, (tuple, list)):
-                student_logits = student_out[1] if len(student_out) >= 2 and isinstance(student_out[1], torch.Tensor) and student_out[1].ndim >= 4 else student_out[0]
-            else:
-                student_logits = student_out
+            student_logits, student_aux = extract_multiscale_outputs(student_out)
 
             # Teacher perturbation: gentle Gaussian intensity noise + clipping
             with torch.no_grad():
                 noise = torch.clamp(torch.randn_like(volume_batch) * 0.05, -0.1, 0.1)
                 teacher_input = volume_batch + noise
                 teacher_out = self.ema_model(teacher_input)
-                if isinstance(teacher_out, (tuple, list)):
-                    teacher_logits = teacher_out[1] if len(teacher_out) >= 2 and isinstance(teacher_out[1], torch.Tensor) and teacher_out[1].ndim >= 4 else teacher_out[0]
-                else:
-                    teacher_logits = teacher_out
+                teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
 
             # Supervised loss on labeled samples (0..labeled_bs)
             lab_logits = student_logits[:self.labeled_bs]
             lab_targets = label_batch[:self.labeled_bs]
             loss_ce = F.cross_entropy(lab_logits, lab_targets)
             loss_dice = self.dice_loss(lab_logits, lab_targets)
-            loss_supervised = (loss_ce + loss_dice) / 2.0
+            loss_sup_main = (loss_ce + loss_dice) / 2.0
+
+            # Multi-scale deep supervision on labeled samples
+            loss_ds_accum = 0.0
+            if self.ds_enabled and len(student_aux) > 0:
+                all_student_lab = [lab_logits] + [aux[:self.labeled_bs] for aux in student_aux]
+                num_scales = len(all_student_lab)
+                if len(self.ds_weights) >= num_scales:
+                    norm_w = [w / sum(self.ds_weights[:num_scales]) for w in self.ds_weights[:num_scales]]
+                else:
+                    norm_w = compute_ds_weights(num_scales)
+
+                loss_supervised = norm_w[0] * loss_sup_main
+                target_shape = lab_targets.shape[1:]  # (D, H, W)
+                for idx in range(1, num_scales):
+                    aux_lab = all_student_lab[idx]
+                    if aux_lab.shape[2:] != target_shape:
+                        aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
+                    l_ce_aux = F.cross_entropy(aux_lab, lab_targets)
+                    l_dice_aux = self.dice_loss(aux_lab, lab_targets)
+                    l_stage = (l_ce_aux + l_dice_aux) / 2.0
+                    loss_supervised = loss_supervised + norm_w[idx] * l_stage
+                    loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
+            else:
+                loss_supervised = loss_sup_main
 
             # Consistency loss across full batch (labeled + unlabeled)
-            loss_consistency = self.compute_consistency_loss(student_logits, teacher_logits)
+            loss_cons_main = self.compute_consistency_loss(student_logits, teacher_logits)
+
+            if self.ds_enabled and self.ds_consistency and len(student_aux) > 0 and len(teacher_aux) == len(student_aux):
+                all_student = [student_logits] + student_aux
+                all_teacher = [teacher_logits] + teacher_aux
+                num_scales = len(all_student)
+                if len(self.ds_weights) >= num_scales:
+                    norm_w = [w / sum(self.ds_weights[:num_scales]) for w in self.ds_weights[:num_scales]]
+                else:
+                    norm_w = compute_ds_weights(num_scales)
+
+                loss_consistency = norm_w[0] * loss_cons_main
+                for idx in range(1, num_scales):
+                    l_stage_cons = self.compute_consistency_loss(all_student[idx], all_teacher[idx])
+                    loss_consistency = loss_consistency + norm_w[idx] * l_stage_cons
+            else:
+                loss_consistency = loss_cons_main
 
             # Dynamic rampup weight
             cur_epoch = iter_num / max(len(self.trainloader), 1)
@@ -177,6 +225,10 @@ class MeanTeacherMethod(BaseMethod):
             "consistency": float(loss_consistency.item()),
             "weight": float(consistency_weight)
         }
+        if self.ds_enabled and len(student_aux) > 0:
+            loss_dict["supervised_main"] = float(loss_sup_main.item())
+            loss_dict["deep_supervision"] = float(loss_ds_accum)
+
         return total_loss, loss_dict
 
     def save_checkpoint(
