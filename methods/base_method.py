@@ -300,7 +300,7 @@ class BaseMethod(abc.ABC):
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
         stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
         raw_net = self.model.module if hasattr(self.model, 'module') else self.model
-        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
+        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if (return_visuals and self.rank == 0) else 0
         return evaluate_dataset_sliding_window(
             model=raw_net,
             val_dataset=self.db_val,
@@ -311,8 +311,10 @@ class BaseMethod(abc.ABC):
             stride_xy=stride_xy,
             use_amp=True,
             device=self.device,
-            log_progress=True,
-            return_visual_samples=num_vis
+            log_progress=(self.rank == 0),
+            return_visual_samples=num_vis,
+            rank=self.rank,
+            world_size=self.world_size
         )
 
     @abc.abstractmethod
@@ -407,20 +409,32 @@ class BaseMethod(abc.ABC):
                     )
                     iter_t0 = time.time()
 
-                # Periodic Validation (Rank 0 only)
+                # Periodic Validation (All DDP Ranks evaluate in parallel)
                 if iter_num % val_interval == 0:
+                    val_visualize = bool(getattr(self.cfg.logging, 'val_visualize', True))
+                    should_vis = self.wandb_manager.enabled and val_visualize and is_main_process()
+
                     if is_main_process():
-                        msg = f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}..."
+                        num_gpus_str = f" across {self.world_size} GPU(s)" if self.world_size > 1 else ""
+                        msg = f"\n>>> [Validation] Periodic evaluation at Iter {iter_num}{num_gpus_str}..."
                         logging.info(msg)
                         print(msg, flush=True)
-                        val_visualize = bool(getattr(self.cfg.logging, 'val_visualize', True))
-                        should_vis = self.wandb_manager.enabled and val_visualize
 
-                        if should_vis:
-                            val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
-                            self.log_visual_samples(visual_samples, step=iter_num)
+                    # All ranks run sliding window inference in parallel
+                    if should_vis:
+                        val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
+                    else:
+                        val_res = self.validate(return_visuals=False)
+                        if isinstance(val_res, tuple) and len(val_res) == 3:
+                            val_mdice, per_class, visual_samples = val_res
                         else:
-                            val_mdice, per_class = self.validate(return_visuals=False)
+                            val_mdice, per_class = val_res
+                            visual_samples = []
+
+                    # Rank 0 handles all logging, artifacts, and checkpointing
+                    if is_main_process():
+                        if should_vis and visual_samples:
+                            self.log_visual_samples(visual_samples, step=iter_num)
 
                         class_names = self.class_names[1:]
                         summary_str = format_dice_summary(per_class, class_names)

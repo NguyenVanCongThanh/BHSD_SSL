@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
 
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
@@ -136,10 +137,13 @@ def evaluate_dataset_sliding_window(
     use_amp: bool = True,
     device: Optional[torch.device] = None,
     log_progress: bool = True,
-    return_visual_samples: int = 0
+    return_visual_samples: int = 0,
+    rank: Optional[int] = None,
+    world_size: Optional[int] = None
 ) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
+    Supports Distributed Multi-GPU validation: partitions cases across ranks and gathers results seamlessly.
     
     Args:
         model: Trained PyTorch model.
@@ -153,6 +157,8 @@ def evaluate_dataset_sliding_window(
         device: Target torch device.
         log_progress: Whether to print progress periodically.
         return_visual_samples: Number of visual sample records to return (0 = disable).
+        rank: Distributed process rank (auto-detected if None).
+        world_size: Total distributed processes (auto-detected if None).
         
     Returns:
         If return_visual_samples == 0:
@@ -160,23 +166,42 @@ def evaluate_dataset_sliding_window(
         If return_visual_samples > 0:
             Tuple of (mean_dice, per_class_dices, visual_records).
     """
+    is_distributed = dist.is_available() and dist.is_initialized()
+    if is_distributed:
+        if rank is None:
+            rank = dist.get_rank()
+        if world_size is None:
+            world_size = dist.get_world_size()
+    else:
+        rank = 0 if rank is None else rank
+        world_size = 1 if world_size is None else world_size
+
     model.eval()
-    all_case_dices: List[List[float]] = []
+    local_case_records: List[Tuple[int, List[float]]] = []
     visual_records: List[Dict[str, Any]] = []
     total_cases = len(val_dataset)
     t0 = time.time()
 
+    # Partition validation cases evenly among all ranks
+    if world_size > 1:
+        my_indices = [idx for idx in range(total_cases) if idx % world_size == rank]
+    else:
+        my_indices = list(range(total_cases))
+
+    num_my_cases = len(my_indices)
+
     if log_progress:
+        dist_info = f" | Multi-GPU: Rank {rank}/{world_size} evaluating {num_my_cases}/{total_cases} cases" if world_size > 1 else ""
         logging.info(
             f"  [Validation] Evaluating {total_cases} cases "
-            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp})..."
+            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp}){dist_info}..."
         )
 
-    for i in range(total_cases):
-        sample_item = val_dataset[i]
+    for step_i, case_idx in enumerate(my_indices):
+        sample_item = val_dataset[case_idx]
         sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
         image, label = sample['image'], sample['label']
-        case_name = sample.get('case', f"case_{i:03d}")
+        case_name = sample.get('case', f"case_{case_idx:03d}")
 
         if isinstance(image, torch.Tensor):
             image = image.squeeze().cpu().numpy()
@@ -196,15 +221,15 @@ def evaluate_dataset_sliding_window(
 
         if is_binary:
             dice = cal_binary_dice(pred, label)
-            all_case_dices.append([dice])
+            local_case_records.append((case_idx, [dice]))
             case_dice_metric = dice
         else:
             case_dices = cal_multiclass_dice(pred, label, num_classes=num_classes)
-            all_case_dices.append(case_dices)
+            local_case_records.append((case_idx, case_dices))
             case_dice_metric = case_dices
 
-        # Collect sample for visualization if requested
-        if return_visual_samples > 0 and len(visual_records) < return_visual_samples:
+        # Collect sample for visualization (rank 0 only)
+        if rank == 0 and return_visual_samples > 0 and len(visual_records) < return_visual_samples:
             visual_records.append({
                 'case': str(case_name),
                 'image': image,
@@ -213,15 +238,30 @@ def evaluate_dataset_sliding_window(
                 'dice': case_dice_metric
             })
 
-        if log_progress and ((i + 1) % 5 == 0 or (i + 1) == total_cases):
+        if log_progress and ((step_i + 1) % 5 == 0 or (step_i + 1) == num_my_cases):
             elapsed = time.time() - t0
-            pct = ((i + 1) / total_cases) * 100
-            msg = f"  [Validation Progress] Done {i + 1}/{total_cases} cases ({pct:.0f}%) | {elapsed:.1f}s"
+            pct = ((step_i + 1) / max(num_my_cases, 1)) * 100
+            prefix = f"[Rank {rank}] " if world_size > 1 else ""
+            msg = f"  {prefix}[Validation Progress] Done {step_i + 1}/{num_my_cases} cases ({pct:.0f}%) | {elapsed:.1f}s"
             logging.info(msg)
             print(msg, flush=True)
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+    # Synchronize and gather per-case Dice metrics across all DDP ranks
+    if is_distributed and world_size > 1:
+        gathered_lists: List[List[Tuple[int, List[float]]]] = [None for _ in range(world_size)]
+        dist.all_gather_object(gathered_lists, local_case_records)
+        all_flattened: List[Tuple[int, List[float]]] = []
+        for r_list in gathered_lists:
+            if r_list is not None:
+                all_flattened.extend(r_list)
+        # Sort by original case index to maintain deterministic ordering
+        all_flattened.sort(key=lambda x: x[0])
+        all_case_dices = [dice for _, dice in all_flattened]
+    else:
+        all_case_dices = [dice for _, dice in local_case_records]
 
     empty_classes = [0.0] * (1 if is_binary else num_classes - 1)
     if len(all_case_dices) == 0:

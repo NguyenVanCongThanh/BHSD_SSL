@@ -342,7 +342,7 @@ class MeanTeacherMethod(BaseMethod):
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
         stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
         self.ema_model.eval()
-        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
+        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if (return_visuals and self.rank == 0) else 0
 
         return evaluate_dataset_sliding_window(
             model=self.ema_model,
@@ -354,6 +354,8 @@ class MeanTeacherMethod(BaseMethod):
             stride_xy=stride_xy,
             use_amp=True,
             device=self.device,
-            log_progress=True,
-            return_visual_samples=num_vis
+            log_progress=(self.rank == 0),
+            return_visual_samples=num_vis,
+            rank=self.rank,
+            world_size=self.world_size
         )
