@@ -133,6 +133,7 @@ SECTION_MAPPING = {
 
     # Model section
     'model': 'model',
+    'num_stages': 'model',
 
     # Logging section
     'use_wandb': 'logging',

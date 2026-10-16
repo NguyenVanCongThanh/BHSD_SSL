@@ -103,6 +103,8 @@ def main():
         model_kwargs['deep_supervision'] = cfg.model.deep_supervision
     if hasattr(cfg.model, 'base_filters'):
         model_kwargs['base_filters'] = cfg.model.base_filters
+    if hasattr(cfg.model, 'num_stages'):
+        model_kwargs['num_stages'] = int(cfg.model.num_stages)
 
     model = MODELS.build(model_name, **model_kwargs)
     logging.info(f"[Registry] Built model '{model_name}' successfully.")

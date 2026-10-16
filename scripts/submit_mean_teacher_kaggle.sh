@@ -26,9 +26,15 @@ else
     KCMD="kaggle"
 fi
 
-# 2. Đồng bộ file notebook mới nhất từ scripts/ sang kaggle_mean_teacher/
-echo "[*] Đồng bộ file notebook..."
-cp "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
+# 2. Đồng bộ file notebook giữa scripts/ và kaggle_mean_teacher/ (giữ bản mới hơn)
+echo "[*] Kiểm tra đồng bộ file notebook..."
+if [ -f "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" ] && [ "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" -nt "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" ]; then
+    echo "[*] Đồng bộ file notebook mới hơn từ scripts/ sang kaggle_mean_teacher/..."
+    cp "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
+elif [ -f "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" ] && [ "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" -nt "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" ]; then
+    echo "[*] Đồng bộ file notebook mới hơn từ kaggle_mean_teacher/ sang scripts/..."
+    cp "$KAGGLE_DIR/kaggle_bhsd_mean_teacher_dual_gpu.ipynb" "$PROJECT_ROOT/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
+fi
 
 # 3. Kiểm tra file metadata
 if [ ! -f "$KAGGLE_DIR/kernel-metadata.json" ]; then

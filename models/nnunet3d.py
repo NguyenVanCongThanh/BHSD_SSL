@@ -37,31 +37,53 @@ class nnUNet3D(nn.Module):
     """
     Standard 5-stage nnU-Net 3D for Volumetric CT Segmentation.
 
-    Downsampling factor: 16x spatially (2^4 across 4 pooling layers)
-    For BHSD (32, 160, 160):
-      - Stage 1 (enc1): 32 -> (32, 160, 160)
-      - Stage 2 (enc2): 64 -> (16, 80, 80)
-      - Stage 3 (enc3): 128 -> (8, 40, 40)
-      - Stage 4 (enc4): 256 -> (4, 20, 20)
-      - Stage 5 (bottleneck): 320 -> (2, 10, 10)
+    Downsampling factor: 16x (5 stages) or 32x (6 stages) spatially.
+    For BHSD (32, 160, 160) or (32, 192, 192):
+      - Stage 1 (enc1): 32 -> (32, H, W)
+      - Stage 2 (enc2): 64 -> (16, H/2, W/2)
+      - Stage 3 (enc3): 128 -> (8, H/4, W/4)
+      - Stage 4 (enc4): 256 -> (4, H/8, W/8)
+      - Stage 5:
+          If 5-stage: bottleneck 320 -> (2, H/16, W/16)
+          If 6-stage: enc5 320 -> (2, H/16, W/16), pool5 (1,2,2) -> (2, H/32, W/32), bottleneck 320
     """
     def __init__(
         self,
         in_channels: int = 1,
         num_classes: int = 6,
         base_filters: int = 32,
+        num_stages: int = 5,
         has_dropout: bool = False,
         deep_supervision: bool = False,
         **kwargs
     ):
         super().__init__()
+        assert num_stages in (5, 6), f"num_stages must be 5 or 6, got {num_stages}"
         self.in_channels = in_channels
         self.num_classes = num_classes
+        self.num_stages = num_stages
         self.deep_supervision = deep_supervision
 
-        # Filter capacity configuration across 5 stages
-        f = [base_filters, base_filters * 2, base_filters * 4, base_filters * 8, min(base_filters * 10, 320)]
-        # e.g., base=32 -> [32, 64, 128, 256, 320]
+        # Filter capacity configuration across stages
+        if num_stages == 6:
+            f = [
+                base_filters,
+                base_filters * 2,
+                base_filters * 4,
+                base_filters * 8,
+                min(base_filters * 10, 320),
+                min(base_filters * 10, 320)
+            ]
+        else:
+            f = [
+                base_filters,
+                base_filters * 2,
+                base_filters * 4,
+                base_filters * 8,
+                min(base_filters * 10, 320)
+            ]
+        # e.g., base=32 -> 5 stages: [32, 64, 128, 256, 320]
+        #                  6 stages: [32, 64, 128, 256, 320, 320]
 
         # Encoder stages
         self.enc1 = nnUNetBlock(in_channels, f[0])
@@ -76,12 +98,21 @@ class nnUNet3D(nn.Module):
         self.enc4 = nnUNetBlock(f[2], f[3])
         self.pool4 = nn.MaxPool3d(kernel_size=2, stride=2)
 
-        # Bottleneck (Stage 5)
-        self.bottleneck = nnUNetBlock(f[3], f[4])
+        if self.num_stages == 6:
+            self.enc5 = nnUNetBlock(f[3], f[4])
+            # Anisotropic pooling preserves z-depth context when D reaches 2
+            self.pool5 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
+            self.bottleneck = nnUNetBlock(f[4], f[5])
+            self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=(1, 2, 2), stride=(1, 2, 2))
+            self.dec5 = nnUNetBlock(f[4] * 2, f[4])
+        else:
+            self.bottleneck = nnUNetBlock(f[3], f[4])
+
         self.dropout = nn.Dropout3d(p=0.2) if has_dropout else nn.Identity()
 
         # Decoder stages (Transposed Conv + Concat Skip + Block)
-        self.up4 = nn.ConvTranspose3d(f[4], f[3], kernel_size=2, stride=2)
+        dec4_in = f[4] if self.num_stages == 6 else f[4]
+        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=2, stride=2)
         self.dec4 = nnUNetBlock(f[3] * 2, f[3])
 
         self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=2, stride=2)
@@ -96,11 +127,13 @@ class nnUNet3D(nn.Module):
         # Final segmentation head (1x1x1 Conv)
         self.final_conv = nn.Conv3d(f[0], num_classes, kernel_size=1)
 
-        # Auxiliary heads for deep supervision (dec2, dec3, dec4)
+        # Auxiliary heads for deep supervision
         if self.deep_supervision:
             self.ds_conv2 = nn.Conv3d(f[1], num_classes, kernel_size=1)
             self.ds_conv3 = nn.Conv3d(f[2], num_classes, kernel_size=1)
             self.ds_conv4 = nn.Conv3d(f[3], num_classes, kernel_size=1)
+            if self.num_stages == 6:
+                self.ds_conv5 = nn.Conv3d(f[4], num_classes, kernel_size=1)
 
         self._init_weights()
 
@@ -124,14 +157,25 @@ class nnUNet3D(nn.Module):
         x3 = self.enc3(self.pool2(x2))
         x4 = self.enc4(self.pool3(x3))
 
-        # Bottleneck
-        b = self.bottleneck(self.pool4(x4))
-        b = self.dropout(b)
+        if self.num_stages == 6:
+            x5 = self.enc5(self.pool4(x4))
+            b = self.bottleneck(self.pool5(x5))
+            b = self.dropout(b)
 
-        # Decoder
-        d4 = self.up4(b)
-        d4 = torch.cat([d4, x4], dim=1)
-        d4 = self.dec4(d4)
+            d5 = self.up5(b)
+            d5 = torch.cat([d5, x5], dim=1)
+            d5 = self.dec5(d5)
+
+            d4 = self.up4(d5)
+            d4 = torch.cat([d4, x4], dim=1)
+            d4 = self.dec4(d4)
+        else:
+            b = self.bottleneck(self.pool4(x4))
+            b = self.dropout(b)
+
+            d4 = self.up4(b)
+            d4 = torch.cat([d4, x4], dim=1)
+            d4 = self.dec4(d4)
 
         d3 = self.up3(d4)
         d3 = torch.cat([d3, x3], dim=1)
@@ -148,12 +192,15 @@ class nnUNet3D(nn.Module):
         logits = self.final_conv(d1)
 
         if self.deep_supervision and (self.training or return_all_scales):
+            aux = [
+                self.ds_conv2(d2),  # Scale 0.5
+                self.ds_conv3(d3),  # Scale 0.25
+                self.ds_conv4(d4)   # Scale 0.125
+            ]
+            if self.num_stages == 6:
+                aux.append(self.ds_conv5(d5))  # Scale 0.0625
             return {
                 "seg": logits,
-                "aux": [
-                    self.ds_conv2(d2),  # Scale 0.5
-                    self.ds_conv3(d3),  # Scale 0.25
-                    self.ds_conv4(d4)   # Scale 0.125
-                ]
+                "aux": aux
             }
         return logits

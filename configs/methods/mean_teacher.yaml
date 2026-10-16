@@ -7,9 +7,10 @@ experiment:
   amp: true                           # Mixed precision (FP16) training with GradScaler
 
 model:
-  name: "nnunet3d"                    # 5-stage nnU-Net 3D with InstanceNorm & LeakyReLU
+  name: "nnunet3d"                    # 6-stage nnU-Net 3D with InstanceNorm & LeakyReLU
   in_channels: 1
   base_filters: 32
+  num_stages: 6                       # 6 stages (deep semantic bottleneck 2x6x6, 32x downsampled)
   has_dropout: false
   deep_supervision: true              # Multi-scale auxiliary heads on intermediate decoder layers
 
@@ -28,14 +29,14 @@ method:
   bg_consistency_weight: 0.1          # Downweight background (class 0) to mitigate voxel imbalance
   confidence_thresh: 0.85             # Only enforce consistency on confident teacher predictions
   deep_supervision:
-    weights: [0.533, 0.267, 0.133, 0.067] # Exponential decay weights for 4 scales (nnU-Net rule)
+    weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 scales
     consistency_multiscale: true          # Apply consistency alignment to intermediate decoder heads
 
 data:
-  batch_size: 4
+  batch_size: 6                       # 2 labeled + 4 unlabeled (triples unlabeled SSL exposure)
   labeled_bs: 2
   labelnum: 154
-  patch_size: [32, 160, 160]
+  patch_size: [32, 192, 192]          # +44% spatial context, full brain coverage on axial plane
 
 logging:
   val_interval: 200
