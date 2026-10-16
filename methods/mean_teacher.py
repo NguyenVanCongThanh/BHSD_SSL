@@ -156,7 +156,10 @@ class MeanTeacherMethod(BaseMethod):
             with torch.no_grad():
                 noise = torch.clamp(torch.randn_like(volume_batch) * 0.05, -0.1, 0.1)
                 teacher_input = volume_batch + noise
-                teacher_out = self.ema_model(teacher_input)
+                if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
+                    teacher_out = self.ema_model(teacher_input, return_all_scales=True)
+                else:
+                    teacher_out = self.ema_model(teacher_input)
                 teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
 
             # Supervised loss on labeled samples (0..labeled_bs)

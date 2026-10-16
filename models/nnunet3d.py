@@ -117,7 +117,7 @@ class nnUNet3D(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, return_all_scales: bool = False):
         # Encoder
         x1 = self.enc1(x)
         x2 = self.enc2(self.pool1(x1))
@@ -147,7 +147,7 @@ class nnUNet3D(nn.Module):
 
         logits = self.final_conv(d1)
 
-        if self.deep_supervision and self.training:
+        if self.deep_supervision and (self.training or return_all_scales):
             return {
                 "seg": logits,
                 "aux": [
