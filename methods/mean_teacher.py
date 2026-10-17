@@ -247,24 +247,24 @@ class MeanTeacherMethod(BaseMethod):
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
-        # 1. Teacher forward on clean, unperturbed volume for high-fidelity pseudo-targets
-        with torch.no_grad():
-            if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
-                teacher_out = self.ema_model(volume_batch, return_all_scales=True)
-            else:
-                teacher_out = self.ema_model(volume_batch)
-            teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
-
-        # 2. Asymmetric student perturbation (Gaussian noise + intensity scaling)
-        if self.perturb_student:
-            noise = torch.randn_like(volume_batch) * self.student_noise_std
-            scale = 1.0 + (torch.rand((volume_batch.shape[0], 1, 1, 1, 1), device=self.device) * 2.0 - 1.0) * self.student_intensity_scale
-            student_input = torch.clamp(volume_batch * scale + noise, volume_batch.min(), volume_batch.max())
-        else:
-            student_input = volume_batch
-
         with torch.amp.autocast('cuda', enabled=self.use_amp):
-            # Forward student on perturbed input
+            # 1. Teacher forward on clean, unperturbed volume with AMP (FP16 Tensor Cores)
+            with torch.no_grad():
+                if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
+                    teacher_out = self.ema_model(volume_batch, return_all_scales=True)
+                else:
+                    teacher_out = self.ema_model(volume_batch)
+                teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
+
+            # 2. Asymmetric student perturbation (pure GPU tensors, zero CPU-GPU synchronization)
+            if self.perturb_student:
+                noise = torch.randn_like(volume_batch) * self.student_noise_std
+                scale = 1.0 + (torch.rand((volume_batch.shape[0], 1, 1, 1, 1), device=self.device) * 2.0 - 1.0) * self.student_intensity_scale
+                student_input = volume_batch * scale + noise
+            else:
+                student_input = volume_batch
+
+            # 3. Forward student on perturbed input
             student_out = self.model(student_input)
             student_logits, student_aux = extract_multiscale_outputs(student_out)
 
