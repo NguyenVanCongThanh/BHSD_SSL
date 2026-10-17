@@ -207,9 +207,9 @@ class PICKMethod(BaseMethod):
                         should_vis = self.wandb_manager.enabled and val_visualize
                         if should_vis:
                             val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
-                            self.log_visual_samples(visual_samples, step=iter_num)
                         else:
                             val_mdice, per_class = self.validate(return_visuals=False)
+                            visual_samples = []
                         summary_str = format_dice_summary(per_class, self.class_names[1:])
                         logging.info(f"<<< [Pre-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
 
@@ -254,6 +254,12 @@ class PICKMethod(BaseMethod):
                         }
                         for c, d in enumerate(per_class):
                             val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+
+                        if should_vis and visual_samples:
+                            wandb_images = self.build_visual_samples(visual_samples)
+                            if wandb_images:
+                                val_metrics['val/predictions'] = wandb_images
+
                         self.wandb_manager.log_metrics(val_metrics, step=iter_num)
 
                     if self.is_ddp:
@@ -466,9 +472,9 @@ class PICKMethod(BaseMethod):
                         should_vis = self.wandb_manager.enabled and val_visualize
                         if should_vis:
                             val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
-                            self.log_visual_samples(visual_samples, step=iter_num)
                         else:
                             val_mdice, per_class = self.validate(return_visuals=False)
+                            visual_samples = []
                         summary_str = format_dice_summary(per_class, self.class_names[1:])
                         logging.info(f"<<< [Self-train Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}")
 
@@ -514,6 +520,12 @@ class PICKMethod(BaseMethod):
                         }
                         for c, d in enumerate(per_class):
                             val_metrics[f'val/dice_{self.class_names[c+1]}'] = d
+
+                        if should_vis and visual_samples:
+                            wandb_images = self.build_visual_samples(visual_samples)
+                            if wandb_images:
+                                val_metrics['val/predictions'] = wandb_images
+
                         self.wandb_manager.log_metrics(val_metrics, step=global_step)
 
                     if self.is_ddp:

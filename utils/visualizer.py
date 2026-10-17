@@ -6,42 +6,63 @@ and construct interactive W&B Segmentation Masks and Comparison Panels.
 
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
+import torch
+import torch.nn.functional as F
+
+
+def standardize_2d_slice(
+    arr: np.ndarray,
+    target_shape: Tuple[int, int] = (512, 512),
+    is_mask: bool = False
+) -> np.ndarray:
+    """
+    Ensure every 2D slice has identical spatial resolution (512, 512)
+    to completely eliminate W&B UI 'Images sizes do not match' warnings
+    and ensure smooth step-by-step slider transitions.
+    """
+    if arr.shape == target_shape:
+        return arr
+
+    t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float()
+    mode = 'nearest' if is_mask else 'bilinear'
+    align_corners = False if mode == 'bilinear' else None
+    t_resized = F.interpolate(t, size=target_shape, mode=mode, align_corners=align_corners)
+    out = t_resized.squeeze(0).squeeze(0).numpy()
+    return out.astype(np.uint8) if is_mask else out.astype(np.float32)
 
 
 def extract_best_slice(
     image_3d: np.ndarray,
     mask_3d: np.ndarray,
-    pred_3d: np.ndarray
+    pred_3d: np.ndarray,
+    target_shape: Tuple[int, int] = (512, 512)
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """
     Select the most clinically informative axial slice (Z plane) containing
     the maximum amount of lesion/pathology (foreground pixels).
-    Falls back to middle slice if volume has no positive annotations.
-
-    Args:
-        image_3d: 3D CT/MRI array of shape (Z, Y, X).
-        mask_3d: Ground truth discrete mask of shape (Z, Y, X).
-        pred_3d: Predicted discrete mask of shape (Z, Y, X).
-
-    Returns:
-        slice_img: 2D normalized image of shape (Y, X) in range [0, 1].
-        slice_mask: 2D ground truth mask of shape (Y, X).
-        slice_pred: 2D predicted mask of shape (Y, X).
-        best_z: Selected Z index.
+    
+    Crucial fix for W&B:
+    1. Prioritizes Ground Truth lesion center so the slice index Z remains
+       100% CONSTANT across all validation iterations (200, 400, 600... 12000),
+       allowing doctors/researchers to watch the exact same lesion slice improve.
+    2. Enforces consistent (512, 512) resolution across all cases so W&B
+       can build a uniform media gallery without display corruption.
     """
     z_len = mask_3d.shape[0]
 
     # Count foreground voxels per slice
     gt_fg_counts = (mask_3d > 0).sum(axis=(1, 2))
     pred_fg_counts = (pred_3d > 0).sum(axis=(1, 2))
-    total_fg_counts = gt_fg_counts + pred_fg_counts
 
-    if total_fg_counts.max() > 0:
-        best_z = int(np.argmax(total_fg_counts))
+    # Fix: ground truth is deterministic and static across all training steps!
+    if gt_fg_counts.max() > 0:
+        best_z = int(np.argmax(gt_fg_counts))
+    elif pred_fg_counts.max() > 0:
+        best_z = int(np.argmax(pred_fg_counts))
     else:
         best_z = z_len // 2
 
-    # Extract slices
+    # Extract slices at selected Z
     slice_img = image_3d[best_z].astype(np.float32)
     slice_mask = mask_3d[best_z].astype(np.uint8)
     slice_pred = pred_3d[best_z].astype(np.uint8)
@@ -52,6 +73,11 @@ def extract_best_slice(
         slice_img = (slice_img - min_val) / (max_val - min_val)
     else:
         slice_img = np.zeros_like(slice_img)
+
+    # Standardize dimensions to target_shape (512, 512)
+    slice_img = standardize_2d_slice(slice_img, target_shape=target_shape, is_mask=False)
+    slice_mask = standardize_2d_slice(slice_mask, target_shape=target_shape, is_mask=True)
+    slice_pred = standardize_2d_slice(slice_pred, target_shape=target_shape, is_mask=True)
 
     return slice_img, slice_mask, slice_pred, best_z
 

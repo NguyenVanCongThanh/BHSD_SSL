@@ -287,14 +287,19 @@ class BaseMethod(abc.ABC):
         best_dice = state.get('best_dice', 0.0)
         return iter_num, best_dice
 
-    def log_visual_samples(self, visual_records: List[Dict[str, Any]], step: int):
-        """Build and log interactive segmentation masks to W&B."""
+    def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
+        """Build interactive segmentation masks for W&B."""
         if not self.wandb_manager.enabled or not visual_records:
-            return
+            return []
         from utils.visualizer import create_wandb_segmentation_samples
         class_labels = {i: name for i, name in enumerate(self.class_names)}
-        wandb_images = create_wandb_segmentation_samples(visual_records, class_labels)
-        self.wandb_manager.log_visual_predictions(wandb_images, step=step)
+        return create_wandb_segmentation_samples(visual_records, class_labels)
+
+    def log_visual_samples(self, visual_records: List[Dict[str, Any]], step: int):
+        """Build and log interactive segmentation masks to W&B."""
+        wandb_images = self.build_visual_samples(visual_records)
+        if wandb_images:
+            self.wandb_manager.log_visual_predictions(wandb_images, step=step)
 
     def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
         stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
@@ -433,9 +438,6 @@ class BaseMethod(abc.ABC):
 
                     # Rank 0 handles all logging, artifacts, and checkpointing
                     if is_main_process():
-                        if should_vis and visual_samples:
-                            self.log_visual_samples(visual_samples, step=iter_num)
-
                         class_names = self.class_names[1:]
                         summary_str = format_dice_summary(per_class, class_names)
                         end_msg = f"<<< [Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
@@ -476,9 +478,17 @@ class BaseMethod(abc.ABC):
                             aliases=["latest"]
                         )
 
+                        # Atomic logging: bundle metrics + visual predictions in the SAME payload
+                        # to eliminate W&B UI step-slider desync when sliding back through history
                         val_log = {'val/mDice': val_mdice, 'val/best_mDice': best_dice}
                         for c, d in enumerate(per_class):
                             val_log[f'val/dice_{class_names[c]}'] = d
+
+                        if should_vis and visual_samples:
+                            wandb_images = self.build_visual_samples(visual_samples)
+                            if wandb_images:
+                                val_log['val/predictions'] = wandb_images
+
                         self.wandb_manager.log_metrics(val_log, step=iter_num)
 
                     if self.is_ddp:
@@ -493,10 +503,12 @@ class BaseMethod(abc.ABC):
                 break
 
         self.save_checkpoint(latest_pth, iter_num, best_dice, 'train')
-        self.writer.close()
+        if self.writer is not None:
+            self.writer.close()
         self.wandb_manager.update_summary({
             'final_mDice': best_dice,
             'completed_iters': iter_num
         })
         self.wandb_manager.finish()
-        logging.info(f"Training finished | Best mDice: {best_dice:.4f}")
+        if is_main_process():
+            logging.info(f"Training finished | Best mDice: {best_dice:.4f}")

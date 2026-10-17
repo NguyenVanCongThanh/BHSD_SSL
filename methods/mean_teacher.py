@@ -6,6 +6,7 @@ Weight-averaged consistency targets improve semi-supervised deep learning result
 Adapted & Optimized for 3D Brain Hemorrhage Segmentation (Extreme class imbalance, 6 classes, DDP compatible).
 """
 
+import math
 from typing import Dict, Tuple, List, Optional, Union, Any
 import os
 import copy
@@ -23,12 +24,23 @@ from utils.deep_supervision import extract_multiscale_outputs, compute_ds_weight
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 
 
-def update_ema_variables(model: nn.Module, ema_model: nn.Module, alpha: float, global_step: int = -1):
+def update_ema_variables(
+    model: nn.Module,
+    ema_model: nn.Module,
+    alpha: float,
+    global_step: int = -1,
+    max_steps: int = 12000,
+    schedule: str = 'cosine'
+):
     """
     Update EMA teacher parameters from student model parameters.
-    Supports dynamic alpha rampup early on if global_step is provided.
+    Supports dynamic alpha rampup early on or cosine schedule across training.
     """
-    if global_step >= 0:
+    if schedule == 'cosine' and global_step >= 0 and max_steps > 0:
+        min_alpha = 0.99
+        progress = min(max(global_step / max_steps, 0.0), 1.0)
+        actual_alpha = min_alpha + (alpha - min_alpha) * 0.5 * (1.0 - math.cos(math.pi * progress))
+    elif global_step >= 0:
         actual_alpha = min(1.0 - 1.0 / (global_step + 1), alpha)
     else:
         actual_alpha = alpha
@@ -43,17 +55,32 @@ class MeanTeacherMethod(BaseMethod):
     Enhanced Mean Teacher SSL Framework for 3D Multiclass Segmentation:
     - Teacher model updated via Exponential Moving Average (EMA).
     - Class-balanced & Confidence-thresholded consistency loss to handle severe voxel imbalance.
+    - Asymmetric input perturbation on Student to eliminate confirmation bias.
+    - Late-stage consistency rampdown to preserve rare class features (IVH).
     - Full DDP and sliding-window validation on both Student & Teacher models.
     """
     def __init__(self, model: nn.Module, cfg):
         super(MeanTeacherMethod, self).__init__(model, cfg)
 
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
-        self.consistency = float(getattr(self.cfg.method, 'consistency', 0.2))
+        self.consistency = float(getattr(self.cfg.method, 'consistency', 0.15))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 2000.0))
         self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.999))
-        self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'weighted_mse')).lower()
-        self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
+        self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'hybrid')).lower()
+        self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.75))
+
+        # Asymmetric student perturbation to avoid confirmation bias
+        self.perturb_student = bool(getattr(self.cfg.method, 'perturb_student', True))
+        self.student_noise_std = float(getattr(self.cfg.method, 'student_noise_std', 0.02))
+        self.student_intensity_scale = float(getattr(self.cfg.method, 'student_intensity_scale', 0.05))
+
+        # Late-stage consistency rampdown (preserves rare classes such as IVH from drifting)
+        max_iter = int(getattr(self.cfg.method, 'max_iteration', 12000))
+        self.consistency_rampdown_start = int(getattr(self.cfg.method, 'consistency_rampdown_start', int(max_iter * 0.65)))
+        self.consistency_min_factor = float(getattr(self.cfg.method, 'consistency_min_factor', 0.25))
+
+        # EMA decay schedule: 'cosine' or 'step'
+        self.ema_schedule = str(getattr(self.cfg.method, 'ema_schedule', 'cosine')).lower()
 
         # Deep supervision configuration
         self.ds_enabled = bool(
@@ -94,20 +121,46 @@ class MeanTeacherMethod(BaseMethod):
         return self.model
 
     def get_current_consistency_weight(self, iter_num: int, epoch: float) -> float:
-        """Sigmoid rampup curve: supports either step-based (>100) or epoch-based rampup."""
+        """
+        Sigmoid rampup curve + smooth cosine rampdown schedule at late training stage.
+        - Rampup: 0 -> consistency over consistency_rampup iters.
+        - Plateau: consistency weight maintained.
+        - Rampdown: from consistency_rampdown_start to max_iterations,
+                    smoothly decays consistency to protect rare classes (IVH) from pseudo-label drift.
+        """
         if self.consistency_rampup <= 0:
-            return self.consistency
-        if self.consistency_rampup > 100:
-            return self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
-        return self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+            base_w = self.consistency
+        elif self.consistency_rampup > 100:
+            base_w = self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
+        else:
+            base_w = self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
 
-    def compute_soft_dice_consistency(self, student_prob: torch.Tensor, teacher_prob: torch.Tensor) -> torch.Tensor:
+        max_iterations = int(getattr(self.cfg.method, 'max_iteration', 12000))
+        if self.consistency_rampdown_start > 0 and iter_num > self.consistency_rampdown_start:
+            progress = (iter_num - self.consistency_rampdown_start) / max(max_iterations - self.consistency_rampdown_start, 1)
+            progress = min(max(progress, 0.0), 1.0)
+            decay_factor = self.consistency_min_factor + (1.0 - self.consistency_min_factor) * 0.5 * (1.0 + math.cos(math.pi * progress))
+            return base_w * decay_factor
+
+        return base_w
+
+    def compute_soft_dice_consistency(
+        self,
+        student_prob: torch.Tensor,
+        teacher_prob: torch.Tensor,
+        conf_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         Continuous Probability-to-Probability Soft Dice Consistency on Foregrounds (classes 1..5).
         Completely ignores Background (class 0) to guarantee zero confirmation bias towards background.
+        Optionally weights by teacher confidence mask to avoid hallucinated predictions.
         """
         fg_s = student_prob[:, 1:] if self.num_classes > 1 and not self.is_binary else student_prob
         fg_t = teacher_prob[:, 1:] if self.num_classes > 1 and not self.is_binary else teacher_prob
+
+        if conf_mask is not None:
+            fg_s = fg_s * conf_mask
+            fg_t = fg_t * conf_mask
 
         # Spatial sum over 3D volume (D, H, W)
         dims = (2, 3, 4)
@@ -123,22 +176,35 @@ class MeanTeacherMethod(BaseMethod):
         """
         Compute consistency loss with class balancing and foreground-focused metrics.
         Supports:
-        - 'dice': Continuous Soft Dice on foreground lesions (0% background impact, immune to collapse).
-        - 'hybrid': 50% Soft Dice + 50% Class-balanced Channel MSE.
+        - 'hybrid': 50% Soft Dice on foreground + 50% Class-balanced Channel MSE.
+        - 'dice': Continuous Soft Dice on foreground lesions.
         - 'weighted_mse': Class-balanced channel MSE (downweights background).
         """
         student_prob = F.softmax(student_logits, dim=1)
         teacher_prob = F.softmax(teacher_logits, dim=1)
 
-        # 1. Pure Continuous Soft Dice on Foreground Classes (Recommended for extreme class imbalance)
+        # Confidence thresholding (if enabled > 0.0)
+        if self.confidence_thresh > 0.0:
+            max_prob, _ = torch.max(teacher_prob, dim=1, keepdim=True)
+            conf_mask = (max_prob >= self.confidence_thresh).float()
+        else:
+            conf_mask = None
+
+        # 1. Pure Continuous Soft Dice on Foreground Classes
         if self.consistency_type == 'dice':
-            return self.compute_soft_dice_consistency(student_prob, teacher_prob)
+            return self.compute_soft_dice_consistency(student_prob, teacher_prob, conf_mask=conf_mask)
 
         # 2. Hybrid Consistency: Soft Dice + Class-balanced Channel MSE
         elif self.consistency_type == 'hybrid':
-            loss_dice = self.compute_soft_dice_consistency(student_prob, teacher_prob)
+            loss_dice = self.compute_soft_dice_consistency(student_prob, teacher_prob, conf_mask=conf_mask)
             sq_diff = (student_prob - teacher_prob) ** 2
-            mse_per_class = sq_diff.mean(dim=(0, 2, 3, 4))
+            if conf_mask is not None:
+                sq_diff = sq_diff * conf_mask
+                mask_sum = conf_mask.sum(dim=(0, 2, 3, 4)) + 1e-6
+                mse_per_class = sq_diff.sum(dim=(0, 2, 3, 4)) / mask_sum
+            else:
+                mse_per_class = sq_diff.mean(dim=(0, 2, 3, 4))
+
             if self.class_weights is not None:
                 w = self.class_weights.view(-1)
                 loss_mse = (mse_per_class * w).sum() / (w.sum() + 1e-6)
@@ -146,15 +212,8 @@ class MeanTeacherMethod(BaseMethod):
                 loss_mse = mse_per_class.mean()
             return 0.5 * loss_mse + 0.5 * loss_dice
 
-        # 3. Confidence thresholding (if enabled > 0.0)
-        if self.confidence_thresh > 0.0:
-            max_prob, _ = torch.max(teacher_prob, dim=1, keepdim=True)
-            conf_mask = (max_prob >= self.confidence_thresh).float()
-        else:
-            conf_mask = None
-
-        # 4. Class-balanced Channel MSE
-        if self.consistency_type in ('weighted_mse', 'mse', 'class_balanced_mse'):
+        # 3. Class-balanced Channel MSE
+        elif self.consistency_type in ('weighted_mse', 'mse', 'class_balanced_mse'):
             sq_diff = (student_prob - teacher_prob) ** 2
 
             if conf_mask is not None:
@@ -169,34 +228,45 @@ class MeanTeacherMethod(BaseMethod):
                 loss_cons = (mse_per_class * w).sum() / (w.sum() + 1e-6)
             else:
                 loss_cons = mse_per_class.mean()
+            return loss_cons
 
         elif self.consistency_type == 'kl':
             # KL divergence: Teacher -> Student
-            loss_cons = F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='batchmean')
+            if conf_mask is not None:
+                kl = F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='none')
+                return (kl * conf_mask).sum() / (conf_mask.sum() + 1e-6)
+            return F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='batchmean')
 
         else:
-            loss_cons = ((student_prob - teacher_prob) ** 2).mean()
-
-        return loss_cons
+            sq_diff = (student_prob - teacher_prob) ** 2
+            if conf_mask is not None:
+                return (sq_diff * conf_mask).sum() / (conf_mask.sum() + 1e-6)
+            return sq_diff.mean()
 
     def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
-            # Forward student
-            student_out = self.model(volume_batch)
-            student_logits, student_aux = extract_multiscale_outputs(student_out)
+        # 1. Teacher forward on clean, unperturbed volume for high-fidelity pseudo-targets
+        with torch.no_grad():
+            if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
+                teacher_out = self.ema_model(volume_batch, return_all_scales=True)
+            else:
+                teacher_out = self.ema_model(volume_batch)
+            teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
 
-            # Teacher perturbation: gentle Gaussian intensity noise + clipping
-            with torch.no_grad():
-                noise = torch.clamp(torch.randn_like(volume_batch) * 0.05, -0.1, 0.1)
-                teacher_input = volume_batch + noise
-                if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
-                    teacher_out = self.ema_model(teacher_input, return_all_scales=True)
-                else:
-                    teacher_out = self.ema_model(teacher_input)
-                teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
+        # 2. Asymmetric student perturbation (Gaussian noise + intensity scaling)
+        if self.perturb_student:
+            noise = torch.randn_like(volume_batch) * self.student_noise_std
+            scale = 1.0 + (torch.rand((volume_batch.shape[0], 1, 1, 1, 1), device=self.device) * 2.0 - 1.0) * self.student_intensity_scale
+            student_input = torch.clamp(volume_batch * scale + noise, volume_batch.min(), volume_batch.max())
+        else:
+            student_input = volume_batch
+
+        with torch.amp.autocast('cuda', enabled=self.use_amp):
+            # Forward student on perturbed input
+            student_out = self.model(student_input)
+            student_logits, student_aux = extract_multiscale_outputs(student_out)
 
             # Supervised loss on labeled samples (0..labeled_bs)
             lab_logits = student_logits[:self.labeled_bs]
@@ -248,15 +318,16 @@ class MeanTeacherMethod(BaseMethod):
             else:
                 loss_consistency = loss_cons_main
 
-            # Dynamic rampup weight (supports iteration-based or epoch-based)
+            # Dynamic rampup + rampdown weight
             cur_epoch = iter_num / max(len(self.trainloader), 1)
             consistency_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
 
             total_loss = loss_supervised + consistency_weight * loss_consistency
 
-        # EMA update to Teacher
+        # EMA update to Teacher with cosine decay schedule
+        max_iter = int(getattr(self.cfg.method, 'max_iteration', 12000))
         raw_net = self.get_raw_model()
-        update_ema_variables(raw_net, self.ema_model, self.ema_decay, global_step=iter_num)
+        update_ema_variables(raw_net, self.ema_model, self.ema_decay, global_step=iter_num, max_steps=max_iter, schedule=self.ema_schedule)
 
         loss_dict = {
             "total": float(total_loss.item()),

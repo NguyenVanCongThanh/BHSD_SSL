@@ -21,13 +21,19 @@ method:
   momentum: 0.9
   weight_decay: 0.0001
   lr_scheduler: "poly"                # Polynomial decay: lr = base_lr * (1 - iter/max_iter)^power
-  poly_power: 0.9                     # Standard nnU-Net power factor
-  ema_decay: 0.999                    # Stabilized EMA decay (0.999 instead of 0.99) to prevent confirmation bias
-  consistency: 0.2                    # Balanced consistency weight (0.2 instead of 1.0) so supervised loss leads
-  consistency_rampup: 2000.0          # Smooth step-based rampup over first 2000 iters (~16% of total steps)
-  consistency_type: "dice"             # Continuous Soft Dice on foreground lesions (eliminates MSE voxel-bias)
+  poly_power: 0.7                     # Slower decay power factor (0.7) to sustain supervised gradients in late phase
+  ema_decay: 0.999                    # Target EMA decay
+  ema_schedule: "cosine"              # Cosine rampup of alpha (0.99 -> 0.999) to keep teacher agile early and stable late
+  consistency: 0.15                   # Balanced consistency weight so supervised signals lead throughout
+  consistency_rampup: 2000.0          # Smooth step-based rampup over first 2000 iters
+  consistency_rampdown_start: 7800    # Begin smooth cosine rampdown after iter 7800 to prevent IVH pseudo-label drift
+  consistency_min_factor: 0.25        # Rampdown floor (0.15 * 0.25 = ~0.0375) for late-stage supervised fine-tuning
+  consistency_type: "hybrid"          # 50% Soft Dice on foreground lesions + 50% Class-balanced MSE
   bg_consistency_weight: 0.05         # Downweight background channel to prevent background dominance
-  confidence_thresh: 0.0              # Disabled (0.0): prevents discarding uncertain lesion voxels
+  confidence_thresh: 0.75             # Strict threshold (>=0.75) to filter out uncertain teacher predictions
+  perturb_student: true               # Asymmetric perturbation on student (Gaussian noise + intensity scaling)
+  student_noise_std: 0.02             # Gentle Gaussian noise standard deviation
+  student_intensity_scale: 0.05       # Subtle intensity scaling (+-5%)
   deep_supervision:
     weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 scales
     consistency_multiscale: true          # Apply consistency alignment to intermediate decoder heads
