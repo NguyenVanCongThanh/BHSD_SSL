@@ -63,11 +63,11 @@ class MeanTeacherMethod(BaseMethod):
         super(MeanTeacherMethod, self).__init__(model, cfg)
 
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
-        self.consistency = float(getattr(self.cfg.method, 'consistency', 0.15))
-        self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 2000.0))
+        self.consistency = float(getattr(self.cfg.method, 'consistency', 0.05))
+        self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 4000.0))
         self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.999))
         self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'hybrid')).lower()
-        self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.75))
+        self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
 
         # Asymmetric student perturbation to avoid confirmation bias
         self.perturb_student = bool(getattr(self.cfg.method, 'perturb_student', True))
@@ -184,9 +184,15 @@ class MeanTeacherMethod(BaseMethod):
         teacher_prob = F.softmax(teacher_logits, dim=1)
 
         # Confidence thresholding (if enabled > 0.0)
+        # Note: In CT 3D scans, background is 98-99% volume. Thresholding must never filter out delicate foreground lesions.
         if self.confidence_thresh > 0.0:
-            max_prob, _ = torch.max(teacher_prob, dim=1, keepdim=True)
-            conf_mask = (max_prob >= self.confidence_thresh).float()
+            if self.num_classes > 1 and not self.is_binary:
+                fg_max_prob, _ = torch.max(teacher_prob[:, 1:], dim=1, keepdim=True)
+                bg_prob = teacher_prob[:, :1]
+                conf_mask = ((fg_max_prob >= min(self.confidence_thresh, 0.4)) | (bg_prob >= self.confidence_thresh)).float()
+            else:
+                max_prob, _ = torch.max(teacher_prob, dim=1, keepdim=True)
+                conf_mask = (max_prob >= self.confidence_thresh).float()
         else:
             conf_mask = None
 

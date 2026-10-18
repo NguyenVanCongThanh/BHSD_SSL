@@ -24,19 +24,19 @@ method:
   poly_power: 0.7                     # Slower decay power factor (0.7) to sustain supervised gradients in late phase
   ema_decay: 0.999                    # Target EMA decay
   ema_schedule: "cosine"              # Cosine rampup of alpha (0.99 -> 0.999) to keep teacher agile early and stable late
-  consistency: 0.15                   # Balanced consistency weight so supervised signals lead throughout
-  consistency_rampup: 2000.0          # Smooth step-based rampup over first 2000 iters
+  consistency: 0.05                   # Lowered consistency weight (0.05) so supervised signals dominate throughout
+  consistency_rampup: 4000.0          # Gentle step-based rampup over first 4000 iters to prevent early collapse
   consistency_rampdown_start: 7800    # Begin smooth cosine rampdown after iter 7800 to prevent IVH pseudo-label drift
-  consistency_min_factor: 0.25        # Rampdown floor (0.15 * 0.25 = ~0.0375) for late-stage supervised fine-tuning
+  consistency_min_factor: 0.25        # Rampdown floor (0.05 * 0.25 = ~0.0125) for late-stage supervised fine-tuning
   consistency_type: "hybrid"          # 50% Soft Dice on foreground lesions + 50% Class-balanced MSE
   bg_consistency_weight: 0.05         # Downweight background channel to prevent background dominance
-  confidence_thresh: 0.75             # Strict threshold (>=0.75) to filter out uncertain teacher predictions
+  confidence_thresh: 0.0              # Disabled (0.0) to eliminate background trapping on thin/small lesions (IVH, SDH)
   perturb_student: true               # Asymmetric perturbation on student (Gaussian noise + intensity scaling)
   student_noise_std: 0.02             # Gentle Gaussian noise standard deviation
   student_intensity_scale: 0.05       # Subtle intensity scaling (+-5%)
   deep_supervision:
     weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 scales
-    consistency_multiscale: true          # Apply consistency alignment to intermediate decoder heads
+    consistency_multiscale: false         # Disabled on intermediate aux heads to avoid blurry lesion collapse
 
 data:
   batch_size: 6                       # 2 labeled + 4 unlabeled (triples unlabeled SSL exposure)

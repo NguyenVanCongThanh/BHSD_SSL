@@ -1,0 +1,1468 @@
+{
+  "all_runs": [
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_mean_teacher_fold0",
+      "id": "lgvtexrb",
+      "state": "crashed",
+      "created_at": "2026-10-17T09:56:28Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_092303_mean_teacher_fold0",
+      "id": "8atasfq5",
+      "state": "crashed",
+      "created_at": "2026-10-17T09:23:35Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_mean_teacher_fold0",
+      "id": "5i9jspgj",
+      "state": "finished",
+      "created_at": "2026-10-16T15:25:23Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_151051_mean_teacher_fold0",
+      "id": "bbzkrgd5",
+      "state": "crashed",
+      "created_at": "2026-10-16T15:11:23Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_145014_mean_teacher_fold0",
+      "id": "rlf5s9fm",
+      "state": "crashed",
+      "created_at": "2026-10-16T14:50:47Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_084935_mean_teacher_fold0",
+      "id": "rsbcfm9z",
+      "state": "crashed",
+      "created_at": "2026-10-16T08:50:07Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_063520_mean_teacher_fold0",
+      "id": "netzw73w",
+      "state": "crashed",
+      "created_at": "2026-10-16T06:35:52Z"
+    },
+    {
+      "name": "BHSD_multiclass_MeanTeacher_nnunet3d_dual_gpu_fold0_mean_teacher_fold0",
+      "id": "BHSD_multiclass_MeanTeacher_nnunet3d_dual_gpu_fold0_mean_teacher_fold0",
+      "state": "crashed",
+      "created_at": "2026-10-15T09:34:32Z"
+    }
+  ],
+  "target_recent": {
+    "id": "lgvtexrb",
+    "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_mean_teacher_fold0",
+    "state": "crashed",
+    "created_at": "2026-10-17T09:56:28Z",
+    "url": "https://wandb.ai/thanhnguyen2005243-ho-chi-minh-city-university-of-technology/BHSD_MeanTeacher/runs/lgvtexrb",
+    "config": {
+      "data": {
+        "labelnum": 154,
+        "root_path": "/kaggle/input/datasets/thnhnguynvncng/bhsd-fold0/BHSD_fold0",
+        "batch_size": 6,
+        "labeled_bs": 2,
+        "patch_size": [
+          32,
+          192,
+          192
+        ],
+        "max_samples": 2200
+      },
+      "model": {
+        "name": "nnunet3d",
+        "num_stages": 6,
+        "has_dropout": false,
+        "in_channels": 1,
+        "base_filters": 32,
+        "normalization": "batchnorm",
+        "deep_supervision": true
+      },
+      "method": {
+        "name": "mean_teacher",
+        "base_lr": 0.01,
+        "momentum": 0.9,
+        "ema_decay": 0.999,
+        "poly_power": 0.7,
+        "consistency": 0.15,
+        "ema_schedule": "cosine",
+        "lr_scheduler": "poly",
+        "weight_decay": 0.0001,
+        "max_iteration": 12000,
+        "perturb_student": true,
+        "consistency_type": "hybrid",
+        "deep_supervision": {
+          "weights": [
+            0.516,
+            0.258,
+            0.129,
+            0.065,
+            0.032
+          ],
+          "consistency_multiscale": true
+        },
+        "confidence_thresh": 0.75,
+        "student_noise_std": 0.02,
+        "consistency_rampup": 2000,
+        "bg_consistency_weight": 0.05,
+        "consistency_min_factor": 0.25,
+        "student_intensity_scale": 0.05,
+        "consistency_rampdown_start": 7800
+      },
+      "logging": {
+        "wandb_id": null,
+        "use_wandb": true,
+        "val_interval": 200,
+        "val_stride_z": 8,
+        "wandb_entity": null,
+        "save_interval": 50,
+        "val_stride_xy": 32,
+        "val_visualize": true,
+        "wandb_project": "BHSD_MeanTeacher",
+        "wandb_run_name": null,
+        "num_vis_samples": 4,
+        "save_wandb_model": true
+      },
+      "experiment": {
+        "amp": true,
+        "ddp": true,
+        "fold": 0,
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556",
+        "seed": 1337,
+        "task": "multiclass",
+        "phase": "all",
+        "resume": false,
+        "exp_dir": "/kaggle/working/experiments",
+        "num_classes": 6,
+        "deterministic": true
+      }
+    },
+    "summary": {
+      "best_iter": 800,
+      "best_mDice": 0.4677138361785757,
+      "val/best_mDice": 0.4677138361785757,
+      "val/dice_Epidural": 0.7894736842105263,
+      "val/dice_Intraparenchymal": 0.2963265210978295,
+      "val/dice_Intraventricular": 0.18117017796459167,
+      "val/dice_Subarachnoid": 0.42105473599076504,
+      "val/dice_Subdural": 0.32536969700384744,
+      "val/mDice": 0.40267896325351193,
+      "val/predictions": {}
+    },
+    "history": [
+      {
+        "val/mDice": 6.296130611046561e-05,
+        "val/best_mDice": 6.296130611046561e-05,
+        "val/dice_Epidural": 0.0,
+        "val/dice_Intraparenchymal": 0.0003115123215952496,
+        "val/dice_Intraventricular": 0.0,
+        "val/dice_Subarachnoid": 3.2942089570784254e-06,
+        "val/dice_Subdural": 0.0
+      },
+      {
+        "val/mDice": 0.39486604737834763,
+        "val/best_mDice": 0.39486604737834763,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.10590918426015905,
+        "val/dice_Intraventricular": 0.34210526315789475,
+        "val/dice_Subarachnoid": 0.2894736842105263,
+        "val/dice_Subdural": 0.4473684210526316
+      },
+      {
+        "val/mDice": 0.46188131523882286,
+        "val/best_mDice": 0.46188131523882286,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.17782762882569314,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6052631578947368
+      },
+      {
+        "val/mDice": 0.4677138361785757,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.23330602299814163,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.39473684210526316,
+        "val/dice_Subdural": 0.5526315789473685
+      },
+      {
+        "val/mDice": 0.4661525602452457,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.2517842686195907,
+        "val/dice_Intraventricular": 0.39473684210526316,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.47371537471190095
+      },
+      {
+        "val/mDice": 0.4582830674955499,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.26502349168846484,
+        "val/dice_Intraventricular": 0.39473684210526316,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.42112868789454777
+      },
+      {
+        "val/mDice": 0.4547945545885197,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.27373631161294487,
+        "val/dice_Intraventricular": 0.36842712317133863,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.42128302236884146
+      },
+      {
+        "val/mDice": 0.45095400010460773,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.28032477935285943,
+        "val/dice_Intraventricular": 0.3422364528060394,
+        "val/dice_Subarachnoid": 0.4473684210526316,
+        "val/dice_Subdural": 0.3953666631009822
+      },
+      {
+        "val/mDice": 0.4470124732150763,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.28564580029955033,
+        "val/dice_Intraventricular": 0.31656470101963924,
+        "val/dice_Subarachnoid": 0.4473684210526316,
+        "val/dice_Subdural": 0.3960097594930343
+      },
+      {
+        "val/mDice": 0.4275050798725141,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.28974794233708007,
+        "val/dice_Intraventricular": 0.23994546439069764,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.397305676845319
+      },
+      {
+        "val/mDice": 0.4085519072287226,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.2934383025981094,
+        "val/dice_Intraventricular": 0.21840699741886438,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.32038792033716545
+      },
+      {
+        "val/mDice": 0.4003459100708393,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.2954174236541516,
+        "val/dice_Intraventricular": 0.17358838652389272,
+        "val/dice_Subarachnoid": 0.4210538923363952,
+        "val/dice_Subdural": 0.3221961636292307
+      },
+      {
+        "val/mDice": 0.40267896325351193,
+        "val/best_mDice": 0.4677138361785757,
+        "val/dice_Epidural": 0.7894736842105263,
+        "val/dice_Intraparenchymal": 0.2963265210978295,
+        "val/dice_Intraventricular": 0.18117017796459167,
+        "val/dice_Subarachnoid": 0.42105473599076504,
+        "val/dice_Subdural": 0.32536969700384744
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_best_model:v0",
+        "type": "model",
+        "version": "v0"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v0",
+        "type": "checkpoint",
+        "version": "v0"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_best_model:v1",
+        "type": "model",
+        "version": "v1"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v1",
+        "type": "checkpoint",
+        "version": "v1"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_best_model:v2",
+        "type": "model",
+        "version": "v2"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v2",
+        "type": "checkpoint",
+        "version": "v2"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_best_model:v3",
+        "type": "model",
+        "version": "v3"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v3",
+        "type": "checkpoint",
+        "version": "v3"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v4",
+        "type": "checkpoint",
+        "version": "v4"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v5",
+        "type": "checkpoint",
+        "version": "v5"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v6",
+        "type": "checkpoint",
+        "version": "v6"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v7",
+        "type": "checkpoint",
+        "version": "v7"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v8",
+        "type": "checkpoint",
+        "version": "v8"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v9",
+        "type": "checkpoint",
+        "version": "v9"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v10",
+        "type": "checkpoint",
+        "version": "v10"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v11",
+        "type": "checkpoint",
+        "version": "v11"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261017_095556_latest:v12",
+        "type": "checkpoint",
+        "version": "v12"
+      },
+      {
+        "name": "run-lgvtexrb-history:v0",
+        "type": "wandb-history",
+        "version": "v0"
+      },
+      {
+        "name": "run-lgvtexrb-events:v0",
+        "type": "wandb-events",
+        "version": "v0"
+      }
+    ]
+  },
+  "target_prev": {
+    "id": "5i9jspgj",
+    "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_mean_teacher_fold0",
+    "state": "finished",
+    "created_at": "2026-10-16T15:25:23Z",
+    "url": "https://wandb.ai/thanhnguyen2005243-ho-chi-minh-city-university-of-technology/BHSD_MeanTeacher/runs/5i9jspgj",
+    "config": {
+      "data": {
+        "labelnum": 154,
+        "root_path": "/kaggle/input/datasets/thnhnguynvncng/bhsd-fold0/BHSD_fold0",
+        "batch_size": 6,
+        "labeled_bs": 2,
+        "patch_size": [
+          32,
+          192,
+          192
+        ],
+        "max_samples": 2200
+      },
+      "model": {
+        "name": "nnunet3d",
+        "num_stages": 6,
+        "has_dropout": false,
+        "in_channels": 1,
+        "base_filters": 32,
+        "normalization": "batchnorm",
+        "deep_supervision": true
+      },
+      "method": {
+        "name": "mean_teacher",
+        "base_lr": 0.01,
+        "momentum": 0.9,
+        "ema_decay": 0.999,
+        "poly_power": 0.9,
+        "consistency": 0.2,
+        "lr_scheduler": "poly",
+        "weight_decay": 0.0001,
+        "max_iteration": 12000,
+        "consistency_type": "dice",
+        "deep_supervision": {
+          "weights": [
+            0.516,
+            0.258,
+            0.129,
+            0.065,
+            0.032
+          ],
+          "consistency_multiscale": true
+        },
+        "confidence_thresh": 0,
+        "consistency_rampup": 2000,
+        "bg_consistency_weight": 0.05
+      },
+      "logging": {
+        "wandb_id": null,
+        "use_wandb": true,
+        "val_interval": 200,
+        "val_stride_z": 8,
+        "wandb_entity": null,
+        "save_interval": 50,
+        "val_stride_xy": 32,
+        "val_visualize": true,
+        "wandb_project": "BHSD_MeanTeacher",
+        "wandb_run_name": null,
+        "num_vis_samples": 4,
+        "save_wandb_model": true
+      },
+      "experiment": {
+        "amp": true,
+        "ddp": true,
+        "fold": 0,
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451",
+        "seed": 1337,
+        "task": "multiclass",
+        "phase": "all",
+        "resume": false,
+        "exp_dir": "/kaggle/working/experiments",
+        "num_classes": 6,
+        "deterministic": true
+      }
+    },
+    "summary": {
+      "best_iter": 7600,
+      "best_mDice": 0.4512049725974639,
+      "completed_iters": 12000,
+      "final_mDice": 0.4512049725974639,
+      "val/best_mDice": 0.4512049725974639,
+      "val/dice_Epidural": 0.631578947368421,
+      "val/dice_Intraparenchymal": 0.26928804564828934,
+      "val/dice_Intraventricular": 0.14398145605197274,
+      "val/dice_Subarachnoid": 0.3421217651890689,
+      "val/dice_Subdural": 0.6580715346507006,
+      "val/mDice": 0.4090083497816905,
+      "val/predictions": {}
+    },
+    "history": [
+      {
+        "val/mDice": 0.16320392079375634,
+        "val/best_mDice": 0.16320392079375634,
+        "val/dice_Epidural": 0.0,
+        "val/dice_Intraparenchymal": 0.0002301302845712359,
+        "val/dice_Intraventricular": 0.18421052631578946,
+        "val/dice_Subarachnoid": 0.15789473684210525,
+        "val/dice_Subdural": 0.47368421052631576
+      },
+      {
+        "val/mDice": 0.3483425467861755,
+        "val/best_mDice": 0.3483425467861755,
+        "val/dice_Epidural": 0.3157894736842105,
+        "val/dice_Intraparenchymal": 0.031186418141403823,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.42105263157894735,
+        "val/dice_Subdural": 0.6052631578947368
+      },
+      {
+        "val/mDice": 0.3739452680113333,
+        "val/best_mDice": 0.3739452680113333,
+        "val/dice_Epidural": 0.42105263157894735,
+        "val/dice_Intraparenchymal": 0.05393686637245609,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.39473684210526316,
+        "val/dice_Subdural": 0.631578947368421
+      },
+      {
+        "val/mDice": 0.37478711369943707,
+        "val/best_mDice": 0.37478711369943707,
+        "val/dice_Epidural": 0.47368421052631576,
+        "val/dice_Intraparenchymal": 0.08446188428665903,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.631578947368421
+      },
+      {
+        "val/mDice": 0.3906543000812618,
+        "val/best_mDice": 0.3906543000812618,
+        "val/dice_Epidural": 0.5,
+        "val/dice_Intraparenchymal": 0.11116623724841415,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.631578947368421
+      },
+      {
+        "val/mDice": 0.38980069820520985,
+        "val/best_mDice": 0.3906543000812618,
+        "val/dice_Epidural": 0.5,
+        "val/dice_Intraparenchymal": 0.1332140173418386,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.631578947368421
+      },
+      {
+        "val/mDice": 0.3931764147808089,
+        "val/best_mDice": 0.3931764147808089,
+        "val/dice_Epidural": 0.47368421052631576,
+        "val/dice_Intraparenchymal": 0.150092600219834,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.395850617653004,
+        "val/best_mDice": 0.395850617653004,
+        "val/dice_Epidural": 0.47368421052631576,
+        "val/dice_Intraparenchymal": 0.16346361458080969,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.39775942305262246,
+        "val/best_mDice": 0.39775942305262246,
+        "val/dice_Epidural": 0.47368421052631576,
+        "val/dice_Intraparenchymal": 0.17300764157890194,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.39934510584847116,
+        "val/best_mDice": 0.39934510584847116,
+        "val/dice_Epidural": 0.47368421052631576,
+        "val/dice_Intraparenchymal": 0.18093605555814543,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.40598965431272516,
+        "val/best_mDice": 0.40598965431272516,
+        "val/dice_Epidural": 0.5,
+        "val/dice_Intraparenchymal": 0.18784300840573115,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4072871594579498,
+        "val/best_mDice": 0.4072871594579498,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.1943305341318544,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.2894736842105263,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4083908324742591,
+        "val/best_mDice": 0.4083908324742591,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.1998488992134011,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.2894736842105263,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.41463078882937365,
+        "val/best_mDice": 0.41463078882937365,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.20473289151528948,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.3157894736842105,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4207486296703696,
+        "val/best_mDice": 0.4207486296703696,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.20900630624658478,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.421494323732699,
+        "val/best_mDice": 0.421494323732699,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.21273477655823195,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4221521757677884,
+        "val/best_mDice": 0.4221521757677884,
+        "val/dice_Epidural": 0.5263157894736842,
+        "val/dice_Intraparenchymal": 0.21602403673367868,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4280770921059517,
+        "val/best_mDice": 0.4280770921059517,
+        "val/dice_Epidural": 0.5526315789473685,
+        "val/dice_Intraparenchymal": 0.21933282895081088,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.42874197931347513,
+        "val/best_mDice": 0.42874197931347513,
+        "val/dice_Epidural": 0.5526315789473685,
+        "val/dice_Intraparenchymal": 0.22265726498842828,
+        "val/dice_Intraventricular": 0.3684210526315789,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.429237225198334,
+        "val/best_mDice": 0.429237225198334,
+        "val/dice_Epidural": 0.5526315789473685,
+        "val/dice_Intraparenchymal": 0.22513349441272257,
+        "val/dice_Intraventricular": 0.34210526315789475,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.4297206492947513,
+        "val/best_mDice": 0.4297206492947513,
+        "val/dice_Epidural": 0.5526315789473685,
+        "val/dice_Intraparenchymal": 0.2275506148948089,
+        "val/dice_Intraventricular": 0.34210526315789475,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578947368421053
+      },
+      {
+        "val/mDice": 0.43544221837862435,
+        "val/best_mDice": 0.43544221837862435,
+        "val/dice_Epidural": 0.5789473684210527,
+        "val/dice_Intraparenchymal": 0.22983986771003784,
+        "val/dice_Intraventricular": 0.34210526315789475,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4306540682329031,
+        "val/best_mDice": 0.43544221837862435,
+        "val/dice_Epidural": 0.5789473684210527,
+        "val/dice_Intraparenchymal": 0.23221490645511567,
+        "val/dice_Intraventricular": 0.34210526315789475,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4363362121031969,
+        "val/best_mDice": 0.4363362121031969,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.2343086817265047,
+        "val/dice_Intraventricular": 0.34210641776429074,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4419822856052441,
+        "val/best_mDice": 0.4419822856052441,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.23622325976305691,
+        "val/dice_Intraventricular": 0.34210641776429074,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.44234859780676505,
+        "val/best_mDice": 0.44234859780676505,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.23804534613890083,
+        "val/dice_Intraventricular": 0.34211589239605117,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4426884751857295,
+        "val/best_mDice": 0.4426884751857295,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.23974169758883745,
+        "val/dice_Intraventricular": 0.3421189278409369,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4430593608057518,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.24159497113310194,
+        "val/dice_Intraventricular": 0.34212008239678415,
+        "val/dice_Subarachnoid": 0.3684210526315789,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4328834405883466,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.5789473684210527,
+        "val/dice_Intraparenchymal": 0.2433257443634303,
+        "val/dice_Intraventricular": 0.3421412870267982,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.43847270819977363,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.24495399172270768,
+        "val/dice_Intraventricular": 0.3421435882509717,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.433595830611471,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.5789473684210527,
+        "val/dice_Intraparenchymal": 0.24684001028684802,
+        "val/dice_Intraventricular": 0.34218897121900227,
+        "val/dice_Subarachnoid": 0.34210526315789475,
+        "val/dice_Subdural": 0.6578975399725574
+      },
+      {
+        "val/mDice": 0.4391720466699457,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.24830667625524497,
+        "val/dice_Intraventricular": 0.34228149200268826,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579003428046953
+      },
+      {
+        "val/mDice": 0.439459343116323,
+        "val/best_mDice": 0.4430593608057518,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.24969264581848524,
+        "val/dice_Intraventricular": 0.3423320046713343,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579003428046953
+      },
+      {
+        "val/mDice": 0.44498515804765415,
+        "val/best_mDice": 0.44498515804765415,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.25100180335146816,
+        "val/dice_Intraventricular": 0.34233613232132293,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579003428046953
+      },
+      {
+        "val/mDice": 0.4452438272442363,
+        "val/best_mDice": 0.4452438272442363,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2522549142963008,
+        "val/dice_Intraventricular": 0.34237356482634296,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579031453377531
+      },
+      {
+        "val/mDice": 0.4507277682665613,
+        "val/best_mDice": 0.4507277682665613,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.25333552313723456,
+        "val/dice_Intraventricular": 0.36871266109703454,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579031453377531
+      },
+      {
+        "val/mDice": 0.440427341392129,
+        "val/best_mDice": 0.4507277682665613,
+        "val/dice_Epidural": 0.6052631578947368,
+        "val/dice_Intraparenchymal": 0.25438864309781867,
+        "val/dice_Intraventricular": 0.342473196237973,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579031453377531
+      },
+      {
+        "val/mDice": 0.45120497259746395,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2555533067298759,
+        "val/dice_Intraventricular": 0.34255647666501127,
+        "val/dice_Subarachnoid": 0.3684243538660475,
+        "val/dice_Subdural": 0.6579117783579644
+      },
+      {
+        "val/mDice": 0.44620266575948336,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2568020971344882,
+        "val/dice_Intraventricular": 0.31629615207049555,
+        "val/dice_Subarachnoid": 0.3684243538660475,
+        "val/dice_Subdural": 0.6579117783579644
+      },
+      {
+        "val/mDice": 0.4464599214371686,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.25792862318064036,
+        "val/dice_Intraventricular": 0.31645298950484413,
+        "val/dice_Subarachnoid": 0.3684243538660475,
+        "val/dice_Subdural": 0.6579146932658899
+      },
+      {
+        "val/mDice": 0.441422770009223,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2587912414026888,
+        "val/dice_Intraventricular": 0.3167116617979972,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579234350846443
+      },
+      {
+        "val/mDice": 0.4416189128044367,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.25964193788700196,
+        "val/dice_Intraventricular": 0.3168303609203768,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579347534540207
+      },
+      {
+        "val/mDice": 0.4418822419324945,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26084553342508643,
+        "val/dice_Intraventricular": 0.31693665130756254,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579415131690391
+      },
+      {
+        "val/mDice": 0.4368955420490238,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26184819601966364,
+        "val/dice_Intraventricular": 0.2909976882541454,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579443142105256
+      },
+      {
+        "val/mDice": 0.4317853863736099,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2624494131703518,
+        "val/dice_Intraventricular": 0.2648360885597006,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579539183772125
+      },
+      {
+        "val/mDice": 0.4267494779547537,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2632696275403233,
+        "val/dice_Intraventricular": 0.2388363320787903,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579539183938706
+      },
+      {
+        "val/mDice": 0.4269587466228442,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26392977277895335,
+        "val/dice_Intraventricular": 0.23921693018392512,
+        "val/dice_Subarachnoid": 0.3421085643923633,
+        "val/dice_Subdural": 0.6579595183905583
+      },
+      {
+        "val/mDice": 0.4271921421263151,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2646209168934116,
+        "val/dice_Intraventricular": 0.2396797507933929,
+        "val/dice_Subarachnoid": 0.34211186521248527,
+        "val/dice_Subdural": 0.6579692303638647
+      },
+      {
+        "val/mDice": 0.4274177859264455,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2650251493446137,
+        "val/dice_Intraventricular": 0.24039254211636849,
+        "val/dice_Subarachnoid": 0.34211186521248527,
+        "val/dice_Subdural": 0.6579804255903391
+      },
+      {
+        "val/mDice": 0.4224281757944578,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26579566976349606,
+        "val/dice_Intraventricular": 0.21466740043098598,
+        "val/dice_Subarachnoid": 0.34211186521248527,
+        "val/dice_Subdural": 0.6579869961969005
+      },
+      {
+        "val/mDice": 0.42267059640850524,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2663218613566929,
+        "val/dice_Intraventricular": 0.21534430296895535,
+        "val/dice_Subarachnoid": 0.34211516561902644,
+        "val/dice_Subdural": 0.6579927047294308
+      },
+      {
+        "val/mDice": 0.42290254855617704,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2667594018000129,
+        "val/dice_Intraventricular": 0.21605122121247022,
+        "val/dice_Subarachnoid": 0.34211516561902644,
+        "val/dice_Subdural": 0.6580080067809544
+      },
+      {
+        "val/mDice": 0.4126305996555617,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2672866994613095,
+        "val/dice_Intraventricular": 0.16415835861851902,
+        "val/dice_Subarachnoid": 0.34211516561902644,
+        "val/dice_Subdural": 0.6580138272105327
+      },
+      {
+        "val/mDice": 0.412841616997493,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.267544135157215,
+        "val/dice_Intraventricular": 0.16494311770810255,
+        "val/dice_Subarachnoid": 0.342118465611221,
+        "val/dice_Subdural": 0.6580234191425054
+      },
+      {
+        "val/mDice": 0.41306355661499283,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2679000962770691,
+        "val/dice_Intraventricular": 0.16569114698090984,
+        "val/dice_Subarachnoid": 0.342118465611221,
+        "val/dice_Subdural": 0.6580291268373434
+      },
+      {
+        "val/mDice": 0.4133276824436363,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26821946960530785,
+        "val/dice_Intraventricular": 0.16667140691271543,
+        "val/dice_Subarachnoid": 0.342118465611221,
+        "val/dice_Subdural": 0.6580501227205164
+      },
+      {
+        "val/mDice": 0.41354563567798125,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26850910644095977,
+        "val/dice_Intraventricular": 0.16746544280996253,
+        "val/dice_Subarachnoid": 0.3421217651890689,
+        "val/dice_Subdural": 0.6580529165814943
+      },
+      {
+        "val/mDice": 0.4137575796319939,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2687511582319674,
+        "val/dice_Intraventricular": 0.16827342860510966,
+        "val/dice_Subarachnoid": 0.3421217651890689,
+        "val/dice_Subdural": 0.6580625987654026
+      },
+      {
+        "val/mDice": 0.4087791234904886,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.2690253342305751,
+        "val/dice_Intraventricular": 0.14310094363693343,
+        "val/dice_Subarachnoid": 0.3421217651890689,
+        "val/dice_Subdural": 0.6580686270274447
+      },
+      {
+        "val/mDice": 0.4090083497816905,
+        "val/best_mDice": 0.45120497259746395,
+        "val/dice_Epidural": 0.631578947368421,
+        "val/dice_Intraparenchymal": 0.26928804564828934,
+        "val/dice_Intraventricular": 0.14398145605197274,
+        "val/dice_Subarachnoid": 0.3421217651890689,
+        "val/dice_Subdural": 0.6580715346507006
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v0",
+        "type": "model",
+        "version": "v0"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v0",
+        "type": "checkpoint",
+        "version": "v0"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v1",
+        "type": "model",
+        "version": "v1"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v1",
+        "type": "checkpoint",
+        "version": "v1"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v2",
+        "type": "model",
+        "version": "v2"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v2",
+        "type": "checkpoint",
+        "version": "v2"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v3",
+        "type": "model",
+        "version": "v3"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v3",
+        "type": "checkpoint",
+        "version": "v3"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v4",
+        "type": "model",
+        "version": "v4"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v4",
+        "type": "checkpoint",
+        "version": "v4"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v5",
+        "type": "checkpoint",
+        "version": "v5"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v5",
+        "type": "model",
+        "version": "v5"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v6",
+        "type": "checkpoint",
+        "version": "v6"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v6",
+        "type": "model",
+        "version": "v6"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v7",
+        "type": "checkpoint",
+        "version": "v7"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v7",
+        "type": "model",
+        "version": "v7"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v8",
+        "type": "checkpoint",
+        "version": "v8"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v8",
+        "type": "model",
+        "version": "v8"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v9",
+        "type": "checkpoint",
+        "version": "v9"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v9",
+        "type": "model",
+        "version": "v9"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v10",
+        "type": "checkpoint",
+        "version": "v10"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v10",
+        "type": "model",
+        "version": "v10"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v11",
+        "type": "checkpoint",
+        "version": "v11"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v11",
+        "type": "model",
+        "version": "v11"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v12",
+        "type": "checkpoint",
+        "version": "v12"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v12",
+        "type": "model",
+        "version": "v12"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v13",
+        "type": "checkpoint",
+        "version": "v13"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v13",
+        "type": "model",
+        "version": "v13"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v14",
+        "type": "checkpoint",
+        "version": "v14"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v14",
+        "type": "model",
+        "version": "v14"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v15",
+        "type": "checkpoint",
+        "version": "v15"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v15",
+        "type": "model",
+        "version": "v15"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v16",
+        "type": "checkpoint",
+        "version": "v16"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v16",
+        "type": "model",
+        "version": "v16"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v17",
+        "type": "checkpoint",
+        "version": "v17"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v17",
+        "type": "model",
+        "version": "v17"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v18",
+        "type": "checkpoint",
+        "version": "v18"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v18",
+        "type": "model",
+        "version": "v18"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v19",
+        "type": "checkpoint",
+        "version": "v19"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v19",
+        "type": "model",
+        "version": "v19"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v20",
+        "type": "checkpoint",
+        "version": "v20"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v20",
+        "type": "model",
+        "version": "v20"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v21",
+        "type": "checkpoint",
+        "version": "v21"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v22",
+        "type": "checkpoint",
+        "version": "v22"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v21",
+        "type": "model",
+        "version": "v21"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v23",
+        "type": "checkpoint",
+        "version": "v23"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v22",
+        "type": "model",
+        "version": "v22"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v24",
+        "type": "checkpoint",
+        "version": "v24"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v23",
+        "type": "model",
+        "version": "v23"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v25",
+        "type": "checkpoint",
+        "version": "v25"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v24",
+        "type": "model",
+        "version": "v24"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v26",
+        "type": "checkpoint",
+        "version": "v26"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v25",
+        "type": "model",
+        "version": "v25"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v27",
+        "type": "checkpoint",
+        "version": "v27"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v28",
+        "type": "checkpoint",
+        "version": "v28"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v29",
+        "type": "checkpoint",
+        "version": "v29"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v30",
+        "type": "checkpoint",
+        "version": "v30"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v31",
+        "type": "checkpoint",
+        "version": "v31"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v32",
+        "type": "checkpoint",
+        "version": "v32"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v26",
+        "type": "model",
+        "version": "v26"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v33",
+        "type": "checkpoint",
+        "version": "v33"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v27",
+        "type": "model",
+        "version": "v27"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v34",
+        "type": "checkpoint",
+        "version": "v34"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v28",
+        "type": "model",
+        "version": "v28"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v35",
+        "type": "checkpoint",
+        "version": "v35"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v36",
+        "type": "checkpoint",
+        "version": "v36"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_best_model:v29",
+        "type": "model",
+        "version": "v29"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v37",
+        "type": "checkpoint",
+        "version": "v37"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v38",
+        "type": "checkpoint",
+        "version": "v38"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v39",
+        "type": "checkpoint",
+        "version": "v39"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v40",
+        "type": "checkpoint",
+        "version": "v40"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v41",
+        "type": "checkpoint",
+        "version": "v41"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v42",
+        "type": "checkpoint",
+        "version": "v42"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v43",
+        "type": "checkpoint",
+        "version": "v43"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v44",
+        "type": "checkpoint",
+        "version": "v44"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v45",
+        "type": "checkpoint",
+        "version": "v45"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v46",
+        "type": "checkpoint",
+        "version": "v46"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v47",
+        "type": "checkpoint",
+        "version": "v47"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v48",
+        "type": "checkpoint",
+        "version": "v48"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v49",
+        "type": "checkpoint",
+        "version": "v49"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v50",
+        "type": "checkpoint",
+        "version": "v50"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v51",
+        "type": "checkpoint",
+        "version": "v51"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v52",
+        "type": "checkpoint",
+        "version": "v52"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v53",
+        "type": "checkpoint",
+        "version": "v53"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v54",
+        "type": "checkpoint",
+        "version": "v54"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v55",
+        "type": "checkpoint",
+        "version": "v55"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v56",
+        "type": "checkpoint",
+        "version": "v56"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v57",
+        "type": "checkpoint",
+        "version": "v57"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v58",
+        "type": "checkpoint",
+        "version": "v58"
+      },
+      {
+        "name": "BHSD_multiclass_MeanTeacher_fold0_20261016_152451_latest:v59",
+        "type": "checkpoint",
+        "version": "v59"
+      },
+      {
+        "name": "run-5i9jspgj-history:v0",
+        "type": "wandb-history",
+        "version": "v0"
+      },
+      {
+        "name": "run-5i9jspgj-events:v1",
+        "type": "wandb-events",
+        "version": "v1"
+      }
+    ]
+  }
+}
