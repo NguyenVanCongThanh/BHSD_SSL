@@ -26,11 +26,13 @@ from core.distributed import (
     is_main_process,
     reduce_tensor
 )
-from data.dataset_bhsd import BHSDDataset
+from core.registry import DATASETS
+from core.optimizers import build_optimizer, calculate_lr
+from data.dataset_bhsd import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
 from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
 from data.transforms3d import RandomRotFlip, RandomCrop, ToTensor
 from evaluation.sliding_window import evaluate_dataset_sliding_window
-from evaluation.metrics import CLASS_NAMES_MULTICLASS, CLASS_NAMES_BINARY, format_dice_summary
+from evaluation.metrics import format_dice_summary
 from utils.wandb_manager import WandbManager
 
 
@@ -55,11 +57,18 @@ class BaseMethod(abc.ABC):
         # Environment & deterministic setup
         self._setup_environment()
 
-        # Task specifications
-        self.task = str(getattr(self.cfg.experiment, 'task', 'multiclass')).lower()
+        # Task & Dataset specifications
+        self.dataset_name = str(getattr(self.cfg.data, 'name', 'bhsd')).lower()
+        self.task = str(getattr(self.cfg.data, 'task', getattr(self.cfg.experiment, 'task', 'multiclass'))).lower()
         self.is_binary = (self.task == 'binary')
-        self.num_classes = 2 if self.is_binary else int(getattr(self.cfg.experiment, 'num_classes', 6))
-        self.class_names = CLASS_NAMES_BINARY if self.is_binary else CLASS_NAMES_MULTICLASS
+        self.num_classes = int(getattr(self.cfg.data, 'num_classes', getattr(self.cfg.experiment, 'num_classes', 2 if self.is_binary else 6)))
+
+        cfg_class_names = getattr(self.cfg.data, 'class_names', None)
+        if cfg_class_names:
+            self.class_names = list(cfg_class_names)
+        else:
+            self.class_names = BHSD_BINARY_NAMES if self.is_binary else BHSD_MULTICLASS_NAMES
+
         self.patch_size = tuple(getattr(self.cfg.data, 'patch_size', [32, 160, 160]))
         self.fold = int(getattr(self.cfg.experiment, 'fold', 0))
         self.exp_name = getattr(self.cfg.experiment, 'name', 'experiment')
@@ -101,7 +110,10 @@ class BaseMethod(abc.ABC):
 
         # Mixed Precision (AMP) & GradScaler setup
         self.use_amp = bool(getattr(self.cfg.experiment, 'amp', True)) and torch.cuda.is_available()
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        if hasattr(torch, 'amp') and hasattr(torch.amp, 'GradScaler'):
+            self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
+        else:
+            self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         if self.use_amp and is_main_process():
             logging.info("[AMP] Mixed precision (FP16) training enabled with torch.cuda.amp.GradScaler.")
 
@@ -124,28 +136,39 @@ class BaseMethod(abc.ABC):
             np.random.seed(seed)
 
     def setup_dataloaders(self):
-        root_path = getattr(self.cfg.data, 'root_path', '/home/u001015/dataset/BHSD_h5/')
+        root_path = getattr(self.cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
         train_transforms = transforms.Compose([
             RandomRotFlip(),
             RandomCrop(self.patch_size),
             ToTensor()
         ])
 
-        self.db_train = BHSDDataset(
+        dataset_name = self.dataset_name
+        if not DATASETS.contains(dataset_name):
+            logging.warning(f"[Data] Dataset '{dataset_name}' not found in registry. Falling back to 'bhsd'.")
+            dataset_name = 'bhsd'
+
+        self.db_train = DATASETS.build(
+            dataset_name,
             base_dir=root_path,
             split='train',
             binary=self.is_binary,
             patch_size=self.patch_size,
             fold=self.fold,
-            transform=train_transforms
+            transform=train_transforms,
+            num_classes=self.num_classes,
+            class_names=self.class_names
         )
 
-        self.db_val = BHSDDataset(
+        self.db_val = DATASETS.build(
+            dataset_name,
             base_dir=root_path,
             split='val',
             binary=self.is_binary,
             patch_size=self.patch_size,
-            fold=self.fold
+            fold=self.fold,
+            num_classes=self.num_classes,
+            class_names=self.class_names
         )
 
         batch_size = int(getattr(self.cfg.data, 'batch_size', 4))
@@ -192,32 +215,23 @@ class BaseMethod(abc.ABC):
                 )
 
     def setup_optimizer(self):
-        base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
-        momentum = float(getattr(self.cfg.method, 'momentum', 0.9))
-        weight_decay = float(getattr(self.cfg.method, 'weight_decay', 0.0001))
-        self.optimizer = optim.SGD(
-            self.model.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay
-        )
+        self.optimizer = build_optimizer(self.model, self.cfg)
 
     def update_learning_rate(self, iter_num: int, max_iterations: int) -> float:
-        """
-        Update learning rate per iteration with support for Polynomial Decay (nnU-Net style).
-        lr = base_lr * (1 - iter / max_iter) ^ power
-        """
+        """Update learning rate per iteration with support for modular schedulers."""
         scheduler_type = str(getattr(self.cfg.method, 'lr_scheduler', 'poly')).lower()
         base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
+        poly_power = float(getattr(self.cfg.method, 'poly_power', 0.9))
+        warmup_iters = int(getattr(self.cfg.method, 'warmup_iters', 0))
 
-        if scheduler_type == 'poly':
-            power = float(getattr(self.cfg.method, 'poly_power', 0.9))
-            decay = max(1.0 - (iter_num / max(max_iterations, 1)), 0.0) ** power
-            current_lr = max(base_lr * decay, 1e-6)
-        elif scheduler_type == 'cosine':
-            import math
-            current_lr = base_lr * 0.5 * (1.0 + math.cos(math.pi * iter_num / max(max_iterations, 1)))
-        else:
-            # Constant base learning rate
-            current_lr = base_lr
-
+        current_lr = calculate_lr(
+            iter_num=iter_num,
+            max_iterations=max_iterations,
+            base_lr=base_lr,
+            scheduler_type=scheduler_type,
+            poly_power=poly_power,
+            warmup_iters=warmup_iters
+        )
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = current_lr
         return current_lr
@@ -323,7 +337,7 @@ class BaseMethod(abc.ABC):
         )
 
     @abc.abstractmethod
-    def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
         Execute a single optimization step.
         Returns total_loss and a dictionary of scalar loss components for logging.
@@ -370,9 +384,19 @@ class BaseMethod(abc.ABC):
             elif self.is_ddp and hasattr(self, 'batch_sampler') and hasattr(self.batch_sampler, 'set_epoch'):
                 self.batch_sampler.set_epoch(epoch)
 
-            for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
+            for _, batch_data in enumerate(self.trainloader):
                 cur_lr = self.update_learning_rate(iter_num, max_iterations)
-                loss, loss_dict = self.train_step(sampled_batch, mim_mask, iter_num)
+                if isinstance(batch_data, (tuple, list)):
+                    sampled_batch = batch_data[0]
+                    mim_mask = batch_data[1] if len(batch_data) > 1 else None
+                else:
+                    sampled_batch = batch_data
+                    mim_mask = None
+
+                try:
+                    loss, loss_dict = self.train_step(sampled_batch, iter_num)
+                except TypeError:
+                    loss, loss_dict = self.train_step(sampled_batch, mim_mask, iter_num)
 
                 self.optimizer.zero_grad()
                 if self.use_amp:

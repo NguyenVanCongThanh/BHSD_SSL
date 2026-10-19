@@ -249,7 +249,7 @@ class MeanTeacherMethod(BaseMethod):
                 return (sq_diff * conf_mask).sum() / (conf_mask.sum() + 1e-6)
             return sq_diff.mean()
 
-    def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 

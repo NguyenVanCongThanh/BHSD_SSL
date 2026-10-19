@@ -2,20 +2,37 @@
 Unified BHSD (Brain Hemorrhage Segmentation Dataset) PyTorch Dataset.
 Supports both Binary (Hemorrhage vs Background) and Multi-class (6 classes: 0..5) tasks
 on the same underlying HDF5 dataset.
-Integrated with 5-fold cross-validation and MIM token masking.
+Integrated with 5-fold cross-validation and modular masking.
 """
 
-from typing import Callable, Optional, Tuple, Dict, Any, Union
+from typing import Callable, Optional, Tuple, Dict, Any, Union, List
 import os
 import h5py
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 
+from core.registry import DATASETS
+from data.base_dataset import BaseMedicalDataset
 from data.masking import MaskGeneratorBHSD
 
+BHSD_MULTICLASS_NAMES = [
+    "Background",
+    "Epidural",
+    "Intraparenchymal",
+    "Intraventricular",
+    "Subarachnoid",
+    "Subdural"
+]
 
-class BHSDDataset(Dataset):
+BHSD_BINARY_NAMES = [
+    "Background",
+    "Hemorrhage"
+]
+
+
+@DATASETS.register("bhsd")
+@DATASETS.register("bhsd_dataset")
+class BHSDDataset(BaseMedicalDataset):
     """
     BHSD Dataset loader for semi-supervised volumetric CT segmentation.
     
@@ -28,6 +45,8 @@ class BHSDDataset(Dataset):
                 If False, retains multi-class labels 0..5 (Background + 5 hemorrhage types).
         patch_size: 3D patch dimensions (Z, Y, X). Default (32, 160, 160).
         fold: Fold index (0..4) for 5-fold cross-validation.
+        return_mim_mask: If True, returns (sample, mim_mask) tuple for algorithms requiring
+                         pre-computed MIM masks (e.g. legacy PICK). Defaults to False.
     """
     def __init__(
         self,
@@ -37,47 +56,65 @@ class BHSDDataset(Dataset):
         transform: Optional[Callable] = None,
         binary: bool = False,
         patch_size: Tuple[int, int, int] = (32, 160, 160),
-        fold: Optional[int] = None
+        fold: Optional[int] = None,
+        class_names: Optional[List[str]] = None,
+        return_mim_mask: bool = False,
+        num_classes: Optional[int] = None,
+        **kwargs
     ):
-        self.base_dir = os.path.abspath(base_dir)
-        self.split = split
-        self.transform = transform
-        self.binary = binary
-        self.patch_size = patch_size
-        self.fold = fold
-        self.mask_generator = MaskGeneratorBHSD(input_size=patch_size)
+        if num_classes is None:
+            num_classes = 2 if binary else 6
+        default_names = BHSD_BINARY_NAMES if binary else BHSD_MULTICLASS_NAMES
+        names = class_names or default_names
 
+        self.return_mim_mask = return_mim_mask
+        self._mask_generator = None
+
+        super(BHSDDataset, self).__init__(
+            base_dir=base_dir,
+            split=split,
+            fold=fold,
+            transform=transform,
+            patch_size=patch_size,
+            binary=binary,
+            num_classes=num_classes,
+            class_names=names,
+            max_samples=num,
+            **kwargs
+        )
+
+        task_type = "Binary (Hemorrhage vs Background)" if self.binary else f"Multi-class ({self.num_classes} classes)"
+        fold_str = f"Fold {self.fold}" if self.fold is not None else "Default Split"
+        print(f"[BHSDDataset] {fold_str} | Split '{self.split}' | Task: {task_type} | Samples: {len(self.image_list)}")
+
+    def _load_split_cases(self) -> List[str]:
         list_file = None
-        if fold is not None:
-            fold_file = os.path.join(self.base_dir, "splits", f"fold{fold}_{split}.txt")
+        if self.fold is not None:
+            fold_file = os.path.join(self.base_dir, "splits", f"fold{self.fold}_{self.split}.txt")
             if os.path.exists(fold_file):
                 list_file = fold_file
 
         if list_file is None:
-            list_file = os.path.join(self.base_dir, f"{split}.txt")
+            list_file = os.path.join(self.base_dir, f"{self.split}.txt")
             if not os.path.exists(list_file):
                 alt_map = {'train': 'train.list', 'val': 'val.list', 'test': 'test.list'}
-                list_file = os.path.join(self.base_dir, alt_map.get(split, f"{split}.txt"))
+                list_file = os.path.join(self.base_dir, alt_map.get(self.split, f"{self.split}.txt"))
 
         if not os.path.exists(list_file):
             raise FileNotFoundError(
-                f"Split list file not found in {self.base_dir}! (looked for fold {fold} {split})"
+                f"Split list file not found in {self.base_dir}! (looked for fold {self.fold} {self.split})"
             )
 
-        with open(list_file, 'r') as f:
-            self.image_list = [line.strip() for line in f if line.strip()]
+        with open(list_file, 'r', encoding='utf-8') as f:
+            cases = [line.strip() for line in f if line.strip()]
+        return cases
 
-        if num is not None and split == 'train':
-            self.image_list = self.image_list[:num]
+    def get_mask_generator(self) -> MaskGeneratorBHSD:
+        if self._mask_generator is None:
+            self._mask_generator = MaskGeneratorBHSD(input_size=self.patch_size)
+        return self._mask_generator
 
-        task_type = "Binary (Hemorrhage vs Background)" if self.binary else "Multi-class (6 classes: 0..5)"
-        fold_str = f"Fold {fold}" if fold is not None else "Default Split"
-        print(f"[BHSDDataset] {fold_str} | Split '{split}' | Task: {task_type} | Samples: {len(self.image_list)}")
-
-    def __len__(self) -> int:
-        return len(self.image_list)
-
-    def __getitem__(self, idx: int) -> Tuple[Dict[str, Any], np.ndarray]:
+    def __getitem__(self, idx: int) -> Union[Dict[str, Any], Tuple[Dict[str, Any], np.ndarray]]:
         case_name = self.image_list[idx]
         h5_path = os.path.join(self.base_dir, "data", f"{case_name}.h5")
 
@@ -99,5 +136,8 @@ class BHSDDataset(Dataset):
         if self.transform is not None:
             sample = self.transform(sample)
 
-        mim_mask = self.mask_generator()
-        return sample, mim_mask
+        if self.return_mim_mask:
+            mim_mask = self.get_mask_generator()()
+            return sample, mim_mask
+
+        return sample

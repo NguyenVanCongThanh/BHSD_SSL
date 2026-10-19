@@ -1,0 +1,18 @@
+# Left Atrium (LA) Segmentation Dataset Configuration Template
+data:
+  name: "la_heart"
+  task: "binary"
+  num_classes: 2
+  class_names:
+    - "Background"
+    - "Left Atrium"
+  root_path: "/home/u001015/dataset/LA_Heart/"
+  patch_size: [112, 112, 80]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 16
+  max_samples: 80
+
+experiment:
+  task: "binary"
+  num_classes: 2

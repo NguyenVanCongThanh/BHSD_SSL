@@ -65,7 +65,8 @@ class UNet3D(Module):
         num_classes: int = 6,
         feat_channels: Optional[List[int]] = None,
         residual: Optional[str] = 'conv',
-        has_dropout: bool = True
+        has_dropout: bool = True,
+        **kwargs
     ):
         super(UNet3D, self).__init__()
         if feat_channels is None:

@@ -1,0 +1,18 @@
+# BHSD Binary (Background vs Hemorrhage) Segmentation Configuration
+data:
+  name: "bhsd"
+  task: "binary"
+  num_classes: 2
+  class_names:
+    - "Background"
+    - "Hemorrhage"
+  root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+  max_samples: 2200
+
+experiment:
+  task: "binary"
+  num_classes: 2

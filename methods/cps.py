@@ -3,7 +3,7 @@ Cross Pseudo Supervision (CPS) Method for Semi-Supervised 3D Medical Segmentatio
 Reference: Chen et al., "Semi-Supervised Semantic Segmentation with Cross Pseudo Supervision", CVPR 2021.
 """
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import copy
 import torch
 import torch.nn as nn
@@ -88,7 +88,7 @@ class CPSMethod(BaseMethod):
 
         return total_sup, ds_accum
 
-    def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 

@@ -55,7 +55,18 @@ class PICKMethod(BaseMethod):
         # Loss function (exclude background from Dice for multi-class)
         self.dice_loss = mask_DiceLoss(nclass=self.num_classes, include_background=False)
 
-    def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int):
+    def _extract_batch_and_mim(self, batch_data: Any) -> Tuple[Dict[str, Any], torch.Tensor]:
+        if isinstance(batch_data, (tuple, list)):
+            return batch_data[0], batch_data[1]
+        sampled_batch = batch_data
+        bs = sampled_batch['image'].shape[0]
+        if not hasattr(self, '_mask_generator'):
+            from data.masking import MaskGeneratorBHSD
+            self._mask_generator = MaskGeneratorBHSD(input_size=self.patch_size)
+        mim_mask = torch.from_numpy(np.stack([self._mask_generator() for _ in range(bs)]))
+        return sampled_batch, mim_mask
+
+    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None):
         """Not directly used by PICK as it splits into run_pre_train and run_self_train phases."""
         pass
 
@@ -100,7 +111,8 @@ class PICKMethod(BaseMethod):
             elif self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
                 self.train_sampler.set_epoch(epoch)
 
-            for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
+            for _, batch_data in enumerate(self.trainloader):
+                sampled_batch, mim_mask = self._extract_batch_and_mim(batch_data)
                 volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)
                 label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
                 mim_mask = mim_mask[:self.labeled_bs].unsqueeze(1).to(device=self.device, dtype=torch.float32)
@@ -353,7 +365,8 @@ class PICKMethod(BaseMethod):
             elif self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
                 self.train_sampler.set_epoch(epoch)
 
-            for _, (sampled_batch, mim_mask) in enumerate(self.trainloader):
+            for _, batch_data in enumerate(self.trainloader):
+                sampled_batch, mim_mask = self._extract_batch_and_mim(batch_data)
                 volume_batch = sampled_batch['image'].to(self.device)
                 label_batch = sampled_batch['label'].to(self.device)
 

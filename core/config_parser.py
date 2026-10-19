@@ -1,6 +1,7 @@
 """
-Hierarchical YAML Configuration Manager with Dot-Access and CLI Overrides.
+Hierarchical YAML Configuration Manager with Dot-Access and Composable Overrides.
 Enables clean, reproducible, and parameterized experiments without messy argparse boilerplate.
+Supports composable 3-tier configurations: Datasets + Models + Methods.
 """
 
 from typing import Any, Dict, List, Optional, Union
@@ -94,6 +95,7 @@ def _parse_cli_override_val(val_str: str) -> Any:
 # Mapping of known flat arguments to their target section
 SECTION_MAPPING = {
     # Data section
+    'dataset': 'data',
     'root_path': 'data',
     'patch_size': 'data',
     'batch_size': 'data',
@@ -102,6 +104,8 @@ SECTION_MAPPING = {
     'max_samples': 'data',
     
     # Method section
+    'method': 'method',
+    'optimizer': 'method',
     'pre_max_iteration': 'method',
     'self_max_iteration': 'method',
     'max_iteration': 'method',
@@ -181,8 +185,8 @@ def parse_cli_overrides(unknown_args: List[str]) -> Dict[str, Any]:
                 # Flat argument: check section mapping
                 target_sec = SECTION_MAPPING.get(k)
                 if target_sec is not None:
-                    # Special aliasing: --model VNet -> model.name: VNet, --exp name -> experiment.name: name
-                    if k in ('model', 'exp'):
+                    # Special aliasing: --model VNet -> model.name: VNet, --dataset bhsd -> data.name: bhsd
+                    if k in ('model', 'exp', 'method', 'dataset'):
                         sub_keys = [target_sec, 'name']
                     else:
                         sub_keys = [target_sec, k]
@@ -200,27 +204,44 @@ def parse_cli_overrides(unknown_args: List[str]) -> Dict[str, Any]:
     return overrides
 
 
+def _resolve_config_path(category: str, identifier: str) -> Optional[str]:
+    """
+    Resolve config path for given category ('datasets', 'models', 'methods').
+    Example: 'bhsd_multiclass' -> 'configs/datasets/bhsd_multiclass.yaml'
+    """
+    if not identifier:
+        return None
+    # If direct path exists
+    if os.path.exists(identifier):
+        return identifier
+
+    configs_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs"))
+    for ext in ('.yaml', '.yml'):
+        cand = os.path.join(configs_root, category, f"{identifier}{ext}")
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def load_config(
     config_path: Optional[str] = None,
+    dataset_config: Optional[str] = None,
+    model_config: Optional[str] = None,
+    method_config: Optional[str] = None,
     cli_args: Optional[List[str]] = None,
     default_base_path: Optional[str] = None
 ) -> Config:
     """
-    Load YAML configuration file with optional base config inheritance and CLI overrides.
-    
-    Args:
-        config_path: Path to experiment YAML config file.
-        cli_args: List of command line arguments (sys.argv[1:] by default).
-        default_base_path: Path to default base.yaml if present.
-        
-    Returns:
-        Config object.
+    Load YAML configuration file with multi-tier composition:
+    Base Config -> Dataset Config -> Model Config -> Method Config -> Exp Config -> CLI Overrides.
     """
     merged_dict: Dict[str, Any] = {}
 
-    # 1. Load base configuration if provided or exists
+    configs_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs"))
+
+    # 1. Load base configuration
     if default_base_path is None:
-        cand_base = os.path.join(os.path.dirname(__file__), "..", "configs", "base.yaml")
+        cand_base = os.path.join(configs_root, "base.yaml")
         if os.path.exists(cand_base):
             default_base_path = cand_base
 
@@ -229,13 +250,52 @@ def load_config(
             base_dict = yaml.safe_load(f) or {}
             _deep_update(merged_dict, base_dict)
 
-    # 2. Load specified experiment config
+    # Peek at CLI args early to find requested dataset, model, or method overrides
+    early_overrides = parse_cli_overrides(cli_args) if cli_args else {}
+
+    # 2. Resolve and load Method config (sets algorithm defaults)
+    req_method = (
+        method_config or
+        early_overrides.get('method', {}).get('name') or
+        early_overrides.get('method')
+    )
+    if req_method:
+        meth_path = _resolve_config_path('methods', str(req_method))
+        if meth_path and os.path.exists(meth_path):
+            with open(meth_path, 'r', encoding='utf-8') as f:
+                _deep_update(merged_dict, yaml.safe_load(f) or {})
+
+    # 3. Resolve and load Dataset config (sets dataset, classes, task, path)
+    req_dataset = (
+        dataset_config or
+        early_overrides.get('data', {}).get('name') or
+        early_overrides.get('dataset')
+    )
+    if req_dataset:
+        d_path = _resolve_config_path('datasets', str(req_dataset))
+        if d_path and os.path.exists(d_path):
+            with open(d_path, 'r', encoding='utf-8') as f:
+                _deep_update(merged_dict, yaml.safe_load(f) or {})
+
+    # 4. Resolve and load Model config (explicit model takes precedence over method's default model)
+    req_model = (
+        model_config or
+        early_overrides.get('model', {}).get('name') or
+        early_overrides.get('model')
+    )
+    if req_model:
+        m_path = _resolve_config_path('models', str(req_model))
+        if m_path and os.path.exists(m_path):
+            with open(m_path, 'r', encoding='utf-8') as f:
+                _deep_update(merged_dict, yaml.safe_load(f) or {})
+
+    # 5. Load specific experiment config if given
     if config_path and os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             exp_dict = yaml.safe_load(f) or {}
             _deep_update(merged_dict, exp_dict)
 
-    # 3. Apply CLI overrides
+    # 6. Apply final CLI overrides (highest precedence)
     if cli_args is not None:
         overrides = parse_cli_overrides(cli_args)
         _deep_update(merged_dict, overrides)

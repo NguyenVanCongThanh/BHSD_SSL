@@ -3,7 +3,7 @@ Supervised Baseline Method (Lower Bound).
 Trains network purely on available labeled samples using combined Cross-Entropy + Dice Loss.
 """
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,7 +23,7 @@ class SupervisedMethod(BaseMethod):
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
 
-    def train_step(self, sampled_batch: Dict, mim_mask: torch.Tensor, iter_num: int) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)
         label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
 

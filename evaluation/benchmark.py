@@ -1,7 +1,7 @@
 """
-Benchmark Evaluation Module for 5-Fold Cross Validation on BHSD.
+Benchmark Evaluation Module for 5-Fold Cross Validation.
 Aggregates Out-of-Fold (OOF) predictions, computes per-class metrics with Mean +/- Std,
-and formats comparative benchmark reports.
+and formats comparative benchmark reports. Compatible with multiple datasets and architectures.
 """
 
 from typing import Dict, List, Optional, Tuple, Union
@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
+from core.registry import DATASETS
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
     CLASS_NAMES_BINARY,
@@ -34,22 +35,28 @@ def benchmark_5folds(
     stride_xy: int = 32,
     use_amp: bool = True,
     patch_size: Tuple[int, int, int] = (32, 160, 160),
-    dataset_cls=None
+    dataset_cls=None,
+    dataset_name: str = "bhsd",
+    class_names: Optional[List[str]] = None,
+    num_classes: Optional[int] = None
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
     
     Args:
-        model_builder: Callable or registry function returning a torch.nn.Module given model_name and args.
+        model_builder: Callable returning a torch.nn.Module given model_name and args.
         exp_dir: Base directory of the experiment containing fold_0, fold_1, etc.
-        root_path: Path to BHSD dataset root directory.
+        root_path: Path to dataset root directory.
         task: 'multiclass' or 'binary'.
         model_name: Model architecture name.
         device: Torch device.
         stride_z, stride_xy: Sliding window inference strides.
         use_amp: Whether to use FP16 AMP.
         patch_size: 3D patch dimensions.
-        dataset_cls: BHSDDataset class.
+        dataset_cls: Optional Dataset class.
+        dataset_name: Registered dataset name.
+        class_names: Optional custom class names list.
+        num_classes: Optional number of classes.
         
     Returns:
         Dict of results containing fold-wise metrics, overall OOF mean, std, and per-class breakdown.
@@ -58,12 +65,13 @@ def benchmark_5folds(
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     is_binary = (task.lower() == "binary")
-    num_classes = 2 if is_binary else 6
-    class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
+    if num_classes is None:
+        num_classes = 2 if is_binary else 6
 
-    if dataset_cls is None:
-        from data.dataset_bhsd import BHSDDataset
-        dataset_cls = BHSDDataset
+    if class_names is None:
+        class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
+
+    fg_class_names = class_names[1:] if len(class_names) > 1 and not is_binary else class_names
 
     fold_results = {}
     all_fold_dices = []
@@ -71,7 +79,7 @@ def benchmark_5folds(
 
     print("==========================================================================")
     print(f"=== BENCHMARK 5-FOLD CROSS VALIDATION: {os.path.basename(exp_dir)} ===")
-    print(f"=== Task: {task.upper()} ({num_classes} classes) | Model: {model_name} ===")
+    print(f"=== Dataset: {dataset_name.upper()} | Task: {task.upper()} ({num_classes} classes) | Model: {model_name} ===")
     print("==========================================================================")
 
     for fold in range(5):
@@ -108,17 +116,31 @@ def benchmark_5folds(
         model.to(device)
         model.eval()
 
-        val_dataset = dataset_cls(
-            base_dir=root_path,
-            split='val',
-            binary=is_binary,
-            patch_size=patch_size,
-            fold=fold
-        )
+        if dataset_cls is not None:
+            val_dataset = dataset_cls(
+                base_dir=root_path,
+                split='val',
+                binary=is_binary,
+                patch_size=patch_size,
+                fold=fold
+            )
+        else:
+            d_name = dataset_name if DATASETS.contains(dataset_name) else "bhsd"
+            val_dataset = DATASETS.build(
+                d_name,
+                base_dir=root_path,
+                split='val',
+                binary=is_binary,
+                patch_size=patch_size,
+                fold=fold,
+                num_classes=num_classes,
+                class_names=class_names
+            )
 
         case_dices = []
         for idx in tqdm(range(len(val_dataset)), desc=f"Fold {fold} Eval"):
-            sample, _ = val_dataset[idx]
+            sample_item = val_dataset[idx]
+            sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
             image, label = sample['image'], sample['label']
 
             pred = sliding_window_inference_3d(
@@ -151,7 +173,7 @@ def benchmark_5folds(
         all_fold_dices.append(fold_mdice)
         per_class_all_folds.append(fold_mean_per_class)
 
-        summary_str = format_dice_summary(fold_mean_per_class, class_names[1:])
+        summary_str = format_dice_summary(fold_mean_per_class, fg_class_names)
         print(f"[Fold {fold} Done] mDice: {fold_mdice:.4f} | {summary_str}")
 
     if not all_fold_dices:
@@ -165,6 +187,7 @@ def benchmark_5folds(
     per_class_stds = np.std(per_class_matrix, axis=0).tolist()
 
     benchmark_summary = {
+        "dataset": dataset_name,
         "task": task,
         "model": model_name,
         "overall_oof_mean_dice": overall_mean,
@@ -178,13 +201,14 @@ def benchmark_5folds(
     print("\n" + "=" * 70)
     print("=== TỔNG HỢP BENCHMARK 5-FOLD CROSS VALIDATION (OOF) ===")
     print("=" * 70)
-    print(f"Phương pháp / Model: {model_name} | Nhiệm vụ: {task.upper()}")
+    print(f"Dataset: {dataset_name.upper()} | Model: {model_name} | Nhiệm vụ: {task.upper()}")
     print(f"Mean OOF Dice: {overall_mean:.4f} ± {overall_std:.4f}")
     print("-" * 70)
-    for c_idx, name in enumerate(class_names[1:]):
-        c_m = per_class_means[c_idx]
-        c_s = per_class_stds[c_idx]
-        print(f"  - {name:<22}: {c_m:.4f} ± {c_s:.4f}")
+    for c_idx, name in enumerate(fg_class_names):
+        if c_idx < len(per_class_means):
+            c_m = per_class_means[c_idx]
+            c_s = per_class_stds[c_idx]
+            print(f"  - {name:<22}: {c_m:.4f} ± {c_s:.4f}")
     print("=" * 70)
 
     # Save summary json

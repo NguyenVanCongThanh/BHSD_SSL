@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
 Single Unified Training Entrypoint for MedSSL-BHSD Framework.
+Supports composable Multi-Dataset, Multi-Model, and Multi-Method benchmarking.
+
 Usage Examples:
-    # Run PICK multi-class on fold 0:
+    # 1. Composable benchmark (Dataset + Method + Model):
+    python train.py --dataset bhsd_multiclass --method mean_teacher --model unet3d --fold 0
+
+    # 2. Run PICK multi-class on fold 0 (Legacy / Standard config path):
     python train.py --config configs/methods/pick.yaml --fold 0
 
-    # Run PICK binary task:
-    python train.py --config configs/methods/pick.yaml --fold 0 --experiment.task binary --experiment.num_classes 2
+    # 3. Run Binary task:
+    python train.py --dataset bhsd_binary --method pick --fold 0
 
-    # Run Supervised baseline with UNet3D:
-    python train.py --config configs/methods/supervised.yaml --model.name unet3d --fold 0
-
-    # Run Mean Teacher:
-    python train.py --config configs/methods/mean_teacher.yaml --fold 1 --logging.use_wandb true
+    # 4. Benchmark Supervised baseline on custom / external dataset:
+    python train.py --dataset configs/datasets/acdc.yaml --method supervised --model vnet --fold 0
 """
 
 import os
@@ -21,8 +23,9 @@ import argparse
 import logging
 import torch
 
-from core.registry import MODELS, METHODS
+from core.registry import MODELS, METHODS, DATASETS
 from core.config_parser import load_config
+import data     # Trigger dataset registrations
 import models   # Trigger model registrations
 import methods  # Trigger method registrations
 
@@ -38,8 +41,11 @@ def setup_logger(is_main: bool = True):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Training Entrypoint")
-    parser.add_argument('--config', type=str, default='configs/methods/pick.yaml', help='Path to YAML experiment config')
+    parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Benchmarking & Training Entrypoint")
+    parser.add_argument('--config', type=str, default=None, help='Path to YAML experiment config')
+    parser.add_argument('--dataset', type=str, default=None, help='Dataset name or config (e.g. bhsd_multiclass, bhsd_binary, acdc, la_heart)')
+    parser.add_argument('--method', type=str, default=None, help='Method name or config (e.g. pick, mean_teacher, supervised, cps, bcp, lefed)')
+    parser.add_argument('--model', type=str, default=None, help='Model architecture (e.g. vnet, unet3d, unetr, nnunet3d)')
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID (e.g. 0, 0,1, auto)')
     parser.add_argument('--fold', type=int, default=None, help='Fold override (0..4)')
     parser.add_argument('--task', type=str, default=None, choices=['multiclass', 'binary'], help='Task override')
@@ -69,26 +75,37 @@ def main():
     if known_args.resume is not None and known_args.resume:
         cli_overrides.extend(['--experiment.resume', 'true'])
 
-    cfg = load_config(config_path=known_args.config, cli_args=cli_overrides)
+    # Determine default config file if neither config nor method is given
+    config_file = known_args.config
+    if config_file is None and known_args.method is None and known_args.dataset is None:
+        config_file = 'configs/methods/pick.yaml'
 
-    task = getattr(cfg.experiment, 'task', 'multiclass')
+    cfg = load_config(
+        config_path=config_file if (config_file and os.path.exists(config_file)) else None,
+        dataset_config=known_args.dataset,
+        model_config=known_args.model,
+        method_config=known_args.method,
+        cli_args=cli_overrides
+    )
+
+    dataset_name = getattr(cfg.data, 'name', 'bhsd')
+    task = getattr(cfg.data, 'task', getattr(cfg.experiment, 'task', 'multiclass'))
+    num_classes = int(getattr(cfg.data, 'num_classes', getattr(cfg.experiment, 'num_classes', 6)))
     fold = getattr(cfg.experiment, 'fold', 0)
     model_name = getattr(cfg.model, 'name', 'vnet')
     method_name = getattr(cfg.method, 'name', 'pick')
 
-    logging.info("=" * 70)
+    logging.info("=" * 75)
     logging.info("=== MedSSL-BHSD SEMI-SUPERVISED MEDICAL IMAGE SEGMENTATION ===")
+    logging.info(f"  Dataset:     {dataset_name.upper()} ({task.upper()}, {num_classes} classes)")
     logging.info(f"  Method:      {method_name.upper()}")
     logging.info(f"  Model:       {model_name}")
-    logging.info(f"  Task:        {task.upper()} ({cfg.experiment.num_classes} classes)")
     logging.info(f"  Fold:        {fold}")
-    logging.info(f"  Config:      {known_args.config}")
     logging.info(f"  Snapshot:    {cfg.experiment.exp_dir}/{cfg.experiment.name}/fold_{fold}")
-    logging.info("=" * 70)
+    logging.info("=" * 75)
 
     # 1. Build Model
     in_channels = int(getattr(cfg.model, 'in_channels', 1))
-    num_classes = int(getattr(cfg.experiment, 'num_classes', 6))
     has_dropout = bool(getattr(cfg.model, 'has_dropout', True))
 
     model_kwargs = {
@@ -106,8 +123,20 @@ def main():
     if hasattr(cfg.model, 'num_stages'):
         model_kwargs['num_stages'] = int(cfg.model.num_stages)
 
-    model = MODELS.build(model_name, **model_kwargs)
-    logging.info(f"[Registry] Built model '{model_name}' successfully.")
+    # Intelligent model dispatch: if method is 'pick' and model is 'vnet', use 'pick_vnet'
+    # For all other methods, 'vnet' resolves to the clean single-decoder VNet
+    actual_model_name = model_name
+    if method_name == 'pick' and model_name == 'vnet':
+        actual_model_name = 'pick_vnet'
+
+    import inspect
+    model_cls = MODELS.get(actual_model_name)
+    sig = inspect.signature(model_cls.__init__)
+    accepts_var = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    filtered_kwargs = model_kwargs if accepts_var else {k: v for k, v in model_kwargs.items() if k in sig.parameters}
+
+    model = MODELS.build(actual_model_name, **filtered_kwargs)
+    logging.info(f"[Registry] Built model '{actual_model_name}' successfully.")
 
     # 2. Build Method / Trainer
     trainer = METHODS.build(method_name, model=model, cfg=cfg)

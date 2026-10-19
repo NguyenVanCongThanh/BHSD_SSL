@@ -1,0 +1,22 @@
+# BHSD 6-Class Multi-Class Segmentation Configuration
+data:
+  name: "bhsd"
+  task: "multiclass"
+  num_classes: 6
+  class_names:
+    - "Background"
+    - "Epidural"
+    - "Intraparenchymal"
+    - "Intraventricular"
+    - "Subarachnoid"
+    - "Subdural"
+  root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+  max_samples: 2200
+
+experiment:
+  task: "multiclass"
+  num_classes: 6

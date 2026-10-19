@@ -11,8 +11,9 @@ from core.registry import MODELS
 from models.backbones.vnet import VNetEncoder, VNetDecoder
 
 
-@MODELS.register("vnet")
 @MODELS.register("pick_vnet")
+@MODELS.register("pick_model")
+@MODELS.register("vnet_my")
 class PICKModel(nn.Module):
     """
     PICK Multi-head Model architecture:

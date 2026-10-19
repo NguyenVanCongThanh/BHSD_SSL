@@ -243,6 +243,7 @@ Encoder = VNetEncoder
 Decoder = VNetDecoder
 
 
+@MODELS.register("vnet")
 @MODELS.register("vnet_single")
 class VNet(nn.Module):
     """Standard Single-Head VNet for supervised baseline and general segmentation."""
