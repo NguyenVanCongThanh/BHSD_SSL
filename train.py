@@ -30,14 +30,7 @@ import models   # Trigger model registrations
 import methods  # Trigger method registrations
 
 
-def setup_logger(is_main: bool = True):
-    log_level = logging.INFO if is_main else logging.WARN
-    logging.basicConfig(
-        level=log_level,
-        format='[%(asctime)s] [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
+from utils.logger import get_logger
 
 
 def main():
@@ -57,7 +50,7 @@ def main():
     # DDP detection: via --ddp flag or torchrun environment variables (RANK, WORLD_SIZE)
     from core.distributed import init_distributed_mode, cleanup_distributed, is_main_process
     is_ddp = init_distributed_mode(ddp_requested=known_args.ddp)
-    setup_logger(is_main=is_main_process())
+    get_logger(is_main=is_main_process())
 
     # Apply GPU environment for non-DDP runs (preserving existing DP behavior as default)
     if not is_ddp and known_args.gpu not in ('auto', 'all', None):

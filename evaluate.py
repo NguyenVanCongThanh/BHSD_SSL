@@ -32,6 +32,7 @@ from evaluation.metrics import format_dice_summary, CLASS_NAMES_MULTICLASS, CLAS
 from evaluation.complexity import profile_model_complexity, format_complexity_summary
 import data    # Register datasets
 import models  # Register models
+from utils.logger import get_logger
 
 
 def model_builder_helper(name: str, in_channels: int = 1, num_classes: int = 6):
@@ -42,12 +43,7 @@ def model_builder_helper(name: str, in_channels: int = 1, num_classes: int = 6):
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='[%(asctime)s] [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
+    get_logger()
 
     parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Benchmark & Evaluation")
     parser.add_argument('--exp_dir', type=str, default=None, help='Experiment directory containing fold_0..fold_4')
