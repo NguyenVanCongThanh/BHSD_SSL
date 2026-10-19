@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss
 
 
 @METHODS.register("supervised")
@@ -21,7 +21,7 @@ class SupervisedMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(SupervisedMethod, self).__init__(model, cfg)
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)

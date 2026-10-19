@@ -19,7 +19,7 @@ from tensorboardX import SummaryWriter
 from core.registry import METHODS
 from core.distributed import is_main_process
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss
 from data.masking import context_mask
 from evaluation.metrics import format_dice_summary
 
@@ -53,7 +53,7 @@ class PICKMethod(BaseMethod):
         os.makedirs(self.self_snapshot_path, exist_ok=True)
 
         # Loss function (exclude background from Dice for multi-class)
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes, include_background=False)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
 
     def _extract_batch_and_mim(self, batch_data: Any) -> Tuple[Dict[str, Any], torch.Tensor]:
         if isinstance(batch_data, (tuple, list)):

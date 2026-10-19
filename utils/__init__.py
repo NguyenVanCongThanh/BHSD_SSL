@@ -2,7 +2,8 @@
 Shared utilities package for MedSSL-BHSD.
 """
 
-from utils import losses, ramps
+from utils import ramps
 from utils.wandb_manager import WandbManager
+from utils.logger import get_logger
 
-__all__ = ["losses", "ramps", "WandbManager"]
+__all__ = ["ramps", "WandbManager", "get_logger"]

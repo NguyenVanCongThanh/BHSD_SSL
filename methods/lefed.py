@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from core.registry import METHODS
 from core.distributed import is_main_process
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss
 from utils.ramps import sigmoid_rampup
 
 
@@ -45,7 +45,7 @@ class LeFeDMethod(BaseMethod):
             self.class_weights = None
 
         # Supervised loss (exclude background from Dice for multi-class)
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes, include_background=self.is_binary)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=self.is_binary)
 
     def get_current_consistency_weight(self, epoch: float) -> float:
         if self.consistency_rampup <= 0:

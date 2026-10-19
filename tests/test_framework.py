@@ -39,6 +39,12 @@ class TestBenchmarkFramework(unittest.TestCase):
         self.assertIn("cps", METHODS.list_keys())
         self.assertIn("bcp", METHODS.list_keys())
 
+        from core.registry import LOSSES
+        import losses
+        self.assertIn("mask_dice", LOSSES.list_keys())
+        self.assertIn("dice_ce", LOSSES.list_keys())
+        self.assertIn("deep_supervision", LOSSES.list_keys())
+
     def test_config_composition_multiclass(self):
         """Test multi-tier config merging for BHSD Multiclass."""
         cfg = load_config(

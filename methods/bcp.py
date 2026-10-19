@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss
 from data.masking import context_mask
 
 
@@ -26,7 +26,7 @@ class BCPMethod(BaseMethod):
         self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.mask_ratio = float(getattr(self.cfg.method, 'mask_ratio', 2 / 3))
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 0.5))
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
     def _extract_logits(self, net_out) -> torch.Tensor:
         if isinstance(net_out, (tuple, list)):

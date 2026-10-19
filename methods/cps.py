@@ -12,9 +12,8 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights
 from utils.ramps import sigmoid_rampup
-from utils.deep_supervision import extract_multiscale_outputs, compute_ds_weights
 
 
 @METHODS.register("cps")
@@ -47,7 +46,7 @@ class CPSMethod(BaseMethod):
             self.model2.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay
         )
 
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
         # Deep supervision configuration
         self.ds_enabled = bool(

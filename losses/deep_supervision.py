@@ -62,6 +62,10 @@ def extract_multiscale_outputs(
     return net_out, []
 
 
+from core.registry import LOSSES
+
+
+@LOSSES.register("deep_supervision")
 class DeepSupervisionLoss(nn.Module):
     """
     Multi-scale supervised loss engine with trilinear interpolation and normalized weights.
@@ -99,14 +103,15 @@ class DeepSupervisionLoss(nn.Module):
 
         total_loss = torch.tensor(0.0, device=main_logits.device, dtype=main_logits.dtype)
         scale_losses = []
-        target_shape = target.shape[1:]  # (D, H, W)
+        # Spatial dimensions (D, H, W) or (H, W)
+        target_spatial = target.shape[2:] if target.dim() == main_logits.dim() else target.shape[1:]
 
         for idx, (logits, w) in enumerate(zip(all_logits, weights)):
             if w <= 0.0:
                 continue
 
-            if self.upsample_logits and logits.shape[2:] != target_shape:
-                logits_up = F.interpolate(logits, size=target_shape, mode='trilinear', align_corners=False)
+            if self.upsample_logits and logits.shape[2:] != target_spatial:
+                logits_up = F.interpolate(logits, size=target_spatial, mode='trilinear', align_corners=False)
             else:
                 logits_up = logits
 

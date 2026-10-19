@@ -18,9 +18,8 @@ import torch.nn.functional as F
 from core.registry import METHODS
 from core.distributed import is_main_process
 from methods.base_method import BaseMethod
-from utils.losses import mask_DiceLoss
+from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights
 from utils.ramps import sigmoid_rampup
-from utils.deep_supervision import extract_multiscale_outputs, compute_ds_weights
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 
 
@@ -112,7 +111,7 @@ class MeanTeacherMethod(BaseMethod):
         self.ema_model.eval()
 
         # Loss function for supervised branch (exclude background from Dice for multiclass)
-        self.dice_loss = mask_DiceLoss(nclass=self.num_classes, include_background=self.is_binary)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=self.is_binary)
 
     def get_raw_model(self) -> nn.Module:
         """Safely unwrap DistributedDataParallel or DataParallel wrapper."""
