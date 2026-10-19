@@ -5,21 +5,7 @@ Single Source of Truth for both Binary (Hemorrhage vs BG) and Multi-class (6 cla
 
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
-
-# Standard class names for BHSD
-CLASS_NAMES_MULTICLASS = [
-    "Background",
-    "Epidural",
-    "Intraparenchymal",
-    "Intraventricular",
-    "Subarachnoid",
-    "Subdural"
-]
-
-CLASS_NAMES_BINARY = [
-    "Background",
-    "Hemorrhage"
-]
+from data.constants import BHSD_MULTICLASS_NAMES as CLASS_NAMES_MULTICLASS, BHSD_BINARY_NAMES as CLASS_NAMES_BINARY
 
 
 def cal_binary_dice(pred: np.ndarray, gt: np.ndarray) -> float:

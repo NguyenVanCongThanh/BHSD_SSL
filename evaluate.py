@@ -97,12 +97,8 @@ def main():
         # Single checkpoint evaluation
         logging.info(f"Evaluating single checkpoint: {args.checkpoint} on fold {args.fold}...")
         model = model_builder_helper(args.model, in_channels=1, num_classes=num_classes)
-        state = torch.load(args.checkpoint, map_location=device)
-        net_dict = state.get('ema_net', None)
-        if net_dict is None:
-            net_dict = state.get('net', state)
-        clean_dict = {k[7:] if k.startswith('module.') else k: v for k, v in net_dict.items()}
-        model.load_state_dict(clean_dict, strict=False)
+        from utils.checkpoint import load_checkpoint
+        load_checkpoint(args.checkpoint, model=model, device=device, prefer_ema=True)
         model.to(device)
         model.eval()
 

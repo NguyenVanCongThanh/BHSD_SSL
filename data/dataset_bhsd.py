@@ -14,20 +14,7 @@ from torch.utils.data import Dataset
 
 from core.registry import DATASETS
 from data.masking import MaskGeneratorBHSD
-
-BHSD_MULTICLASS_NAMES = [
-    "Background",
-    "Epidural",
-    "Intraparenchymal",
-    "Intraventricular",
-    "Subarachnoid",
-    "Subdural"
-]
-
-BHSD_BINARY_NAMES = [
-    "Background",
-    "Hemorrhage"
-]
+from data.constants import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
 
 
 @DATASETS.register("bhsd")

@@ -125,15 +125,8 @@ class BaseMethod(abc.ABC):
     def _setup_environment(self):
         deterministic = getattr(self.cfg.experiment, 'deterministic', True)
         seed = int(getattr(self.cfg.experiment, 'seed', 1337))
-        if deterministic:
-            torch.backends.cudnn.benchmark = False
-            torch.backends.cudnn.deterministic = True
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed(seed)
-            import random
-            random.seed(seed)
-            np.random.seed(seed)
+        from utils.reproducibility import set_seed
+        set_seed(seed=seed, deterministic=deterministic, rank=self.rank if self.is_ddp else 0)
 
     def setup_dataloaders(self):
         root_path = getattr(self.cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
