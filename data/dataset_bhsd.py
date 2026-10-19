@@ -1,8 +1,8 @@
 """
-Unified BHSD (Brain Hemorrhage Segmentation Dataset) PyTorch Dataset.
-Supports both Binary (Hemorrhage vs Background) and Multi-class (6 classes: 0..5) tasks
-on the same underlying HDF5 dataset.
-Integrated with 5-fold cross-validation and modular masking.
+BHSD (Brain Hemorrhage Segmentation Dataset) PyTorch Dataset.
+Supports both Multi-class (6 classes: BG, EDH, IPH, IVH, SAH, SDH) and Binary (BG vs Hemorrhage) tasks
+on 3D volumetric CT scans stored in HDF5 (.h5) format.
+Integrated with 5-fold cross-validation and optional MIM masking.
 """
 
 from typing import Callable, Optional, Tuple, Dict, Any, Union, List
@@ -10,9 +10,9 @@ import os
 import h5py
 import numpy as np
 import torch
+from torch.utils.data import Dataset
 
 from core.registry import DATASETS
-from data.base_dataset import BaseMedicalDataset
 from data.masking import MaskGeneratorBHSD
 
 BHSD_MULTICLASS_NAMES = [
@@ -32,7 +32,7 @@ BHSD_BINARY_NAMES = [
 
 @DATASETS.register("bhsd")
 @DATASETS.register("bhsd_dataset")
-class BHSDDataset(BaseMedicalDataset):
+class BHSDDataset(Dataset):
     """
     BHSD Dataset loader for semi-supervised volumetric CT segmentation.
     
@@ -45,6 +45,7 @@ class BHSDDataset(BaseMedicalDataset):
                 If False, retains multi-class labels 0..5 (Background + 5 hemorrhage types).
         patch_size: 3D patch dimensions (Z, Y, X). Default (32, 160, 160).
         fold: Fold index (0..4) for 5-fold cross-validation.
+        class_names: Optional custom class names list.
         return_mim_mask: If True, returns (sample, mim_mask) tuple for algorithms requiring
                          pre-computed MIM masks (e.g. legacy PICK). Defaults to False.
     """
@@ -62,26 +63,28 @@ class BHSDDataset(BaseMedicalDataset):
         num_classes: Optional[int] = None,
         **kwargs
     ):
-        if num_classes is None:
-            num_classes = 2 if binary else 6
-        default_names = BHSD_BINARY_NAMES if binary else BHSD_MULTICLASS_NAMES
-        names = class_names or default_names
-
+        super(BHSDDataset, self).__init__()
+        self.base_dir = os.path.abspath(base_dir) if base_dir else ""
+        self.split = str(split).lower()
+        self.fold = fold
+        self.transform = transform
+        self.patch_size = tuple(patch_size) if patch_size else (32, 160, 160)
+        self.binary = bool(binary)
         self.return_mim_mask = return_mim_mask
         self._mask_generator = None
 
-        super(BHSDDataset, self).__init__(
-            base_dir=base_dir,
-            split=split,
-            fold=fold,
-            transform=transform,
-            patch_size=patch_size,
-            binary=binary,
-            num_classes=num_classes,
-            class_names=names,
-            max_samples=num,
-            **kwargs
-        )
+        if self.binary:
+            self.num_classes = 2
+            self.class_names = class_names or BHSD_BINARY_NAMES
+        else:
+            self.num_classes = num_classes if num_classes is not None else 6
+            self.class_names = class_names or BHSD_MULTICLASS_NAMES
+
+        # Load cases for this split
+        self.image_list = self._load_split_cases()
+
+        if num is not None and num > 0 and self.split == 'train':
+            self.image_list = self.image_list[:num]
 
         task_type = "Binary (Hemorrhage vs Background)" if self.binary else f"Multi-class ({self.num_classes} classes)"
         fold_str = f"Fold {self.fold}" if self.fold is not None else "Default Split"
@@ -114,6 +117,12 @@ class BHSDDataset(BaseMedicalDataset):
             self._mask_generator = MaskGeneratorBHSD(input_size=self.patch_size)
         return self._mask_generator
 
+    def __len__(self) -> int:
+        return len(self.image_list)
+
+    def get_case_name(self, idx: int) -> str:
+        return self.image_list[idx]
+
     def __getitem__(self, idx: int) -> Union[Dict[str, Any], Tuple[Dict[str, Any], np.ndarray]]:
         case_name = self.image_list[idx]
         h5_path = os.path.join(self.base_dir, "data", f"{case_name}.h5")
@@ -141,3 +150,11 @@ class BHSDDataset(BaseMedicalDataset):
             return sample, mim_mask
 
         return sample
+
+    def __repr__(self) -> str:
+        fold_str = f"Fold {self.fold}" if self.fold is not None else "Default Split"
+        task_str = "Binary" if self.binary else f"Multiclass ({self.num_classes} classes)"
+        return (
+            f"<BHSDDataset | {fold_str} | Split: '{self.split}' | "
+            f"Task: {task_str} | Samples: {len(self.image_list)}>"
+        )

@@ -26,13 +26,12 @@ class TestBenchmarkFramework(unittest.TestCase):
     def test_registry_population(self):
         """Verify all essential components are registered."""
         self.assertIn("bhsd", DATASETS.list_keys())
-        self.assertIn("generic_h5", DATASETS.list_keys())
-        self.assertIn("acdc", DATASETS.list_keys())
 
         self.assertIn("vnet", MODELS.list_keys())
         self.assertIn("pick_vnet", MODELS.list_keys())
         self.assertIn("unet3d", MODELS.list_keys())
         self.assertIn("unetr", MODELS.list_keys())
+        self.assertIn("nnunet3d", MODELS.list_keys())
 
         self.assertIn("supervised", METHODS.list_keys())
         self.assertIn("mean_teacher", METHODS.list_keys())

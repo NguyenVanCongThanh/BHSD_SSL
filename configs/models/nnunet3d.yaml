@@ -1,0 +1,8 @@
+# Model Configuration: 6-stage nnUNet3D for BHSD
+model:
+  name: "nnunet3d"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 6
+  has_dropout: false
+  deep_supervision: true
