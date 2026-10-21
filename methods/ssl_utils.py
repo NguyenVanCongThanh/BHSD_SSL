@@ -114,3 +114,44 @@ def compute_masked_ce_loss(
     mask_expanded = mask_f.squeeze(1) if mask_f.dim() > ce_unreduced.dim() else mask_f
     loss = (ce_unreduced * mask_expanded).sum() / (mask_expanded.sum() + eps)
     return loss
+
+
+def update_ema_variables(
+    model: nn.Module,
+    ema_model: nn.Module,
+    alpha: float,
+    global_step: int = -1,
+    max_steps: int = 12000,
+    schedule: str = 'cosine'
+):
+    """
+    Update EMA teacher parameters from student model parameters.
+    Supports dynamic alpha rampup early on or cosine schedule across training.
+    """
+    import math
+    if schedule == 'cosine' and global_step >= 0 and max_steps > 0:
+        min_alpha = 0.99
+        progress = min(max(global_step / max_steps, 0.0), 1.0)
+        actual_alpha = min_alpha + (alpha - min_alpha) * 0.5 * (1.0 - math.cos(math.pi * progress))
+    elif global_step >= 0:
+        actual_alpha = min(1.0 - 1.0 / (global_step + 1), alpha)
+    else:
+        actual_alpha = alpha
+
+    for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+        ema_param.data.mul_(actual_alpha).add_((1.0 - actual_alpha) * param.data)
+
+
+def get_or_create_mim_mask(
+    batch_data: Any,
+    bs: int,
+    patch_size: Tuple[int, int, int] = (32, 160, 160)
+) -> torch.Tensor:
+    """Extract or generate MIM mask for volumetric input."""
+    if isinstance(batch_data, (tuple, list)) and len(batch_data) > 1 and batch_data[1] is not None:
+        return batch_data[1]
+    import numpy as np
+    from data.masking import MaskGeneratorBHSD
+    generator = MaskGeneratorBHSD(input_size=patch_size)
+    return torch.from_numpy(np.stack([generator() for _ in range(bs)]))
+

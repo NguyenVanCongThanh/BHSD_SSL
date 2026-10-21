@@ -223,8 +223,21 @@ class TestBenchmarkFramework(unittest.TestCase):
         self.assertIn("loss_mim", self_dict)
         self.assertIn("loss_aux", self_dict)
 
+    def test_consistency_loss(self):
+        """Test centralized ConsistencyLoss across multiple modes."""
+        from losses import ConsistencyLoss
+        s_logits = torch.randn(2, 6, 8, 16, 16)
+        t_logits = torch.randn(2, 6, 8, 16, 16)
+
+        for mode in ['hybrid', 'dice', 'weighted_mse', 'kl']:
+            loss_fn = ConsistencyLoss(consistency_type=mode, num_classes=6, is_binary=False)
+            val = loss_fn(s_logits, t_logits)
+            self.assertIsInstance(val, torch.Tensor)
+            self.assertFalse(torch.isnan(val))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

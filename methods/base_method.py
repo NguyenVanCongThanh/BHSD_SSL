@@ -250,23 +250,29 @@ class BaseMethod(abc.ABC):
         phase: str = 'train',
         artifact_name: Optional[str] = None,
         artifact_type: str = "checkpoint",
-        aliases: Optional[List[str]] = None
+        aliases: Optional[List[str]] = None,
+        extra_state: Optional[Dict[str, Any]] = None
     ):
         if not is_main_process():
             return
 
-        raw_net = self.model.module if isinstance(self.model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else self.model
-        state = {
-            'net': raw_net.state_dict(),
-            'opt': self.optimizer.state_dict() if self.optimizer is not None else None,
-            'iter_num': iter_num,
-            'best_dice': best_dice,
-            'phase': phase,
-            'config': self.cfg.to_dict()
-        }
-        torch.save(state, str(path))
+        from utils.checkpoint import save_checkpoint as _save_ckpt
+        cfg_dict = self.cfg.to_dict() if hasattr(self.cfg, 'to_dict') else None
+        merged_extra = {'config': cfg_dict}
+        if extra_state:
+            merged_extra.update(extra_state)
 
-        # Upload to W&B Artifacts if enabled
+        _save_ckpt(
+            path=path,
+            model=self.model,
+            optimizer=self.optimizer,
+            scaler=self.scaler if hasattr(self, 'scaler') else None,
+            iter_num=iter_num,
+            best_dice=best_dice,
+            phase=phase,
+            extra_state=merged_extra
+        )
+
         if artifact_name and self.wandb_manager.enabled and self.wandb_manager.save_artifacts:
             self.wandb_manager.log_artifact(
                 file_path=str(path),
@@ -277,22 +283,17 @@ class BaseMethod(abc.ABC):
                 metadata={'iter_num': iter_num, 'best_dice': best_dice, 'phase': phase}
             )
 
-    def load_checkpoint(self, path: str) -> Tuple[int, float]:
-        state = torch.load(str(path), map_location=self.device)
-        net_dict = state.get('net', state)
-        raw_net = self.model.module if isinstance(self.model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else self.model
-        clean_dict = {k[7:] if k.startswith('module.') else k: v for k, v in net_dict.items()}
-        raw_net.load_state_dict(clean_dict, strict=False)
-
-        if self.optimizer is not None and 'opt' in state and state['opt'] is not None:
-            try:
-                self.optimizer.load_state_dict(state['opt'])
-            except Exception as e:
-                logging.warning(f"[Checkpoint] Could not restore optimizer state: {e}")
-
-        iter_num = state.get('iter_num', 0)
-        best_dice = state.get('best_dice', 0.0)
-        return iter_num, best_dice
+    def load_checkpoint(self, path: str, prefer_ema: bool = False) -> Tuple[int, float]:
+        from utils.checkpoint import load_checkpoint as _load_ckpt
+        ckpt_data = _load_ckpt(
+            path=path,
+            model=self.model,
+            optimizer=self.optimizer,
+            scaler=self.scaler if hasattr(self, 'scaler') else None,
+            device=self.device,
+            prefer_ema=prefer_ema
+        )
+        return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
 
     def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
         """Build interactive segmentation masks for W&B."""
@@ -336,6 +337,133 @@ class BaseMethod(abc.ABC):
         Returns total_loss and a dictionary of scalar loss components for logging.
         """
         pass
+
+    def _log_iteration_progress(
+        self,
+        iter_num: int,
+        max_iters: int,
+        loss_dict: Dict[str, float],
+        iter_t0: float,
+        phase: str
+    ) -> float:
+        """Log iteration progress to console (Rank 0 only). Returns refreshed timer."""
+        elapsed_10 = time.time() - iter_t0
+        sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
+        rem_steps = max(max_iters - iter_num, 0)
+        eta_sec = rem_steps * sec_per_it
+        eta_str = time.strftime('%Hh%Mm%Ss', time.gmtime(eta_sec)) if eta_sec < 86400 else f"{eta_sec/3600:.1f}h"
+        vram_used = torch.cuda.memory_reserved() / (1024**3) if torch.cuda.is_available() else 0
+        pct = (iter_num / max_iters) * 100
+
+        losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in loss_dict.items()])
+        logging.info(
+            f"[{phase}] Iter {iter_num}/{max_iters} ({pct:.1f}%) | "
+            f"{sec_per_it:.2f}s/it | ETA: {eta_str} | "
+            f"{losses_str} | VRAM: {vram_used:.1f}GB"
+        )
+        return time.time()
+
+    def _handle_periodic_validation(
+        self,
+        snap_dir: str,
+        phase: str,
+        iter_num: int,
+        global_step: int,
+        best_dice: float,
+        best_model_name: str,
+        legacy_best_model_name: Optional[str],
+        art_prefix: str,
+        latest_pth: str,
+        should_vis: bool
+    ) -> float:
+        """Run validation across all DDP ranks, log metrics, and update checkpoints."""
+        if is_main_process():
+            num_gpus_str = f" across {self.world_size} GPU(s)" if self.world_size > 1 else ""
+            msg = f"\n>>> [{phase} Validation] Periodic evaluation at Iter {iter_num}{num_gpus_str}..."
+            logging.info(msg)
+            print(msg, flush=True)
+
+        if should_vis:
+            val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
+        else:
+            val_res = self.validate(return_visuals=False)
+            if isinstance(val_res, tuple) and len(val_res) == 3:
+                val_mdice, per_class, visual_samples = val_res
+            else:
+                val_mdice, per_class = val_res
+                visual_samples = []
+
+        if is_main_process():
+            class_names = self.class_names[1:]
+            summary_str = format_dice_summary(per_class, class_names)
+            end_msg = f"<<< [{phase} Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
+            logging.info(end_msg)
+            print(end_msg, flush=True)
+
+            if self.writer is not None:
+                self.writer.add_scalar('val/mDice', val_mdice, iter_num)
+                for c, d in enumerate(per_class):
+                    self.writer.add_scalar(f'val/dice_{class_names[c]}', d, iter_num)
+
+            if val_mdice > best_dice:
+                best_dice = val_mdice
+                best_pth = os.path.join(snap_dir, best_model_name)
+                self.save_checkpoint(
+                    path=best_pth,
+                    iter_num=iter_num,
+                    best_dice=best_dice,
+                    phase=phase,
+                    artifact_name=f"{art_prefix}_best",
+                    artifact_type="model",
+                    aliases=["latest", "best"]
+                )
+                if legacy_best_model_name and legacy_best_model_name != best_model_name:
+                    legacy_pth = os.path.join(snap_dir, legacy_best_model_name)
+                    self.save_checkpoint(
+                        path=legacy_pth,
+                        iter_num=iter_num,
+                        best_dice=best_dice,
+                        phase=phase
+                    )
+                logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
+                self.wandb_manager.update_summary({
+                    f'{phase}/best_mDice': best_dice,
+                    f'{phase}/best_iter': iter_num,
+                    'best_mDice': best_dice
+                })
+
+            # Save and upload latest checkpoint
+            self.save_checkpoint(
+                path=latest_pth,
+                iter_num=iter_num,
+                best_dice=best_dice,
+                phase=phase,
+                artifact_name=f"{art_prefix}_latest",
+                artifact_type="checkpoint",
+                aliases=["latest"]
+            )
+
+            # Atomic logging: bundle metrics + visual predictions in the SAME payload
+            val_log = {
+                'val/mDice': val_mdice,
+                'val/best_mDice': best_dice,
+                f'{phase}/val_mDice': val_mdice
+            }
+            for c, d in enumerate(per_class):
+                val_log[f'val/dice_{class_names[c]}'] = d
+
+            if should_vis and visual_samples:
+                wandb_images = self.build_visual_samples(visual_samples)
+                if wandb_images:
+                    val_log['val/predictions'] = wandb_images
+
+            self.wandb_manager.log_metrics(val_log, step=global_step)
+
+        if self.is_ddp:
+            torch.distributed.barrier()
+
+        self.model.train()
+        return best_dice
 
     def run_training_loop(
         self,
@@ -448,21 +576,7 @@ class BaseMethod(abc.ABC):
 
                 # Console progress log (Rank 0 only)
                 if is_main_process() and (iter_num % 10 == 0 or iter_num == 1):
-                    elapsed_10 = time.time() - iter_t0
-                    sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
-                    rem_steps = max(max_iters - iter_num, 0)
-                    eta_sec = rem_steps * sec_per_it
-                    eta_str = time.strftime('%Hh%Mm%Ss', time.gmtime(eta_sec)) if eta_sec < 86400 else f"{eta_sec/3600:.1f}h"
-                    vram_used = torch.cuda.memory_reserved() / (1024**3) if torch.cuda.is_available() else 0
-                    pct = (iter_num / max_iters) * 100
-
-                    losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in loss_dict.items()])
-                    logging.info(
-                        f"[{phase}] Iter {iter_num}/{max_iters} ({pct:.1f}%) | "
-                        f"{sec_per_it:.2f}s/it | ETA: {eta_str} | "
-                        f"{losses_str} | VRAM: {vram_used:.1f}GB"
-                    )
-                    iter_t0 = time.time()
+                    iter_t0 = self._log_iteration_progress(iter_num, max_iters, loss_dict, iter_t0, phase)
 
                 # Periodic Checkpoint Saving between validation intervals
                 if iter_num % save_int == 0 and iter_num % val_int != 0:
@@ -478,95 +592,18 @@ class BaseMethod(abc.ABC):
                 if iter_num % val_int == 0:
                     val_visualize = bool(getattr(self.cfg.logging, 'val_visualize', True))
                     should_vis = self.wandb_manager.enabled and val_visualize and is_main_process()
-
-                    if is_main_process():
-                        num_gpus_str = f" across {self.world_size} GPU(s)" if self.world_size > 1 else ""
-                        msg = f"\n>>> [{phase} Validation] Periodic evaluation at Iter {iter_num}{num_gpus_str}..."
-                        logging.info(msg)
-                        print(msg, flush=True)
-
-                    # All ranks run sliding window inference in parallel
-                    if should_vis:
-                        val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
-                    else:
-                        val_res = self.validate(return_visuals=False)
-                        if isinstance(val_res, tuple) and len(val_res) == 3:
-                            val_mdice, per_class, visual_samples = val_res
-                        else:
-                            val_mdice, per_class = val_res
-                            visual_samples = []
-
-                    # Rank 0 handles all logging, artifacts, and checkpointing
-                    if is_main_process():
-                        class_names = self.class_names[1:]
-                        summary_str = format_dice_summary(per_class, class_names)
-                        end_msg = f"<<< [{phase} Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
-                        logging.info(end_msg)
-                        print(end_msg, flush=True)
-
-                        if self.writer is not None:
-                            self.writer.add_scalar('val/mDice', val_mdice, iter_num)
-                            for c, d in enumerate(per_class):
-                                self.writer.add_scalar(f'val/dice_{class_names[c]}', d, iter_num)
-
-                        if val_mdice > best_dice:
-                            best_dice = val_mdice
-                            best_pth = os.path.join(snap_dir, best_model_name)
-                            self.save_checkpoint(
-                                path=best_pth,
-                                iter_num=iter_num,
-                                best_dice=best_dice,
-                                phase=phase,
-                                artifact_name=f"{art_prefix}_best",
-                                artifact_type="model",
-                                aliases=["latest", "best"]
-                            )
-                            if legacy_best_model_name and legacy_best_model_name != best_model_name:
-                                legacy_pth = os.path.join(snap_dir, legacy_best_model_name)
-                                self.save_checkpoint(
-                                    path=legacy_pth,
-                                    iter_num=iter_num,
-                                    best_dice=best_dice,
-                                    phase=phase
-                                )
-                            logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
-                            self.wandb_manager.update_summary({
-                                f'{phase}/best_mDice': best_dice,
-                                f'{phase}/best_iter': iter_num,
-                                'best_mDice': best_dice
-                            })
-
-                        # Save and upload latest checkpoint
-                        self.save_checkpoint(
-                            path=latest_pth,
-                            iter_num=iter_num,
-                            best_dice=best_dice,
-                            phase=phase,
-                            artifact_name=f"{art_prefix}_latest",
-                            artifact_type="checkpoint",
-                            aliases=["latest"]
-                        )
-
-                        # Atomic logging: bundle metrics + visual predictions in the SAME payload
-                        val_log = {
-                            'val/mDice': val_mdice,
-                            'val/best_mDice': best_dice,
-                            f'{phase}/val_mDice': val_mdice
-                        }
-                        for c, d in enumerate(per_class):
-                            val_log[f'val/dice_{class_names[c]}'] = d
-
-                        if should_vis and visual_samples:
-                            wandb_images = self.build_visual_samples(visual_samples)
-                            if wandb_images:
-                                val_log['val/predictions'] = wandb_images
-
-                        self.wandb_manager.log_metrics(val_log, step=global_step)
-
-                    if self.is_ddp:
-                        torch.distributed.barrier()
-
-                    self.model.train()
+                    best_dice = self._handle_periodic_validation(
+                        snap_dir=snap_dir,
+                        phase=phase,
+                        iter_num=iter_num,
+                        global_step=global_step,
+                        best_dice=best_dice,
+                        best_model_name=best_model_name,
+                        legacy_best_model_name=legacy_best_model_name,
+                        art_prefix=art_prefix,
+                        latest_pth=latest_pth,
+                        should_vis=should_vis
+                    )
                     iter_t0 = time.time()
 
                 if iter_num >= max_iters:
@@ -595,6 +632,7 @@ class BaseMethod(abc.ABC):
             self.wandb_manager.finish()
 
         return iter_num, best_dice
+
 
     def train(self):
         """Default standard training loop executing single-phase training."""

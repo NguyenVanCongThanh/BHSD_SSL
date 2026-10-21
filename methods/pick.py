@@ -15,8 +15,8 @@ import torch.nn.functional as F
 from core.registry import METHODS
 from core.distributed import is_main_process
 from methods.base_method import BaseMethod
-from methods.ssl_utils import split_ssl_batch, extract_logits
-from losses import MaskDiceLoss
+from methods.ssl_utils import split_ssl_batch, extract_logits, get_or_create_mim_mask
+from losses import MaskDiceLoss, DiceCELoss
 from data.masking import context_mask
 
 
@@ -47,17 +47,9 @@ class PICKMethod(BaseMethod):
         os.makedirs(self.pre_snapshot_path, exist_ok=True)
         os.makedirs(self.self_snapshot_path, exist_ok=True)
 
-        # Loss function (exclude background from Dice for multi-class)
+        # Compound loss functions (exclude background from Dice for multi-class)
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
-
-    def _ensure_mim_mask(self, batch_data: Any, bs: int) -> torch.Tensor:
-        """Extract or generate MIM mask for volumetric input."""
-        if isinstance(batch_data, (tuple, list)) and len(batch_data) > 1 and batch_data[1] is not None:
-            return batch_data[1]
-        if not hasattr(self, '_mask_generator'):
-            from data.masking import MaskGeneratorBHSD
-            self._mask_generator = MaskGeneratorBHSD(input_size=self.patch_size)
-        return torch.from_numpy(np.stack([self._mask_generator() for _ in range(bs)]))
+        self.dice_ce_loss = DiceCELoss(nclass=self.num_classes, weight_dice=0.5, weight_ce=0.5, include_background=False)
 
     def pretrain_step(
         self,
@@ -70,7 +62,7 @@ class PICKMethod(BaseMethod):
         label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
 
         if mim_mask is None:
-            mim_mask = self._ensure_mim_mask(sampled_batch, volume_batch.shape[0])
+            mim_mask = get_or_create_mim_mask(sampled_batch, volume_batch.shape[0], self.patch_size)
         mim_mask = mim_mask[:self.labeled_bs].unsqueeze(1).to(device=self.device, dtype=torch.float32)
 
         img_a, img_b = volume_batch, torch.flip(volume_batch, dims=[0])
@@ -99,18 +91,14 @@ class PICKMethod(BaseMethod):
         aux_outputs = self.model(re_batch, mode='aux')
 
         combined_label = torch.cat((cutmix_label, label_batch), dim=0)
-        loss_main_ce = F.cross_entropy(main_outputs, combined_label)
-        loss_main_dice = self.dice_loss(main_outputs, combined_label)
-        loss_main = (loss_main_ce + loss_main_dice) / 2
+        loss_main = self.dice_ce_loss(main_outputs, combined_label)
 
         loss_mim_raw = F.l1_loss(volume_batch, mim_outputs, reduction='none')
         loss_mim = self.lambda_mim * (loss_mim_raw * mask_region).sum() / (mask_region.sum() + 1e-5)
 
-        loss_aux_ce = F.cross_entropy(aux_outputs, label_batch)
-        loss_aux_dice = self.dice_loss(aux_outputs, label_batch)
-        loss_aux = (loss_aux_ce + loss_aux_dice) / 2
-
+        loss_aux = self.dice_ce_loss(aux_outputs, label_batch)
         total_loss = loss_main + loss_mim + loss_aux
+
         loss_dict = {
             'loss_total': float(total_loss.item()),
             'loss_main': float(loss_main.item()),
@@ -151,15 +139,9 @@ class PICKMethod(BaseMethod):
         out_b = main_outputs[sub_bs:]
 
         # Masked supervised loss on labeled regions
-        mask_f = img_mask.float()
-        loss_ce_f = (F.cross_entropy(out_f, lab_a, reduction='none') * mask_f).sum() / (mask_f.sum() + 1e-6)
-        loss_dice_f = self.dice_loss(out_f, lab_a, mask=mask_f)
-
-        mask_b = (1.0 - img_mask).float()
-        loss_ce_b = (F.cross_entropy(out_b, lab_b, reduction='none') * mask_b).sum() / (mask_b.sum() + 1e-6)
-        loss_dice_b = self.dice_loss(out_b, lab_b, mask=mask_b)
-
-        loss_main = (loss_ce_f + loss_dice_f + loss_ce_b + loss_dice_b) / 4
+        loss_f = self.dice_ce_loss(out_f, lab_a, mask=img_mask.float())
+        loss_b = self.dice_ce_loss(out_b, lab_b, mask=(1.0 - img_mask).float())
+        loss_main = (loss_f + loss_b) / 2
 
         mask_region = un_ps_lab
         mim_batch = unimg * (1 - mask_region)
@@ -172,11 +154,9 @@ class PICKMethod(BaseMethod):
         loss_mim_raw = F.l1_loss(unimg, mim_outputs, reduction='none')
         loss_mim = self.lambda_mim * (loss_mim_raw * mask_region).sum() / (mask_region.sum() + 1e-5)
 
-        loss_aux_ce = F.cross_entropy(aux_outputs[unimg.shape[0]:], batch.labeled_label)
-        loss_aux_dice = self.dice_loss(aux_outputs[unimg.shape[0]:], batch.labeled_label)
-        loss_aux = (loss_aux_ce + loss_aux_dice) / 2
-
+        loss_aux = self.dice_ce_loss(aux_outputs[unimg.shape[0]:], batch.labeled_label)
         total_loss = loss_main + loss_mim + loss_aux
+
         loss_dict = {
             'loss_total': float(total_loss.item()),
             'loss_main': float(loss_main.item()),
