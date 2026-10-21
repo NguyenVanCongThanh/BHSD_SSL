@@ -20,7 +20,7 @@ from evaluation.metrics import (
     cal_binary_dice,
     format_dice_summary,
 )
-from methods.ssl_utils import extract_logits
+from utils.model_utils import extract_logits
 
 
 def _forward_model(model: nn.Module, patch_tensor: torch.Tensor) -> torch.Tensor:
