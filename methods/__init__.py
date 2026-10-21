@@ -9,6 +9,7 @@ from methods.mean_teacher import MeanTeacherMethod
 from methods.cps import CPSMethod
 from methods.bcp import BCPMethod
 from methods.lefed import LeFeDMethod
+from methods.ssl_utils import extract_logits, split_ssl_batch, SSLBatch
 
 __all__ = [
     "BaseMethod",
@@ -18,4 +19,8 @@ __all__ = [
     "CPSMethod",
     "BCPMethod",
     "LeFeDMethod",
+    "extract_logits",
+    "split_ssl_batch",
+    "SSLBatch",
 ]
+

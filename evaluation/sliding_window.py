@@ -20,28 +20,12 @@ from evaluation.metrics import (
     cal_binary_dice,
     format_dice_summary,
 )
+from methods.ssl_utils import extract_logits
 
 
 def _forward_model(model: nn.Module, patch_tensor: torch.Tensor) -> torch.Tensor:
-    """
-    Safely extract segmentation logits from diverse model output signatures:
-    - Composite/PICK: returns (features, main_outputs, feat_de) -> use [1]
-    - Standard Net: returns logits tensor
-    - Dict output: returns dict with 'seg' or 'out'
-    """
-    out = model(patch_tensor)
-    if isinstance(out, (tuple, list)):
-        # PICK standard: (_, main_output, _) or (out_seg, features)
-        if len(out) >= 2 and isinstance(out[1], torch.Tensor) and out[1].ndim >= 4:
-            return out[1]
-        return out[0]
-    elif isinstance(out, dict):
-        if 'seg' in out:
-            return out['seg']
-        if 'out' in out:
-            return out['out']
-        return list(out.values())[0]
-    return out
+    """Safely extract primary segmentation logits from diverse model output signatures."""
+    return extract_logits(model(patch_tensor))
 
 
 def sliding_window_inference_3d(

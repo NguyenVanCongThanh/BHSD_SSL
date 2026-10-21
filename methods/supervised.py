@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
+from methods.ssl_utils import extract_logits
 from losses import MaskDiceLoss
 
 
@@ -27,11 +28,7 @@ class SupervisedMethod(BaseMethod):
         volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)
         label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
 
-        out = self.model(volume_batch)
-        if isinstance(out, (tuple, list)):
-            logits = out[1] if len(out) >= 2 and isinstance(out[1], torch.Tensor) and out[1].ndim >= 4 else out[0]
-        else:
-            logits = out
+        logits = extract_logits(self.model(volume_batch))
 
         loss_ce = F.cross_entropy(logits, label_batch)
         loss_dice = self.dice_loss(logits, label_batch)

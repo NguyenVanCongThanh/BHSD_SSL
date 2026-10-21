@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
+from methods.ssl_utils import extract_logits, split_ssl_batch
 from losses import MaskDiceLoss
 from data.masking import context_mask
 
@@ -28,25 +29,17 @@ class BCPMethod(BaseMethod):
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 0.5))
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
-    def _extract_logits(self, net_out) -> torch.Tensor:
-        if isinstance(net_out, (tuple, list)):
-            return net_out[1] if len(net_out) >= 2 and isinstance(net_out[1], torch.Tensor) and net_out[1].ndim >= 4 else net_out[0]
-        return net_out
-
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
-        volume_batch = sampled_batch['image'].to(self.device)
-        label_batch = sampled_batch['label'].to(self.device)
-
-        sub_bs = max(int(self.labeled_bs / 2), 1)
-
-        img_a, img_b = volume_batch[:sub_bs], volume_batch[sub_bs:self.labeled_bs]
-        lab_a, lab_b = label_batch[:sub_bs], label_batch[sub_bs:self.labeled_bs]
-        unimg = volume_batch[self.labeled_bs:]
-        unimg_a, unimg_b = unimg[:sub_bs], unimg[sub_bs:]
+        batch = split_ssl_batch(sampled_batch, self.labeled_bs, device=self.device)
+        img_a, img_b = batch.img_a, batch.img_b
+        lab_a, lab_b = batch.lab_a, batch.lab_b
+        unimg = batch.unlabeled_volume
+        unimg_a, unimg_b = batch.unimg_a, batch.unimg_b
+        sub_bs = batch.sub_bs
 
         # Pseudo-labeling unlabeled images
         with torch.no_grad():
-            un_logits = self._extract_logits(self.model(unimg))
+            un_logits = extract_logits(self.model(unimg))
             un_prob = F.softmax(un_logits, dim=1)
             plab = torch.argmax(un_prob, dim=1).long()
             plab_a, plab_b = plab[:sub_bs], plab[sub_bs:]
@@ -64,7 +57,7 @@ class BCPMethod(BaseMethod):
         mix_imgs = torch.cat((mix_img_1, mix_img_2), dim=0)
         mix_labs = torch.cat((mix_lab_1, mix_lab_2), dim=0)
 
-        mix_logits = self._extract_logits(self.model(mix_imgs))
+        mix_logits = extract_logits(self.model(mix_imgs))
 
         loss_ce = F.cross_entropy(mix_logits, mix_labs)
         loss_dice = self.dice_loss(mix_logits, mix_labs)

@@ -157,7 +157,74 @@ class TestBenchmarkFramework(unittest.TestCase):
         self.assertIn("ce", loss_dict)
         self.assertIn("dice", loss_dict)
 
+    def test_ssl_utils(self):
+        """Test shared SSL utilities: extract_logits and split_ssl_batch."""
+        from methods.ssl_utils import extract_logits, split_ssl_batch, compute_masked_ce_loss
+
+        # 1. extract_logits with Tensor
+        t = torch.randn(2, 6, 8, 16, 16)
+        self.assertTrue(torch.equal(extract_logits(t), t))
+
+        # 2. extract_logits with tuple (PICK style: features, logits, feat_de)
+        t_tuple = ([torch.randn(2, 16, 8, 16, 16)], t, torch.randn(2, 16, 8, 16, 16))
+        self.assertTrue(torch.equal(extract_logits(t_tuple), t))
+
+        # 3. extract_logits with dict
+        t_dict = {'seg': t, 'aux': torch.randn(2, 6, 8, 16, 16)}
+        self.assertTrue(torch.equal(extract_logits(t_dict), t))
+
+        # 4. split_ssl_batch
+        synthetic_batch = {
+            'image': torch.randn(4, 1, 8, 16, 16),
+            'label': torch.randint(0, 6, (4, 8, 16, 16), dtype=torch.long)
+        }
+        ssl_b = split_ssl_batch(synthetic_batch, labeled_bs=2)
+        self.assertEqual(ssl_b.labeled_volume.shape[0], 2)
+        self.assertEqual(ssl_b.unlabeled_volume.shape[0], 2)
+        self.assertEqual(ssl_b.sub_bs, 1)
+
+        # 5. compute_masked_ce_loss
+        mask = torch.ones(2, 1, 8, 16, 16)
+        m_loss = compute_masked_ce_loss(t, synthetic_batch['label'][:2], mask)
+        self.assertIsInstance(m_loss, torch.Tensor)
+        self.assertGreater(float(m_loss.item()), 0.0)
+
+    def test_pick_steps(self):
+        """Test PICKMethod pretrain_step and selftrain_step."""
+        cfg = load_config(
+            dataset_config="bhsd_multiclass",
+            model_config="vnet",
+            method_config="pick",
+            cli_args=["--fold", "0"]
+        )
+        model = MODELS.build("pick_vnet", in_channels=1, num_classes=6, has_dropout=False)
+        trainer = METHODS.build("pick", model=model, cfg=cfg)
+
+        synthetic_batch = {
+            'image': torch.randn(4, 1, 16, 32, 32),
+            'label': torch.randint(0, 6, (4, 16, 32, 32), dtype=torch.long),
+            'case': 'test_case'
+        }
+        mim_mask = torch.zeros(4, 16, 32, 32)
+
+        # Pretrain step
+        pre_loss, pre_dict = trainer.pretrain_step(synthetic_batch, iter_num=0, mim_mask=mim_mask)
+        self.assertIsInstance(pre_loss, torch.Tensor)
+        self.assertIn("loss_total", pre_dict)
+        self.assertIn("loss_main", pre_dict)
+        self.assertIn("loss_mim", pre_dict)
+        self.assertIn("loss_aux", pre_dict)
+
+        # Selftrain step
+        self_loss, self_dict = trainer.selftrain_step(synthetic_batch, iter_num=0, mim_mask=mim_mask)
+        self.assertIsInstance(self_loss, torch.Tensor)
+        self.assertIn("loss_total", self_dict)
+        self.assertIn("loss_main", self_dict)
+        self.assertIn("loss_mim", self_dict)
+        self.assertIn("loss_aux", self_dict)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
