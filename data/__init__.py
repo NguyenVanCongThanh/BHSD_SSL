@@ -20,6 +20,9 @@ from data.transforms3d import (
     ToTensor,
     RandomIntensityScale,
     GaussianNoise,
+    RandomScaling3D,
+    GaussianBlur3D,
+    GammaTransform,
 )
 from data.masking import (
     MaskGeneratorBHSD,
@@ -39,6 +42,9 @@ __all__ = [
     "ToTensor",
     "RandomIntensityScale",
     "GaussianNoise",
+    "RandomScaling3D",
+    "GaussianBlur3D",
+    "GammaTransform",
     "MaskGeneratorBHSD",
     "context_mask",
     "random_mask",

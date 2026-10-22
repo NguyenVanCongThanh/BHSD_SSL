@@ -7,12 +7,14 @@ experiment:
   amp: true                           # Mixed precision (FP16) training with GradScaler
 
 model:
-  name: "nnunet3d"                    # 6-stage nnU-Net 3D with InstanceNorm & LeakyReLU
+  name: "nnunet3d"                    # 7-stage nnU-Net 3D with InstanceNorm & LeakyReLU (matches nnUNet v2 Option 1 & Spacing 0.5)
   in_channels: 1
   base_filters: 32
-  num_stages: 6                       # 6 stages (deep semantic bottleneck 2x6x6, 32x downsampled)
+  num_stages: 7                       # 7 stages (320-ch bottleneck 4x3x3, 64x spatial downsampled)
   has_dropout: false
-  deep_supervision: true              # Multi-scale auxiliary heads on intermediate decoder layers
+  deep_supervision: true              # Multi-scale auxiliary heads on intermediate decoder layers (5 scales)
+  anisotropic_kernels: true           # (1, 3, 3) in enc1 & enc2 to match nnU-Net v2 and prevent Z slice blurring
+  use_strided_conv: true              # Learnable strided conv downsampling instead of static MaxPool3d
 
 method:
   name: "mean_teacher"
@@ -35,7 +37,7 @@ method:
   student_noise_std: 0.02             # Gentle Gaussian noise standard deviation
   student_intensity_scale: 0.05       # Subtle intensity scaling (+-5%)
   deep_supervision:
-    weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 scales
+    weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 aux scales (stages 2-6)
     consistency_multiscale: false         # Disabled on intermediate aux heads to avoid blurry lesion collapse
 
 data:

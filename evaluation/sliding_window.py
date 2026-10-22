@@ -13,6 +13,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 
+from functools import lru_cache
+from scipy.ndimage import gaussian_filter
+
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
     CLASS_NAMES_BINARY,
@@ -23,9 +26,67 @@ from evaluation.metrics import (
 from utils.model_utils import extract_logits
 
 
+@lru_cache(maxsize=4)
+def compute_gaussian_weight_map(
+    patch_size: Tuple[int, int, int],
+    sigma_scale: float = 1.0 / 8,
+    value_scaling_factor: float = 1.0
+) -> np.ndarray:
+    """
+    Compute a 3D Gaussian importance weighting map following nnU-Net design.
+    The center of the patch has maximum weight (1.0), smoothly decaying towards borders.
+    This suppresses stitching artifacts and edge distortion during sliding-window inference.
+    Cached via @lru_cache for zero overhead across volumes.
+    """
+    tmp = np.zeros(patch_size, dtype=np.float32)
+    center = tuple(s // 2 for s in patch_size)
+    tmp[center] = 1.0
+    sigmas = [s * sigma_scale for s in patch_size]
+    gaussian = gaussian_filter(tmp, sigmas, mode='constant', cval=0)
+    gaussian = (gaussian / np.max(gaussian)) * value_scaling_factor
+    # Set minimum threshold to avoid zero division / complete zero weight at extreme edges
+    min_val = np.min(gaussian[gaussian > 0]) if np.any(gaussian > 0) else 1e-4
+    gaussian[gaussian == 0] = min_val
+    return gaussian.astype(np.float32)
+
+
 def _forward_model(model: nn.Module, patch_tensor: torch.Tensor) -> torch.Tensor:
     """Safely extract primary segmentation logits from diverse model output signatures."""
     return extract_logits(model(patch_tensor))
+
+
+def _forward_with_tta(
+    model: nn.Module,
+    patch_tensor: torch.Tensor,
+    use_amp: bool = True,
+    device: Optional[torch.device] = None,
+    flip_axes: Tuple[Tuple[int, ...], ...] = ((2,), (3,), (4,), (2, 3), (2, 4), (3, 4), (2, 3, 4))
+) -> torch.Tensor:
+    """
+    Test-Time Augmentation (TTA) using 3D spatial flip combinations (following nnUNet design).
+    Averages predicted probabilities over the original patch and mirrored variations.
+    patch_tensor shape: (1, 1, Z, Y, X) -> spatial axes in 5D tensor are 2 (Z), 3 (Y), 4 (X).
+    """
+    def _predict(inp: torch.Tensor) -> torch.Tensor:
+        if use_amp and device is not None and device.type == 'cuda':
+            with torch.amp.autocast('cuda'):
+                logits = _forward_model(model, inp)
+        else:
+            logits = _forward_model(model, inp)
+        return F.softmax(logits, dim=1)
+
+    # 1. Base prediction on original orientation
+    prob = _predict(patch_tensor)
+
+    # 2. Mirror predictions across spatial axes combinations
+    num_variants = 1 + len(flip_axes)
+    for axes in flip_axes:
+        flipped_input = torch.flip(patch_tensor, dims=axes)
+        flipped_prob = _predict(flipped_input)
+        unflipped_prob = torch.flip(flipped_prob, dims=axes)
+        prob += unflipped_prob
+
+    return prob / float(num_variants)
 
 
 def sliding_window_inference_3d(
@@ -36,7 +97,9 @@ def sliding_window_inference_3d(
     stride_z: int = 8,
     stride_xy: int = 32,
     use_amp: bool = True,
-    device: Optional[torch.device] = None
+    device: Optional[torch.device] = None,
+    use_gaussian: bool = True,
+    use_tta: bool = False
 ) -> np.ndarray:
     """
     Run 3D sliding-window inference on a single 3D volume.
@@ -50,6 +113,8 @@ def sliding_window_inference_3d(
         stride_xy: Stride along axial (Y, X) dimensions.
         use_amp: If True, uses torch.cuda.amp.autocast() for FP16 speedup.
         device: Torch device (defaults to cuda if available).
+        use_gaussian: If True, weights overlapping patches with 3D Gaussian importance mask (nnUNet standard).
+        use_tta: If True, applies 3D Test-Time Augmentation (flips across X, Y, Z axes).
         
     Returns:
         np.ndarray: Predicted discrete segmentation map of shape (Z, Y, X) with class integers.
@@ -82,6 +147,9 @@ def sliding_window_inference_3d(
     score_map = np.zeros((num_classes, w_z, w_y, w_x), dtype=np.float32)
     cnt = np.zeros((w_z, w_y, w_x), dtype=np.float32)
 
+    # Precompute Gaussian importance weight map
+    gaussian = compute_gaussian_weight_map((pz, py, px)) if use_gaussian else None
+
     model.eval()
     with torch.no_grad():
         for iz in range(sz):
@@ -94,16 +162,23 @@ def sliding_window_inference_3d(
                     patch = image[zs:zs + pz, ys:ys + py, xs:xs + px]
                     patch_tensor = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).to(device=device, dtype=torch.float32)
 
-                    if use_amp and device.type == 'cuda':
-                        with torch.amp.autocast('cuda'):
-                            logits = _forward_model(model, patch_tensor)
+                    if use_tta:
+                        prob_tensor = _forward_with_tta(model, patch_tensor, use_amp=use_amp, device=device)
+                        prob = prob_tensor.squeeze(0).cpu().numpy()
                     else:
-                        logits = _forward_model(model, patch_tensor)
+                        if use_amp and device.type == 'cuda':
+                            with torch.amp.autocast('cuda'):
+                                logits = _forward_model(model, patch_tensor)
+                        else:
+                            logits = _forward_model(model, patch_tensor)
+                        prob = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
 
-                    prob = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-
-                    score_map[:, zs:zs + pz, ys:ys + py, xs:xs + px] += prob
-                    cnt[zs:zs + pz, ys:ys + py, xs:xs + px] += 1.0
+                    if gaussian is not None:
+                        score_map[:, zs:zs + pz, ys:ys + py, xs:xs + px] += prob * gaussian
+                        cnt[zs:zs + pz, ys:ys + py, xs:xs + px] += gaussian
+                    else:
+                        score_map[:, zs:zs + pz, ys:ys + py, xs:xs + px] += prob
+                        cnt[zs:zs + pz, ys:ys + py, xs:xs + px] += 1.0
 
     score_map = score_map / np.expand_dims(cnt, axis=0)
     pred = np.argmax(score_map, axis=0)[:z, :y, :x]
@@ -123,7 +198,9 @@ def evaluate_dataset_sliding_window(
     log_progress: bool = True,
     return_visual_samples: int = 0,
     rank: Optional[int] = None,
-    world_size: Optional[int] = None
+    world_size: Optional[int] = None,
+    use_gaussian: bool = True,
+    use_tta: bool = False
 ) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
@@ -143,6 +220,8 @@ def evaluate_dataset_sliding_window(
         return_visual_samples: Number of visual sample records to return (0 = disable).
         rank: Distributed process rank (auto-detected if None).
         world_size: Total distributed processes (auto-detected if None).
+        use_gaussian: Whether to apply 3D Gaussian importance weighting mask to overlapping patches.
+        use_tta: Whether to enable 3D Test-Time Augmentation (TTA).
         
     Returns:
         If return_visual_samples == 0:
@@ -178,7 +257,7 @@ def evaluate_dataset_sliding_window(
         dist_info = f" | Multi-GPU: Rank {rank}/{world_size} evaluating {num_my_cases}/{total_cases} cases" if world_size > 1 else ""
         logging.info(
             f"  [Validation] Evaluating {total_cases} cases "
-            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp}){dist_info}..."
+            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp}, gaussian={use_gaussian}, tta={use_tta}){dist_info}..."
         )
 
     for step_i, case_idx in enumerate(my_indices):
@@ -200,7 +279,9 @@ def evaluate_dataset_sliding_window(
             stride_z=stride_z,
             stride_xy=stride_xy,
             use_amp=use_amp,
-            device=device
+            device=device,
+            use_gaussian=use_gaussian,
+            use_tta=use_tta
         )
 
         if is_binary:

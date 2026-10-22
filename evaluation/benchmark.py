@@ -38,7 +38,9 @@ def benchmark_5folds(
     dataset_cls=None,
     dataset_name: str = "bhsd",
     class_names: Optional[List[str]] = None,
-    num_classes: Optional[int] = None
+    num_classes: Optional[int] = None,
+    use_gaussian: bool = True,
+    use_tta: bool = False
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
@@ -57,6 +59,8 @@ def benchmark_5folds(
         dataset_name: Registered dataset name.
         class_names: Optional custom class names list.
         num_classes: Optional number of classes.
+        use_gaussian: Whether to apply Gaussian importance weighting mask during sliding window.
+        use_tta: Whether to apply Test-Time Augmentation (TTA) flips across spatial axes.
         
     Returns:
         Dict of results containing fold-wise metrics, overall OOF mean, std, and per-class breakdown.
@@ -146,7 +150,9 @@ def benchmark_5folds(
                 stride_z=stride_z,
                 stride_xy=stride_xy,
                 use_amp=use_amp,
-                device=device
+                device=device,
+                use_gaussian=use_gaussian,
+                use_tta=use_tta
             )
 
             if is_binary:

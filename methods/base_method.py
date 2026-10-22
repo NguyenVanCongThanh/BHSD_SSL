@@ -30,7 +30,14 @@ from core.registry import DATASETS
 from core.optimizers import build_optimizer, calculate_lr
 from data.dataset_bhsd import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
 from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
-from data.transforms3d import RandomRotFlip, RandomCrop, ToTensor
+from data.transforms3d import (
+    RandomRotFlip,
+    RandomCrop,
+    ToTensor,
+    RandomScaling3D,
+    GaussianBlur3D,
+    GammaTransform,
+)
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import format_dice_summary
 from utils.wandb_manager import WandbManager
@@ -130,11 +137,23 @@ class BaseMethod(abc.ABC):
 
     def setup_dataloaders(self):
         root_path = getattr(self.cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
-        train_transforms = transforms.Compose([
+        
+        # Check if extended nnUNet-style data augmentation is enabled in config
+        use_extended_da = getattr(self.cfg.data, 'extended_aug', True)
+        aug_list = [
             RandomRotFlip(),
+        ]
+        if use_extended_da:
+            aug_list.extend([
+                RandomScaling3D(scale_range=(0.85, 1.15), prob=0.2),
+                GammaTransform(gamma_range=(0.7, 1.5), prob=0.2),
+                GaussianBlur3D(sigma_range=(0.5, 1.0), prob=0.15),
+            ])
+        aug_list.extend([
             RandomCrop(self.patch_size),
             ToTensor()
         ])
+        train_transforms = transforms.Compose(aug_list)
 
         dataset_name = self.dataset_name
         if not DATASETS.contains(dataset_name):

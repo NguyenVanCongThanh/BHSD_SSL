@@ -56,6 +56,8 @@ def main():
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID')
     parser.add_argument('--stride_xy', type=int, default=32, help='XY stride for sliding window')
     parser.add_argument('--stride_z', type=int, default=8, help='Z stride for sliding window')
+    parser.add_argument('--no_gaussian', action='store_true', help='Disable Gaussian weighting in sliding window (default: Gaussian enabled)')
+    parser.add_argument('--use_tta', action='store_true', help='Enable 3D Test-Time Augmentation (flips across spatial axes, nnUNet standard)')
     parser.add_argument('--profile', action='store_true', help='Measure computational complexity (FLOPs, params, latency, VRAM)')
     parser.add_argument('--patch_size', nargs=3, type=int, default=None, help='Input patch dimensions (Z Y X)')
     args = parser.parse_args()
@@ -91,7 +93,9 @@ def main():
             patch_size=patch_size,
             dataset_name=dataset_name,
             class_names=class_names,
-            num_classes=num_classes
+            num_classes=num_classes,
+            use_gaussian=not args.no_gaussian,
+            use_tta=args.use_tta
         )
     elif args.checkpoint:
         # Single checkpoint evaluation
@@ -121,7 +125,9 @@ def main():
             is_binary=is_binary,
             stride_z=args.stride_z,
             stride_xy=args.stride_xy,
-            device=device
+            device=device,
+            use_gaussian=not args.no_gaussian,
+            use_tta=args.use_tta
         )
 
         fg_names = class_names[1:] if len(class_names) > 1 and not is_binary else class_names
