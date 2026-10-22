@@ -11,7 +11,8 @@ def build_mean_teacher_notebook():
                 "\n",
                 "Phân đoạn 5 phân loại xuất huyết não chi tiết (EDH, IPH, IVH, SAH, SDH) + Background trên 2x GPU T4 Kaggle theo phương pháp **Mean Teacher (Tarvainen & Valpola, NeurIPS 2017)** đã được tối ưu hóa cho bài toán mất cân bằng dữ liệu 3D BHSD.\n",
                 "\n",
-                "- **Kiến trúc SOTA nnU-Net 3D (5 tầng)**: Sử dụng mô hình nnU-Net 3D 5 stages chuẩn mực (`nnunet3d`) với InstanceNorm3d và LeakyReLU, độ sâu phân giải tối ưu cho patch (32, 160, 160) -> bottleneck (2, 10, 10).\n",
+                "- **Kiến trúc SOTA nnU-Net 3D (7 stages)**: Sử dụng mô hình nnU-Net 3D 7 stages chuẩn mực (`nnunet3d`) với InstanceNorm3d và LeakyReLU, kernel anisotropic (1, 3, 3) ở 2 tầng đầu bảo toàn chi tiết Z, downsampling tích chập có bước nhảy (strided convolution), độ sâu phân giải tối ưu cho patch (32, 192, 192) -> bottleneck 320 kênh (2, 3, 3).\n",
+                "- **Data Augmentation 3D Mở Rộng**: Tự động áp dụng RandomScaling3D, GammaTransform và GaussianBlur3D chuẩn nnUNet v2 nhằm chống overfitting trên tập nhãn hạn chế.\n",
                 "- **Automatic Mixed Precision (AMP FP16) & GradScaler**: Tự động tăng tốc huấn luyện lên ~2x qua Tensor Cores của 2x GPU T4, tiết kiệm ~40% VRAM và chống tràn số (underflow/overflow).\n",
                 "- **Polynomial Learning Rate Decay**: Learning rate suy giảm đa thức theo từng bước ($lr = base\\_lr \\times (1 - iter/max\\_iter)^{0.9}$), cải thiện độ hội tụ và độ mượt mà của mDice.\n",
                 "- **EMA Teacher & Balanced Consistency**: Trọng số Teacher cập nhật liên tục qua Exponential Moving Average ổn định (EMA decay 0.999); Consistency Loss cân bằng theo từng lớp (class-balanced channel MSE), downweight background (x0.05) và loại bỏ threshold cứng để chống triệt để sụp đổ mô hình (collapse).\n",
@@ -232,10 +233,12 @@ def build_mean_teacher_notebook():
             "metadata": {},
             "source": [
                 "### 🏋️‍♂️ Bước 6: Huấn luyện Mean Teacher End-to-End (2x T4 DDP)\n",
-                "- **Model**: `nnunet3d` (6 resolution stages với InstanceNorm3d & LeakyReLU, chuẩn nnU-Net).\n",
+                "- **Model**: `nnunet3d` (7 resolution stages với InstanceNorm3d & LeakyReLU, kernel anisotropic (1, 3, 3), downsampling có học, chuẩn nnU-Net v2 Option 1 & Spacing 0.5).\n",
+                "- **Patch size**: [32, 192, 192] (bao quát trọn vẹn toàn bộ não trên mặt phẳng axial và đầy đủ lát cắt Z).\n",
+                "- **Data Augmentation**: Tự động kích hoạt Scaling3D, GammaTransform, GaussianBlur3D chuẩn nnUNet v2.\n",
                 "- **Tối ưu hóa**: Mixed Precision (FP16 qua AMP & GradScaler) + Polynomial LR Decay per iter.\n",
-                "- **Batch size**: 6 (mỗi GPU T4 xử lý 3 mẫu: 1 labeled, 2 unlabeled).\n",
-                "- **Consistency**: Continuous Soft Dice trên tổn thương (consistency_type: 'dice', weight 0.2, EMA decay 0.999, smooth rampup 2000 iters - triệt tiêu hoàn toàn MSE voxel-bias)."
+                "- **Batch size**: 6 (mỗi GPU T4 xử lý 3 mẫu: 1 labeled, 2 unlabeled, VRAM an toàn ~6.5GB / 15GB).\n",
+                "- **Consistency**: Hybrid (50% Soft Dice foreground + 50% Class-balanced MSE), cosine EMA schedule (0.99 -> 0.999), downweight background."
             ]
         },
         # Cell 12: Step 6 - Code
@@ -260,8 +263,8 @@ def build_mean_teacher_notebook():
                 "EXP_NAME = f\"BHSD_{TASK}_MeanTeacher_fold{FOLD_ID}_{RUN_TIMESTAMP}\"  # Run mới độc lập mỗi lần chạy\n",
                 "EXP_DIR = \"/kaggle/working/experiments\"\n",
                 "CONFIG_FILE = \"configs/methods/mean_teacher.yaml\"\n",
-                "MAX_ITER = 12000                                             # Tổng số iterations\n",
-                "VAL_INTERVAL = 200                                           # Đánh giá validation trượt 3D mỗi 200 bước\n",
+                "MAX_ITER = 30000                                             # Tổng 30k iters (~5h trên 2x T4, an toàn trong 12h Kaggle)\n",
+                "VAL_INTERVAL = 250                                           # Đánh giá validation trượt 3D mỗi 250 bước\n",
                 "SAVE_INTERVAL = 50                                           # Lưu checkpoint_latest.pth mỗi 50 bước\n",
                 "BATCH_SIZE = 6                                               # Batch size tổng (2 GPU -> 3 sample/GPU: 1 lab + 2 unlab)\n",
                 "LABELED_BS = 2                                               # 2 mẫu có nhãn trong batch\n",
@@ -385,8 +388,10 @@ def build_mean_teacher_notebook():
                 "        \"--task\", TASK,\n",
                 "        \"--model\", MODEL_NAME,\n",
                 "        \"--fold\", str(FOLD_ID),\n",
+                "        \"--patch_size\", \"32\", \"192\", \"192\",\n",
                 "        \"--stride_xy\", \"32\",\n",
                 "        \"--stride_z\", \"8\",\n",
+                "        \"--use_tta\",\n",
                 "        \"--profile\"\n",
                 "    ]\n",
                 "    print(f\"[*] Chạy đánh giá:\\n{' '.join(eval_cmd)}\\n\", flush=True)\n",

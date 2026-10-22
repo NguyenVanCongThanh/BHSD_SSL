@@ -92,7 +92,7 @@ Trong file `models/backbones/nnunet3d.py`:
 - [ ] **Bước 3**: Bổ sung hàm xuất mask dự đoán ra `.nii.gz` và tính Dice trên không gian NIfTI gốc (Tạm hoãn theo yêu cầu).
 - [x] **Bước 4**: Thêm `RandomScaling3D`, `GammaTransform`, và `GaussianBlur3D` vào `data/transforms3d.py` (Đã hoàn thành: triển khai đầy đủ 3 lớp biến đổi dữ liệu 3D chuẩn nnUNet, xuất qua `data/__init__.py` và tích hợp tự động vào pipeline `train_transforms` trong `methods/base_method.py`).
 - [x] **Bước 4.1**: Chuẩn hóa Kernel các tầng đầu, 7 stages và Downsampling có học trong `models/backbones/nnunet3d.py` (Đã hoàn thành: nâng cấp lên 7 stages chuẩn nnUNet v2 Option 1, hỗ trợ `anisotropic_kernels: true` với kernel `(1, 3, 3)` ở tầng đầu, `use_strided_conv: true` thay thế MaxPool3d, tương thích patch size `[32, 192, 192]` và `[28, 192, 192]`).
-- [ ] **Bước 5**: Tăng `max_iteration` lên 30,000 - 50,000 steps trong cấu hình huấn luyện.
+- [x] **Bước 5**: Tăng `max_iteration` lên 30,000 steps trong cấu hình huấn luyện (Đã hoàn thành: cập nhật `max_iteration: 30000`, `consistency_rampup: 8000.0`, `consistency_rampdown_start: 19500` và `val_interval: 250` trong `configs/methods/mean_teacher.yaml` và notebook Kaggle Dual GPU).
 - [ ] **Bước 6**: Lựa chọn đối chiếu với `nnUNetPlans_spacing05` (nếu giữ spacing 5.0mm) hoặc resample lại theo Option 1 (nếu giữ spacing 2.71mm).
 
 ---
@@ -126,25 +126,25 @@ python train.py --config configs/methods/mean_teacher.yaml
 Mặc định đã **bật sẵn Trọng số Gaussian**:
 ```bash
 # Đánh giá 1 checkpoint cụ thể:
-python evaluate.py --checkpoint /path/to/best_model.pth --fold 0
+python evaluate.py --model nnunet3d --patch_size 32 192 192 --checkpoint /path/to/best_model.pth --fold 0
 
 # Benchmark tổng thể 5-fold (OOF):
-python evaluate.py --exp_dir /home/u001015/experiments/BHSD_mean_teacher_5folds
+python evaluate.py --model nnunet3d --patch_size 32 192 192 --exp_dir /home/u001015/experiments/BHSD_mean_teacher_5folds
 ```
 
 #### 3. Đánh Giá Đối Đầu Sòng Phẳng Với nnUNet v2 (Fair Benchmark Inference)
 nnUNet v2 mặc định bật TTA lật 3 chiều không gian (8 lần suy luận). Để đối đầu công bằng 100%, bạn **thêm cờ `--use_tta`**:
 ```bash
 # Đánh giá 1 checkpoint có đầy đủ Gaussian + TTA (8 biến thể lật):
-python evaluate.py --checkpoint /path/to/best_model.pth --fold 0 --use_tta
+python evaluate.py --model nnunet3d --patch_size 32 192 192 --checkpoint /path/to/best_model.pth --fold 0 --use_tta
 
 # Benchmark tổng thể 5-fold đầy đủ Gaussian + TTA:
-python evaluate.py --exp_dir /home/u001015/experiments/BHSD_mean_teacher_5folds --use_tta
+python evaluate.py --model nnunet3d --patch_size 32 192 192 --exp_dir /home/u001015/experiments/BHSD_mean_teacher_5folds --use_tta
 ```
 
 #### 4. Đánh Giá Thử Nghiệm Đối Chứng (Ablation Study)
 Nếu bạn muốn đo lường chính xác xem **Trọng số Gaussian đóng góp bao nhiêu % Dice**, hãy chạy với cờ `--no_gaussian`:
 ```bash
 # Đánh giá không dùng Gaussian (trung bình đều phẳng cũ):
-python evaluate.py --checkpoint /path/to/best_model.pth --fold 0 --no_gaussian
+python evaluate.py --model nnunet3d --patch_size 32 192 192 --checkpoint /path/to/best_model.pth --fold 0 --no_gaussian
 ```
