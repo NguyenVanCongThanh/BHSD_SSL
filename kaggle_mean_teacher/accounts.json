@@ -1,0 +1,20 @@
+{
+  "accounts": {
+    "1": {
+      "id": "1",
+      "slug": "thanh",
+      "name": "Tài khoản 1 (Mặc định)",
+      "username": "thnhnguynvncng",
+      "key": "KGAT_xxxxxxxxxxxxxxxxxxxxxxxx",
+      "source": "key"
+    },
+    "2": {
+      "id": "2",
+      "slug": "khanh",
+      "name": "Tài khoản 2 (Bảo Khánh Lê)",
+      "username": "bokhnhl",
+      "key": "KGAT_xxxxxxxxxxxxxxxxxxxxxxxx",
+      "source": "key"
+    }
+  }
+}
