@@ -52,6 +52,18 @@ class KaggleExecutor:
         env["KAGGLE_CONFIG_DIR"] = str(self.profile_dir.resolve())
         env["PYTHONUNBUFFERED"] = "1"
         
+        # Nạp trực tiếp KAGGLE_USERNAME và KAGGLE_KEY vào env của subprocess
+        # giúp tương thích 100% với cả Kaggle CLI lẫn Python Kaggle API client
+        try:
+            with open(self.kaggle_json, "r", encoding="utf-8") as f:
+                kdata = json.load(f)
+            if kdata.get("username"):
+                env["KAGGLE_USERNAME"] = kdata["username"].strip()
+            if kdata.get("key"):
+                env["KAGGLE_KEY"] = kdata["key"].strip()
+        except Exception:
+            pass
+
         # Đảm bảo ~/.local/bin nằm trong PATH
         local_bin = str(Path.home() / ".local" / "bin")
         if local_bin not in env.get("PATH", ""):
