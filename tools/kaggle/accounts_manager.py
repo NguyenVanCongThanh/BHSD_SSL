@@ -73,22 +73,34 @@ class AccountsManager:
         Hỗ trợ fallback sang ~/.kaggle/kaggle.json nếu được chỉ định.
         """
         username = account.get("username", "").strip()
-        key = account.get("key", "").strip()
+        key = (account.get("key") or account.get("token") or "").strip()
         source = account.get("source", "key")
 
-        # Kiểm tra file toàn cục ~/.kaggle/kaggle.json nếu source là global
-        if source == "global_or_key":
-            global_path = Path.home() / ".kaggle" / "kaggle.json"
-            if global_path.exists():
-                try:
-                    with open(global_path, "r", encoding="utf-8") as f:
-                        gdata = json.load(f)
-                    guser = gdata.get("username", "").strip()
-                    gkey = gdata.get("key", "").strip()
-                    if guser and gkey:
-                        return guser, gkey
-                except Exception:
-                    pass
+        # Kiểm tra fallback nếu source là global_or_key hoặc chưa có key
+        if source == "global_or_key" or not key:
+            # 1. Kiểm tra biến môi trường toàn cục KAGGLE_API_TOKEN / KAGGLE_KEY
+            env_token = os.environ.get("KAGGLE_API_TOKEN") or os.environ.get("KAGGLE_KEY")
+            env_user = os.environ.get("KAGGLE_USERNAME")
+            if env_token:
+                key = env_token.strip()
+            if env_user and not username:
+                username = env_user.strip()
+
+            # 2. Kiểm tra file toàn cục ~/.kaggle/kaggle.json
+            if not key or not username:
+                global_path = Path.home() / ".kaggle" / "kaggle.json"
+                if global_path.exists():
+                    try:
+                        with open(global_path, "r", encoding="utf-8") as f:
+                            gdata = json.load(f)
+                        guser = gdata.get("username", "").strip()
+                        gkey = (gdata.get("key") or gdata.get("token") or "").strip()
+                        if guser and not username:
+                            username = guser
+                        if gkey and not key:
+                            key = gkey
+                    except Exception:
+                        pass
 
         if not username or not key:
             raise ValueError(f"Tài khoản '{account.get('name', 'Unknown')}' thiếu Username hoặc API Key hợp lệ!")
