@@ -105,5 +105,6 @@ Mỗi khi tạo hoặc sao chép một notebook chạy Dual GPU (2x T4 / 2x P100
 - [x] Cấu hình `GIT_TERMINAL_PROMPT=0` kèm timeout cho mọi lệnh gọi subprocess hệ thống.
 - [x] Dùng `find_free_port()` cho `--master_port` thay vì cố định `29500`.
 - [x] Bật `NCCL_P2P_DISABLE=1` và `NCCL_IB_DISABLE=1` khi chạy DDP trên môi trường máy ảo đám mây.
-- [x] Cấu hình `timeout=timedelta(seconds=120)` trong `dist.init_process_group`.
+- [x] Cấu hình `TORCH_NCCL_ENABLE_MONITORING=0` và `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800` để ngăn ProcessGroupNCCL Watchdog ngắt tiến trình nhầm (false positive abort).
+- [x] Cấu hình `timeout=timedelta(seconds=1800)` trong `dist.init_process_group`.
 - [x] Đảm bảo mọi lệnh `print()` quan trọng có tham số `flush=True`.
