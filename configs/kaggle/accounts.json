@@ -7,7 +7,7 @@
       "name": "Tài khoản 1 - Thành (Mặc định)",
       "username": "thnhnguynvncng",
       "source": "key",
-      "key": "KGAT_779f3c8e12c656b84f817d43d775b751",
+      "key": "KGAT_8022b95ea7cbc5fccc76531e4ebe73f0",
       "description": "Tài khoản chính, sở hữu dataset gốc bhsd-fold0 và các notebook benchmark",
       "default_dataset_owner": "thnhnguynvncng"
     },

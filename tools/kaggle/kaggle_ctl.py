@@ -104,7 +104,8 @@ def cmd_push(args):
 
     print(f"[*] Thư mục bundle đã chuẩn bị: {bundle_dir}")
     with open(bundle_dir / "kernel-metadata.json", "r", encoding="utf-8") as f:
-        print("    Kernel ID:", f.readline().strip())
+        meta_info = json.load(f)
+        print("    Kernel ID:", meta_info.get("id"))
 
     # Thực hiện push
     result = executor.push_kernel(bundle_dir)
