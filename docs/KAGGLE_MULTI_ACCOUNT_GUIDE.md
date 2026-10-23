@@ -1,0 +1,147 @@
+# 🚀 Hướng Dẫn Quản Lý Đa Tài Khoản & Tự Động Submit Kaggle (MedSSL-BHSD)
+
+Hệ thống quản lý Kaggle Submission đã được tái cấu trúc toàn diện, module hóa và chuyên nghiệp hóa, giải quyết triệt để các hạn chế của script cũ:
+1. **Cô lập Credentials tuyệt đối**: Không bị nhầm lẫn token giữa các tài khoản, loại bỏ ảnh hưởng từ biến môi trường toàn cục (`~/.bashrc` hay `~/.kaggle/kaggle.json`).
+2. **Tự động tạo mới Kernel trên Kaggle**: Khi submit bằng tài khoản mới (như tài khoản của Khánh) chưa có notebook, hệ thống tự động sinh `kernel-metadata.json` theo đúng format `<username>/<slug>` để Kaggle API tự động khởi tạo notebook mới từ mã nguồn của dự án.
+3. **Mở rộng không giới hạn**: Dễ dàng thêm tài khoản mới (Acc 3, Acc 4, ...) hoặc thêm các notebook phương pháp mới (`mean_teacher`, `pick`, `nnunet3d`, ...).
+
+---
+
+## 1. Cấu Trúc Hệ Thống Mới
+
+```
+BHSD_SSL/
+├── configs/kaggle/
+│   ├── accounts.json          # Registry quản lý danh sách tài khoản (ID, username, API Key)
+│   ├── notebooks.json         # Danh mục các loại notebook (Mean Teacher, PICK, GPU/Internet settings)
+│   └── secrets/               # Thư mục cache profile cô lập cho từng tài khoản (chmod 600, đã được ignore khỏi Git)
+├── tools/kaggle/
+│   ├── accounts_manager.py    # Quản lý đọc, lưu, tạo isolated profile directory cho từng user
+│   ├── notebook_builder.py    # Tự động chuẩn bị notebook bundle và kernel-metadata.json theo từng user
+│   ├── kaggle_executor.py     # Sandbox thực thi Kaggle CLI/API độc lập, an toàn
+│   └── kaggle_ctl.py          # CLI điều khiển trung tâm (account, push, status)
+├── kaggle_runs/               # Thư mục chứa các bundle đã sinh cho từng user trước khi đẩy lên Kaggle
+└── scripts/
+    ├── submit_mean_teacher_kaggle.sh  # Script nộp Mean Teacher (tương thích ngược hoàn toàn)
+    └── kaggle_submit.sh               # Script nộp tổng quát cho mọi notebook
+```
+
+---
+
+## 2. Danh Sách Tài Khoản Đang Quản Lý
+
+Xem danh sách tài khoản hiện có:
+```bash
+python3 tools/kaggle/kaggle_ctl.py account list
+# Hoặc:
+bash scripts/submit_mean_teacher_kaggle.sh --list-accounts
+```
+
+| ID | Slug | Username | Tên Hiển Thị | Vai trò |
+|---|---|---|---|---|
+| **1** | `thanh` | `thnhnguynvncng` | Tài khoản 1 - Thành (Mặc định) | Tài khoản chính, sở hữu dataset gốc `bhsd-fold0` |
+| **2** | `khanh` | `bokhnhl` | Tài khoản 2 - Bảo Khánh Lê | Chạy song song để nhân đôi hạn mức GPU Kaggle (30h + 30h) |
+
+---
+
+## 3. Cách Submit Notebook Lên Kaggle
+
+### Cách 1: Sử dụng Shell Script quen thuộc (`submit_mean_teacher_kaggle.sh`)
+
+- **Nộp bằng Tài khoản 1 (Thành - Mặc định)**:
+  ```bash
+  bash scripts/submit_mean_teacher_kaggle.sh
+  ```
+
+- **Nộp bằng Tài khoản 2 (Khánh)**:
+  ```bash
+  bash scripts/submit_mean_teacher_kaggle.sh --account 2
+  ```
+
+- **Ghi đè Dataset nguồn (nếu cần)**:
+  ```bash
+  bash scripts/submit_mean_teacher_kaggle.sh --account 2 --dataset thnhnguynvncng/bhsd-fold0
+  ```
+
+- **Kiểm tra trạng thái đang chạy trên Kaggle**:
+  ```bash
+  bash scripts/submit_mean_teacher_kaggle.sh --account 2 --status
+  ```
+
+---
+
+### Cách 2: Sử dụng CLI Điều Khiển Trung Tâm (`kaggle_ctl.py`)
+
+- **Submit Mean Teacher Dual GPU**:
+  ```bash
+  # Submit cho Tài khoản 1
+  python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook mean_teacher
+
+  # Submit cho Tài khoản 2
+  python3 tools/kaggle/kaggle_ctl.py push --account 2 --notebook mean_teacher
+  ```
+
+- **Submit PICK Dual GPU**:
+  ```bash
+  python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook pick
+  python3 tools/kaggle/kaggle_ctl.py push --account 2 --notebook pick
+  ```
+
+- **Kiểm tra trạng thái Kernel**:
+  ```bash
+  python3 tools/kaggle/kaggle_ctl.py status --account 1 --notebook mean_teacher
+  python3 tools/kaggle/kaggle_ctl.py status --account 2 --notebook mean_teacher
+  ```
+
+---
+
+## 4. Hướng Dẫn Mở Rộng Sau Này
+
+### 4.1. Thêm Tài Khoản Mới (Ví dụ Tài khoản 3)
+Chỉ cần chạy lệnh:
+```bash
+python3 tools/kaggle/kaggle_ctl.py account add \
+    --id 3 \
+    --username <ten_kaggle_username> \
+    --key KGAT_xxxxxxxxxxxxxxxxxxxxxxxx \
+    --name "Tài khoản 3 - [Tên bạn]" \
+    --slug user3
+```
+Sau đó bạn có thể submit ngay lập tức:
+```bash
+python3 tools/kaggle/kaggle_ctl.py push --account 3 --notebook mean_teacher
+```
+
+### 4.2. Thêm Loại Notebook Mới
+Mở file `configs/kaggle/notebooks.json` và thêm cấu hình:
+```json
+{
+  "notebooks": {
+    "my_new_method": {
+      "slug": "kaggle-bhsd-my-method",
+      "title": "kaggle_bhsd_my_method",
+      "code_file": "kaggle_bhsd_my_method.ipynb",
+      "generator_script": "tools/generate_my_method.py",
+      "enable_gpu": true,
+      "enable_internet": true,
+      "dataset_sources": ["thnhnguynvncng/bhsd-fold0"]
+    }
+  }
+}
+```
+Lệnh submit sẽ tự động nhận diện:
+```bash
+python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook my_new_method
+```
+
+---
+
+## 5. Nguyên Lý Tự Động Khởi Tạo Notebook Mới Trên Tài Khoản 2
+1. Khi gọi `push --account 2`, `NotebookBuilder` sẽ tạo thư mục bundle cô lập tại:
+   `kaggle_runs/mean_teacher/bokhnhl/`
+2. Bundle bao gồm file notebook nguồn mới nhất và `kernel-metadata.json` với trường:
+   `"id": "bokhnhl/kaggle-bhsd-mean-teacher-dual-gpu"`
+3. Kaggle API nhận request với đúng username của phiên xác thực. Nếu notebook chưa có trên tài khoản của Khánh, Kaggle server sẽ **tự động khởi tạo mới (Create)** và phân bổ 2x GPU T4 cho notebook chạy.
+4. Đường link trực tiếp sau khi submit:
+   - Tài khoản 1: `https://www.kaggle.com/code/thnhnguynvncng/kaggle-bhsd-mean-teacher-dual-gpu`
+   - Tài khoản 2: `https://www.kaggle.com/code/bokhnhl/kaggle-bhsd-mean-teacher-dual-gpu`

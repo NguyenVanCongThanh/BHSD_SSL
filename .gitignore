@@ -8,3 +8,9 @@ experiments/
 pick_code.zip
 *.zip
 *.tar.gz
+# Kaggle credentials & local runtime caches
+.kaggle/
+*.kaggle*/
+configs/kaggle/secrets/
+kaggle_runs/
+

@@ -1,0 +1,25 @@
+{
+  "default_account": "1",
+  "accounts": {
+    "1": {
+      "id": "1",
+      "slug": "thanh",
+      "name": "Tài khoản 1 - Thành (Mặc định)",
+      "username": "thnhnguynvncng",
+      "source": "key",
+      "key": "KGAT_779f3c8e12c656b84f817d43d775b751",
+      "description": "Tài khoản chính, sở hữu dataset gốc bhsd-fold0 và các notebook benchmark",
+      "default_dataset_owner": "thnhnguynvncng"
+    },
+    "2": {
+      "id": "2",
+      "slug": "khanh",
+      "name": "Tài khoản 2 - Bảo Khánh Lê",
+      "username": "bokhnhl",
+      "source": "key",
+      "key": "KGAT_26ef852621135f54947744308eee1793",
+      "description": "Tài khoản phụ 1, chạy song song mô hình để nhân đôi quota GPU hàng tuần",
+      "default_dataset_owner": "thnhnguynvncng"
+    }
+  }
+}

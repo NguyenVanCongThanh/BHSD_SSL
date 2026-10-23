@@ -1,0 +1,37 @@
+{
+  "default_notebook": "mean_teacher",
+  "notebooks": {
+    "mean_teacher": {
+      "slug": "kaggle-bhsd-mean-teacher-dual-gpu",
+      "title": "kaggle_bhsd_mean_teacher_dual_gpu",
+      "code_file": "kaggle_bhsd_mean_teacher_dual_gpu.ipynb",
+      "generator_script": "tools/generate_mean_teacher_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0"
+      ],
+      "description": "Huấn luyện Semi-Supervised Segmentation 5 phân loại xuất huyết não trên Dual GPU 2x T4 với kiến trúc nnU-Net 3D"
+    },
+    "pick": {
+      "slug": "kaggle-bhsd-pick-dual-gpu",
+      "title": "kaggle_bhsd_pick_dual_gpu",
+      "code_file": "kaggle_bhsd_pick_dual_gpu.ipynb",
+      "generator_script": "tools/generate_kaggle_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0"
+      ],
+      "description": "Huấn luyện PICK Semi-Supervised Segmentation trên Dual GPU T4"
+    }
+  }
+}
