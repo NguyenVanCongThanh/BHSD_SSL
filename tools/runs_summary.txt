@@ -1,0 +1,15 @@
+Total runs: 14
+[0] BHSD_multiclass_MeanTeacher_fold0_20261023_102225_mean_teacher_fold0 | id: s9i9nsui | state: finished | iter: 3996 | runtime: 15306.628817287s | best_dice: 0.29024425029607587 | created: 2026-10-23T10:22:57Z
+[1] BHSD_multiclass_MeanTeacher_fold0_20261023_090226_mean_teacher_fold0 | id: a35mtk0i | state: crashed | iter: 340 | runtime: 3699.803949086s | best_dice: 0.002101410696750942 | created: 2026-10-23T09:02:59Z
+[2] BHSD_multiclass_MeanTeacher_fold0_20261023_082536_mean_teacher_fold0 | id: fum8iuny | state: finished | iter: 341 | runtime: 3975.393461679s | best_dice: 1.4330406357705789e-05 | created: 2026-10-23T08:26:09Z
+[3] BHSD_multiclass_MeanTeacher_fold0_20261022_095705_mean_teacher_fold0 | id: 5m915z5b | state: crashed | iter: 5 | runtime: 221.194409754s | best_dice: N/A | created: 2026-10-22T09:57:44Z
+[4] BHSD_multiclass_MeanTeacher_fold0_20261022_093652_mean_teacher_fold0 | id: 1ex7ty08 | state: finished | iter: 341 | runtime: 11523.550843601s | best_dice: 7.787344668605856e-05 | created: 2026-10-22T09:37:24Z
+[5] BHSD_multiclass_MeanTeacher_fold0_20261018_061745_mean_teacher_fold0 | id: kpu7le0o | state: crashed | iter: 2012 | runtime: 6843.594636912s | best_dice: 0.5133114543394186 | created: 2026-10-18T06:18:16Z
+[6] BHSD_multiclass_MeanTeacher_fold0_20261017_095556_mean_teacher_fold0 | id: lgvtexrb | state: crashed | iter: 2618 | runtime: 11238.528450768s | best_dice: 0.4677138361785757 | created: 2026-10-17T09:56:28Z
+[7] BHSD_multiclass_MeanTeacher_fold0_20261017_092303_mean_teacher_fold0 | id: 8atasfq5 | state: crashed | iter: 399 | runtime: 1598.903421306s | best_dice: 0.0010897914482292867 | created: 2026-10-17T09:23:35Z
+[8] BHSD_multiclass_MeanTeacher_fold0_20261016_152451_mean_teacher_fold0 | id: 5i9jspgj | state: finished | iter: 12000 | runtime: 42875.637179966s | best_dice: 0.4512049725974639 | created: 2026-10-16T15:25:23Z
+[9] BHSD_multiclass_MeanTeacher_fold0_20261016_151051_mean_teacher_fold0 | id: bbzkrgd5 | state: crashed | iter: 199 | runtime: 439.708534668s | best_dice: N/A | created: 2026-10-16T15:11:23Z
+[10] BHSD_multiclass_MeanTeacher_fold0_20261016_145014_mean_teacher_fold0 | id: rlf5s9fm | state: crashed | iter: 326 | runtime: 1143.916497066s | best_dice: 0.07368520422069674 | created: 2026-10-16T14:50:47Z
+[11] BHSD_multiclass_MeanTeacher_fold0_20261016_084935_mean_teacher_fold0 | id: rsbcfm9z | state: crashed | iter: 2574 | runtime: 11163.991968762s | best_dice: 0.491055675013003 | created: 2026-10-16T08:50:07Z
+[12] BHSD_multiclass_MeanTeacher_fold0_20261016_063520_mean_teacher_fold0 | id: netzw73w | state: crashed | iter: 1799 | runtime: 5541.852606812s | best_dice: 0.4778849459997697 | created: 2026-10-16T06:35:52Z
+[13] BHSD_multiclass_MeanTeacher_nnunet3d_dual_gpu_fold0_mean_teacher_fold0 | id: BHSD_multiclass_MeanTeacher_nnunet3d_dual_gpu_fold0_mean_teacher_fold0 | state: crashed | iter: 1695 | runtime: 5042.366143958s | best_dice: 0.46019646204896214 | created: 2026-10-15T09:34:32Z
