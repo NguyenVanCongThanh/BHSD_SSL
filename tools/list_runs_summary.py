@@ -1,9 +1,12 @@
+try:
+    from .crawl_storage import new_snapshot, save_run_export, write_json
+except ImportError:
+    from crawl_storage import new_snapshot, save_run_export, write_json
+
 import os
 import json
 import wandb
 
-WANDB_API_KEY = "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"
-os.environ["WANDB_API_KEY"] = WANDB_API_KEY
 
 entity = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology"
 project = "BHSD_MeanTeacher"
@@ -23,7 +26,9 @@ def main():
         lines.append(line)
         print(line, flush=True)
 
-    with open("tools/runs_summary.txt", "w", encoding="utf-8") as f:
+    folder = new_snapshot("wandb", "_collections", entity=entity, project=project)
+    print(f"Snapshot: {folder}")
+    with open(folder / "runs_summary.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
 if __name__ == "__main__":

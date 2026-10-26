@@ -1,9 +1,12 @@
+try:
+    from .crawl_storage import new_snapshot, write_json
+except ImportError:
+    from crawl_storage import new_snapshot, write_json
+
 import os
 import json
 import wandb
 
-WANDB_API_KEY = "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"
-os.environ["WANDB_API_KEY"] = WANDB_API_KEY
 
 entity = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology"
 project = "BHSD_MeanTeacher"
@@ -15,16 +18,19 @@ def inspect_system_metrics():
     
     # Try getting system stream
     try:
-        sys_hist = list(run.history(stream="events"))
+        sys_hist = run.history(stream="events", samples=10000, pandas=False)
+        folder = new_snapshot("wandb", run.id, entity=entity, project=project)
+        write_json(folder / "events.json", sys_hist)
+        print(f"Saved events: {folder}")
         print(f"System events count: {len(sys_hist)}")
         if sys_hist:
             print("First event keys:", list(sys_hist[0].keys()))
             print("First event:", sys_hist[0])
             print("Last event:", sys_hist[-1])
             # Check max memory
-            mems = [e.get("system.memory", 0) for e in sys_hist if "system.memory" in e]
+            mems = [e.get("system.memory_percent", 0) for e in sys_hist if "system.memory_percent" in e]
             proc_mems = [e.get("system.proc.memory.rssMB", 0) for e in sys_hist if "system.proc.memory.rssMB" in e]
-            disks = [e.get("system.disk", 0) for e in sys_hist if "system.disk" in e]
+            disks = [e.get("system.disk./.usagePercent", 0) for e in sys_hist if "system.disk./.usagePercent" in e]
             if mems:
                 print(f"RAM %: min={min(mems):.1f}%, max={max(mems):.1f}%, last={mems[-1]:.1f}%")
             if proc_mems:

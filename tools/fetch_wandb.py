@@ -1,3 +1,8 @@
+try:
+    from .crawl_storage import new_snapshot, save_run_export, write_json
+except ImportError:
+    from crawl_storage import new_snapshot, save_run_export, write_json
+
 import os
 import sys
 import json
@@ -5,8 +10,6 @@ import wandb
 import pandas as pd
 
 # API Key và cấu hình dự án
-WANDB_API_KEY = "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"
-os.environ["WANDB_API_KEY"] = WANDB_API_KEY
 
 entity = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology"
 project = "BHSD_MeanTeacher"
@@ -134,8 +137,16 @@ def main():
             print(f"\n[+] Đang lấy dữ liệu Run Baseline Hoàn Chỉnh (12k it): {baseline_run.name}", flush=True)
             results["target_baseline"] = extract_metrics(baseline_run)
 
+        for key in ('target_recent', 'target_prev', 'target_baseline'):
+            record = results.get(key)
+            if record:
+                folder = new_snapshot('wandb', record['id'], entity=entity, project=project)
+                write_json(folder / 'export.json', record)
+                write_json(folder / 'config.json', record.get('config', {}))
+                write_json(folder / 'summary.json', record.get('summary', {}))
+
         # Lưu JSON an toàn
-        output_json_path = os.path.join(os.path.dirname(__file__), "..", "wandb_results.json")
+        output_json_path = new_snapshot("wandb", "_collections", entity=entity, project=project) / "wandb_results.json"
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False, default=str)
         print(f"\n[SUCCESS] Đã ghi toàn bộ dữ liệu ra: {output_json_path}", flush=True)

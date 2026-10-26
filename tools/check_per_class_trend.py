@@ -1,6 +1,11 @@
+try:
+    from .crawl_storage import comparison_file
+except ImportError:
+    from crawl_storage import comparison_file
+
 import json
 
-with open("wandb_results.json") as f:
+with comparison_file().open(encoding="utf-8") as f:
     data = json.load(f)
 
 print(f"{'Iter':>6} | {'mDice':>7} | {'Epidural':>8} {'IntraPar':>8} {'IntraVen':>8} {'SubArach':>8} {'Subdural':>8}")

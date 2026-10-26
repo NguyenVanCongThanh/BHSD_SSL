@@ -1,3 +1,5 @@
+> Cập nhật: kết luận nguyên nhân trong báo cáo này đã được kiểm tra lại bằng log Kaggle đầy đủ. Xem [RUN_TERMINATION_AUDIT.md](RUN_TERMINATION_AUDIT.md): lỗi trực tiếp là NCCL timeout; các kết luận SIGKILL/đầy đĩa chưa được chứng minh. Dữ liệu crawl hiện lưu theo [EXPERIMENT_DATA.md](EXPERIMENT_DATA.md).
+
 # 📑 Báo Cáo Phân Tích Sự Cố Dừng Huấn Luyện (Run 20261023_102225), Cơ Chế Quản Lý Bộ Nhớ & Đề Xuất Tối Ưu Toàn Diện
 
 > **Tài liệu tham chiếu nội bộ:** Dự án MedSSL-BHSD  

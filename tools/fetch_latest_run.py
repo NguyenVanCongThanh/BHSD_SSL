@@ -1,10 +1,13 @@
+try:
+    from .crawl_storage import new_snapshot, save_run_export, write_json
+except ImportError:
+    from crawl_storage import new_snapshot, save_run_export, write_json
+
 import os
 import sys
 import json
 import wandb
 
-WANDB_API_KEY = "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"
-os.environ["WANDB_API_KEY"] = WANDB_API_KEY
 
 entity = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology"
 project = "BHSD_MeanTeacher"
@@ -91,10 +94,8 @@ def main():
     print(f"\n=> Run mới nhất hiện tại trên W&B: {latest_run.name} ({latest_run.id})")
     data = extract_metrics(latest_run)
 
-    out_file = os.path.join(os.path.dirname(__file__), "..", "wandb_results_latest.json")
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
-    print(f"\nĐã lưu kết quả run mới nhất vào: {out_file}")
+    folder = save_run_export(latest_run, data)
+    print(f"Saved run snapshot: {folder}")
 
 if __name__ == "__main__":
     main()
