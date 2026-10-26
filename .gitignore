@@ -13,4 +13,5 @@ pick_code.zip
 *.kaggle*/
 configs/kaggle/secrets/
 kaggle_runs/
+experiment_data/
 
