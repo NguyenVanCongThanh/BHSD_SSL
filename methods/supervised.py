@@ -21,7 +21,6 @@ class SupervisedMethod(BaseMethod):
     """
     def __init__(self, model: nn.Module, cfg):
         super(SupervisedMethod, self).__init__(model, cfg)
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:

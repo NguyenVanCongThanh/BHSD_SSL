@@ -37,7 +37,6 @@ class MeanTeacherMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(MeanTeacherMethod, self).__init__(model, cfg)
 
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.consistency = float(getattr(self.cfg.method, 'consistency', 0.05))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 4000.0))
         self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.999))

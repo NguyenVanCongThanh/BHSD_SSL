@@ -24,7 +24,6 @@ class CPSMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(CPSMethod, self).__init__(model, cfg)
 
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.cps_weight = float(getattr(self.cfg.method, 'cps_weight', 1.5))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
 

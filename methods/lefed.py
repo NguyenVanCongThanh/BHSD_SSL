@@ -30,7 +30,6 @@ class LeFeDMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(LeFeDMethod, self).__init__(model, cfg)
 
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
         self.feedback_steps = int(getattr(self.cfg.method, 'feedback_steps', 3))

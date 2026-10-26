@@ -24,7 +24,6 @@ class BCPMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(BCPMethod, self).__init__(model, cfg)
 
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.mask_ratio = float(getattr(self.cfg.method, 'mask_ratio', 2 / 3))
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 0.5))
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
