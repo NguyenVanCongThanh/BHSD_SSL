@@ -41,7 +41,7 @@ method:
     consistency_multiscale: false         # Disabled on intermediate aux heads to avoid blurry lesion collapse
 
 data:
-  batch_size: 4                       # 2 labeled + 2 unlabeled (DDP: mỗi GPU 1 lab + 1 unlab)
+  batch_size: 4                       # Global: 2 labeled + 2 unlabeled (DDP 2 GPU: 1 lab + 1 unlab/GPU)
   labeled_bs: 2
   labelnum: 154
   patch_size: [32, 192, 192]          # +44% spatial context, full brain coverage on axial plane

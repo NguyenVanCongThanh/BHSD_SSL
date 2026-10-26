@@ -78,6 +78,7 @@ class DistributedTwoStreamBatchSampler(Sampler):
     """
     Distributed version of TwoStreamBatchSampler for DDP training.
     Partitions primary and secondary indices evenly across ranks.
+    Batch sizes are LOCAL to each rank; the trainer resolves global sizes.
     Ensures each GPU worker processes an independent subset of the dataset.
     """
     def __init__(
@@ -123,7 +124,9 @@ class DistributedTwoStreamBatchSampler(Sampler):
         else:
             shuffled = list(indices)
         # Partition among replicas
-        return [idx for i, idx in enumerate(shuffled) if i % self.num_replicas == self.rank]
+        # Drop the global remainder so every rank yields the same batch count.
+        usable = len(shuffled) // self.num_replicas * self.num_replicas
+        return shuffled[self.rank:usable:self.num_replicas]
 
     def __iter__(self) -> Iterator[List[int]]:
         rank_primary = self._get_rank_indices(self.primary_indices, shuffle=True)

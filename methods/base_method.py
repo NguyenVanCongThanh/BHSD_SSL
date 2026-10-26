@@ -14,11 +14,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 from tensorboardX import SummaryWriter
 
 from core.config_parser import Config
+from core.batching import resolve_batch_layout
 from core.distributed import (
     is_dist_avail_and_initialized,
     get_rank,
@@ -54,6 +55,21 @@ class BaseMethod(abc.ABC):
         self.is_ddp = is_dist_avail_and_initialized()
         self.rank = get_rank()
         self.world_size = get_world_size()
+        self.batch_layout = resolve_batch_layout(
+            int(getattr(cfg.data, 'batch_size', 4)),
+            int(getattr(cfg.data, 'labeled_bs', 2)),
+            self.world_size if self.is_ddp else 1,
+            str(getattr(cfg.method, 'name', 'pick')),
+        )
+        self.batch_size = self.batch_layout.local_batch_size
+        self.labeled_bs = self.batch_layout.local_labeled_bs
+        self.unlabeled_bs = self.batch_layout.local_unlabeled_bs
+        logging.info(
+            '[Batch] global=%d (%dL+%dU), world_size=%d, per_rank=%d (%dL+%dU)',
+            self.batch_layout.global_batch_size, self.batch_layout.global_labeled_bs,
+            self.batch_layout.global_unlabeled_bs, self.batch_layout.world_size,
+            self.batch_size, self.labeled_bs, self.unlabeled_bs,
+        )
 
         if self.is_ddp:
             local_rank = int(os.environ.get('LOCAL_RANK', 0))
@@ -183,8 +199,7 @@ class BaseMethod(abc.ABC):
             class_names=self.class_names
         )
 
-        batch_size = int(getattr(self.cfg.data, 'batch_size', 4))
-        labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
+        batch_size = self.batch_size
         labelnum = min(int(getattr(self.cfg.data, 'labelnum', 15)), len(self.db_train))
         max_samples_cfg = int(getattr(self.cfg.data, 'max_samples', -1))
         max_samples = len(self.db_train) if max_samples_cfg <= 0 else min(max_samples_cfg, len(self.db_train))
@@ -192,39 +207,46 @@ class BaseMethod(abc.ABC):
         labeled_idxs = list(range(labelnum))
         unlabeled_idxs = list(range(labelnum, max_samples))
 
-        unlabeled_bs = batch_size - labeled_bs
-        if self.is_ddp:
-            if unlabeled_bs > 0 and len(unlabeled_idxs) > 0:
-                self.batch_sampler = DistributedTwoStreamBatchSampler(
-                    labeled_idxs,
-                    unlabeled_idxs,
-                    batch_size=batch_size,
-                    secondary_batch_size=unlabeled_bs,
-                    num_replicas=self.world_size,
-                    rank=self.rank
-                )
-                self.trainloader = DataLoader(
-                    self.db_train, batch_sampler=self.batch_sampler, num_workers=2, pin_memory=True
-                )
-            else:
+        if str(getattr(self.cfg.method, 'name', 'pick')) == 'supervised':
+            if labelnum < self.batch_layout.global_batch_size:
+                raise ValueError('Labeled pool must contain at least one global supervised batch.')
+            labeled_dataset = Subset(self.db_train, labeled_idxs)
+            self.train_sampler = None
+            if self.is_ddp:
                 self.train_sampler = torch.utils.data.distributed.DistributedSampler(
-                    self.db_train, num_replicas=self.world_size, rank=self.rank, shuffle=True
+                    labeled_dataset, num_replicas=self.world_size, rank=self.rank,
+                    shuffle=True, drop_last=True,
                 )
-                self.trainloader = DataLoader(
-                    self.db_train, batch_size=batch_size, sampler=self.train_sampler, num_workers=2, pin_memory=True
-                )
+            self.trainloader = DataLoader(
+                labeled_dataset, batch_size=batch_size, sampler=self.train_sampler,
+                shuffle=self.train_sampler is None, drop_last=True,
+                num_workers=2 if self.is_ddp else 4, pin_memory=self.is_ddp,
+            )
+            return
+
+        if labelnum < self.batch_layout.global_labeled_bs or len(unlabeled_idxs) < self.batch_layout.global_unlabeled_bs:
+            raise ValueError('Dataset must contain at least one global batch of both labeled and unlabeled cases.')
+
+        unlabeled_bs = self.unlabeled_bs
+        if self.is_ddp:
+            self.batch_sampler = DistributedTwoStreamBatchSampler(
+                labeled_idxs, unlabeled_idxs,
+                batch_size=batch_size, secondary_batch_size=unlabeled_bs,
+                num_replicas=self.world_size, rank=self.rank,
+                seed=int(getattr(self.cfg.experiment, 'seed', 1337)),
+            )
+            self.trainloader = DataLoader(
+                self.db_train, batch_sampler=self.batch_sampler,
+                num_workers=2, pin_memory=True,
+            )
         else:
-            if unlabeled_bs > 0 and len(unlabeled_idxs) > 0:
-                batch_sampler = TwoStreamBatchSampler(
-                    labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs
-                )
-                self.trainloader = DataLoader(
-                    self.db_train, batch_sampler=batch_sampler, num_workers=4, pin_memory=False
-                )
-            else:
-                self.trainloader = DataLoader(
-                    self.db_train, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=False
-                )
+            self.batch_sampler = TwoStreamBatchSampler(
+                labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs,
+            )
+            self.trainloader = DataLoader(
+                self.db_train, batch_sampler=self.batch_sampler,
+                num_workers=4, pin_memory=False,
+            )
 
     def setup_optimizer(self):
         self.optimizer = build_optimizer(self.model, self.cfg)
@@ -254,6 +276,7 @@ class BaseMethod(abc.ABC):
             os.makedirs(log_dir, exist_ok=True)
             self.writer = SummaryWriter(log_dir)
             self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
+            self.wandb_manager.update_summary({'batch_layout': self.batch_layout.to_dict()})
             self.use_wandb = self.wandb_manager.enabled
         else:
             self.writer = None

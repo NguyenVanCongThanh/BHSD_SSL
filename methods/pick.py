@@ -37,7 +37,6 @@ class PICKMethod(BaseMethod):
         self.phase = str(getattr(self.cfg.experiment, 'phase', 'all')).lower()
         self.pretrain_checkpoint = getattr(self.cfg.experiment, 'pretrain_checkpoint', '')
 
-        self.labeled_bs = int(getattr(self.cfg.data, 'labeled_bs', 2))
         self.val_interval = int(getattr(self.cfg.logging, 'val_interval', 500))
         self.save_interval = int(getattr(self.cfg.logging, 'save_interval', 50))
 
