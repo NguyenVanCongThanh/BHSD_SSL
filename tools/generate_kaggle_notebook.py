@@ -417,8 +417,7 @@ def build_notebook_dict():
 def main():
     nb = build_notebook_dict()
     targets = [
-        "scripts/kaggle_bhsd_pick_dual_gpu.ipynb",
-        "scripts/kaggle_bhsd_pick_wandb_notebook.ipynb"
+        "scripts/kaggle_bhsd_pick_dual_gpu.ipynb"
     ]
     for target in targets:
         with open(target, "w", encoding="utf-8") as f:

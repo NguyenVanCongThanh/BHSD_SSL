@@ -10,12 +10,13 @@ from models.backbones.unet3d import UNet3D
 from models.backbones.unetr import UNETR
 from models.backbones.nnunet3d import nnUNet3D
 from models.backbones.lefed_net import LeFeD_Net
-from models.outputs import ModelOutput, wrap_model_output
+from models.outputs import ModelOutput, wrap_model_output, extract_logits
 
 __all__ = [
     "MODELS",
     "ModelOutput",
     "wrap_model_output",
+    "extract_logits",
     "PICKModel",
     "VNet_my",
     "VNet",
