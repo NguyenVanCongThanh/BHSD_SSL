@@ -53,7 +53,7 @@ def extract_multiscale_outputs(
         # Check if PICK-style (proj, out_seg, feat)
         if len(net_out) >= 2 and isinstance(net_out[1], torch.Tensor) and net_out[1].ndim >= 4:
             # Check if this is PICK format where net_out[0] is 2D projection/feat
-            if isinstance(net_out[0], torch.Tensor) and net_out[0].ndim == 2:
+            if isinstance(net_out[0], (list, tuple)) or (isinstance(net_out[0], torch.Tensor) and net_out[0].ndim == 2):
                 return net_out[1], []
         # Multi-scale list format: [scale_0, scale_1, scale_2, ...]
         return net_out[0], list(net_out[1:])

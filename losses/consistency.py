@@ -65,8 +65,8 @@ class ConsistencyLoss(nn.Module):
         student_logits: torch.Tensor,
         teacher_logits: torch.Tensor
     ) -> torch.Tensor:
-        student_prob = F.softmax(student_logits, dim=1)
-        teacher_prob = F.softmax(teacher_logits, dim=1)
+        student_prob = F.softmax(student_logits.float(), dim=1)
+        teacher_prob = F.softmax(teacher_logits.float(), dim=1)
 
         # Confidence thresholding with CT foreground preservation
         if self.confidence_thresh > 0.0:
@@ -124,9 +124,9 @@ class ConsistencyLoss(nn.Module):
         # 4. KL divergence: Teacher -> Student
         elif self.consistency_type == 'kl':
             if conf_mask is not None:
-                kl = F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='none')
+                kl = F.kl_div(F.log_softmax(student_logits.float(), dim=1), teacher_prob, reduction='none')
                 return (kl * conf_mask).sum() / (conf_mask.sum() + 1e-6)
-            return F.kl_div(F.log_softmax(student_logits, dim=1), teacher_prob, reduction='batchmean')
+            return F.kl_div(F.log_softmax(student_logits.float(), dim=1), teacher_prob, reduction='batchmean')
 
         # Fallback raw MSE
         else:
