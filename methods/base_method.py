@@ -471,27 +471,40 @@ class BaseMethod(abc.ABC):
             self.scaler.scale(loss).backward()
             for optimizer in optimizers:
                 self.scaler.unscale_(optimizer)
+            # Clip gradient norm to 12.0 (nnUNet v2 standard for 3D volumetric models)
+            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
+            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=12.0)
+            scale_before = self.scaler.get_scale()
+            for optimizer in optimizers:
+                self.scaler.step(optimizer)
+            self.scaler.update()
+            scale_after = self.scaler.get_scale()
+            if scale_after < scale_before:
+                logging.warning(
+                    '[AMP] Iteration %d: Nonfinite gradient overflow detected; optimizer step skipped by GradScaler, '
+                    'scale adjusted from %.1f to %.1f', iter_num, scale_before, scale_after
+                )
+                if scale_after < 1e-4:
+                    raise FloatingPointError(f'GradScaler scale underflow at iteration {iter_num}: model or loss diverged')
+            else:
+                self.after_optimizer_step(iter_num)
         else:
             loss.backward()
-        # Reject nonfinite gradients on every rank before any optimizer mutates state.
-        finite = torch.ones((), device=self.device, dtype=torch.int32)
-        for optimizer in optimizers:
-            for group in optimizer.param_groups:
-                for param in group['params']:
-                    if param.grad is not None:
-                        finite.mul_(torch.isfinite(param.grad).all().to(torch.int32))
-        if self.is_ddp:
-            torch.distributed.all_reduce(finite, op=torch.distributed.ReduceOp.MIN)
-        if not finite.item():
-            raise FloatingPointError(f'Nonfinite gradients at iteration {iter_num}')
-        for optimizer in optimizers:
-            if self.use_amp:
-                self.scaler.step(optimizer)
-            else:
+            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
+            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=12.0)
+            finite = torch.ones((), device=self.device, dtype=torch.int32)
+            for optimizer in optimizers:
+                for group in optimizer.param_groups:
+                    for param in group['params']:
+                        if param.grad is not None:
+                            finite.mul_(torch.isfinite(param.grad).all().to(torch.int32))
+            if self.is_ddp:
+                torch.distributed.all_reduce(finite, op=torch.distributed.ReduceOp.MIN)
+            if not finite.item():
+                raise FloatingPointError(f'Nonfinite gradients at iteration {iter_num}')
+            for optimizer in optimizers:
                 optimizer.step()
-        if self.use_amp:
-            self.scaler.update()
-        self.after_optimizer_step(iter_num)
+            self.after_optimizer_step(iter_num)
 
     def optimize_batch(self, sampled_batch, iter_num, mim_mask=None, step_fn=None):
         callback = step_fn or self.train_step
