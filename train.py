@@ -113,7 +113,9 @@ def main():
     # 3. Execute Training
     try:
         trainer.train()
-    finally:
+    except BaseException:
+        raise
+    else:
         if is_ddp:
             cleanup_distributed()
 

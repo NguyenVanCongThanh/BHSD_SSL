@@ -314,7 +314,7 @@ def build_mean_teacher_notebook():
                 "env[\"NCCL_IB_DISABLE\"] = \"1\"\n",
                 "env[\"NCCL_P2P_DISABLE\"] = \"1\"\n",
                 "env[\"TORCH_NCCL_ENABLE_MONITORING\"] = \"0\"  # Ngăn chặn watchdog false-positive abort khi garbage collector/GIL bận\n",
-                "env[\"TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC\"] = \"1800\"\n",
+                "env[\"TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC\"] = \"120\"\n",
                 "\n",
                 "if use_ddp:\n",
                 "    print(f\"[*] Phát hiện {num_gpus} GPU -> Khởi chạy chế độ DDP (torchrun) port={master_port}...\", flush=True)\n",
