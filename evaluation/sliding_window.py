@@ -73,7 +73,7 @@ def _forward_with_tta(
                 logits = _forward_model(model, inp)
         else:
             logits = _forward_model(model, inp)
-        return F.softmax(logits, dim=1)
+        return F.softmax(logits.float(), dim=1)
 
     # 1. Base prediction on original orientation
     prob = _predict(patch_tensor)
@@ -122,6 +122,12 @@ def sliding_window_inference_3d(
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    if len(image.shape) != 3 or any(size <= 0 for size in image.shape):
+        raise ValueError('Expected a nonempty 3D image')
+    if len(patch_size) != 3 or any(size <= 0 for size in patch_size):
+        raise ValueError('Patch dimensions must be positive')
+    if not 0 < stride_z <= patch_size[0] or not 0 < stride_xy <= min(patch_size[1:]):
+        raise ValueError('Strides must be positive and no larger than patch dimensions to cover every voxel')
     z, y, x = image.shape
     pz, py, px = patch_size
 
@@ -171,8 +177,10 @@ def sliding_window_inference_3d(
                                 logits = _forward_model(model, patch_tensor)
                         else:
                             logits = _forward_model(model, patch_tensor)
-                        prob = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+                        prob = F.softmax(logits.float(), dim=1).squeeze(0).cpu().numpy()
 
+                    if prob.shape != (num_classes, pz, py, px) or not np.isfinite(prob).all():
+                        raise ValueError(f'Invalid model probabilities: shape={prob.shape}')
                     if gaussian is not None:
                         score_map[:, zs:zs + pz, ys:ys + py, xs:xs + px] += prob * gaussian
                         cnt[zs:zs + pz, ys:ys + py, xs:xs + px] += gaussian
@@ -243,6 +251,16 @@ def evaluate_dataset_sliding_window(
     local_case_records: List[Tuple[int, List[float]]] = []
     visual_records: List[Dict[str, Any]] = []
     total_cases = len(val_dataset)
+    if total_cases == 0:
+        raise ValueError('Validation dataset is empty')
+    if world_size > 1 and not is_distributed:
+        raise ValueError('Partitioned validation requires an initialized process group')
+    if is_distributed:
+        if rank != dist.get_rank() or world_size != dist.get_world_size():
+            raise ValueError('Validation rank/world_size disagree with process group')
+        # Training may use per-rank BatchNorm buffers. Evaluate one coherent model.
+        for buffer in model.buffers():
+            dist.broadcast(buffer, src=0)
     t0 = time.time()
 
     # Partition validation cases evenly among all ranks
@@ -324,6 +342,8 @@ def evaluate_dataset_sliding_window(
                 all_flattened.extend(r_list)
         # Sort by original case index to maintain deterministic ordering
         all_flattened.sort(key=lambda x: x[0])
+        if [idx for idx, _ in all_flattened] != list(range(total_cases)):
+            raise RuntimeError('Distributed validation did not cover each case exactly once')
         all_case_dices = [dice for _, dice in all_flattened]
     else:
         all_case_dices = [dice for _, dice in local_case_records]

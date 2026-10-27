@@ -19,6 +19,8 @@ def cal_binary_dice(pred: np.ndarray, gt: np.ndarray) -> float:
     Returns:
         float: Dice coefficient in [0.0, 1.0]
     """
+    if pred.shape != gt.shape:
+        raise ValueError(f'Prediction/label shape mismatch: {pred.shape} vs {gt.shape}')
     p = (pred > 0).astype(np.float32)
     g = (gt > 0).astype(np.float32)
     intersection = np.sum(p * g)
@@ -44,6 +46,10 @@ def cal_multiclass_dice(
     Returns:
         List of Dice scores for each foreground class.
     """
+    if pred.shape != gt.shape:
+        raise ValueError(f'Prediction/label shape mismatch: {pred.shape} vs {gt.shape}')
+    if pred.min() < 0 or gt.min() < 0 or pred.max() >= num_classes or gt.max() >= num_classes:
+        raise ValueError('Segmentation labels outside configured class range')
     class_dices = []
     for c in range(1, num_classes):
         p_c = (pred == c).astype(np.float32)

@@ -4,13 +4,12 @@ Aggregates Out-of-Fold (OOF) predictions, computes per-class metrics with Mean +
 and formats comparative benchmark reports. Compatible with multiple datasets and architectures.
 """
 
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 import os
 import json
 import logging
 import numpy as np
 import torch
-import torch.nn as nn
 from tqdm import tqdm
 
 from core.registry import DATASETS
@@ -22,6 +21,8 @@ from evaluation.metrics import (
     format_dice_summary,
 )
 from evaluation.sliding_window import sliding_window_inference_3d
+from utils.checkpoint_resolver import resolve_checkpoint
+from utils.evaluation_checkpoint import build_evaluation_model
 
 
 def benchmark_5folds(
@@ -29,7 +30,7 @@ def benchmark_5folds(
     exp_dir: str,
     root_path: str,
     task: str = "multiclass",
-    model_name: str = "vnet",
+    model_name: Optional[str] = None,
     device: Optional[torch.device] = None,
     stride_z: int = 8,
     stride_xy: int = 32,
@@ -40,7 +41,11 @@ def benchmark_5folds(
     class_names: Optional[List[str]] = None,
     num_classes: Optional[int] = None,
     use_gaussian: bool = True,
-    use_tta: bool = False
+    use_tta: bool = False,
+    checkpoint_preference="best",
+    allow_latest=False,
+    include_pretrain=False,
+    on_missing="error",
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
@@ -61,6 +66,10 @@ def benchmark_5folds(
         num_classes: Optional number of classes.
         use_gaussian: Whether to apply Gaussian importance weighting mask during sliding window.
         use_tta: Whether to apply Test-Time Augmentation (TTA) flips across spatial axes.
+        checkpoint_preference: Require best (default) or latest.
+        allow_latest: Explicitly permit latest when best is missing in the selected phase.
+        include_pretrain: Permit pretraining only if no later phase has checkpoints.
+        on_missing: Raise on missing folds, or skip with an incomplete summary.
         
     Returns:
         Dict of results containing fold-wise metrics, overall OOF mean, std, and per-class breakdown.
@@ -75,7 +84,7 @@ def benchmark_5folds(
     if class_names is None:
         class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
 
-    fg_class_names = class_names[1:] if len(class_names) > 1 and not is_binary else class_names
+    fg_class_names = class_names[1:] if len(class_names) > 1 else class_names
 
     fold_results = {}
     all_fold_dices = []
@@ -86,35 +95,25 @@ def benchmark_5folds(
     print(f"=== Dataset: {dataset_name.upper()} | Task: {task.upper()} ({num_classes} classes) | Model: {model_name} ===")
     print("==========================================================================")
 
+    if on_missing not in ('error', 'skip'):
+        raise ValueError('on_missing must be error or skip')
+    resolved = {}
+    skipped = {}
+    # Preflight all folds before expensive inference.
     for fold in range(5):
-        # Locate checkpoint
-        candidate_paths = [
-            os.path.join(exp_dir, f"fold_{fold}", "self_train", f"{model_name}_best_model.pth"),
-            os.path.join(exp_dir, f"fold_{fold}", f"{model_name}_best_model.pth"),
-            os.path.join(exp_dir, f"fold_{fold}", "self_train", "checkpoint_latest.pth"),
-            os.path.join(exp_dir, f"fold_{fold}", "checkpoint_latest.pth"),
-            os.path.join(exp_dir, f"fold{fold}", "self_train", f"{model_name}_best_model.pth"),
-        ]
+        try:
+            resolved[fold] = resolve_checkpoint(
+                exp_dir, fold, model_name, checkpoint_preference,
+                include_pretrain, allow_latest)
+        except FileNotFoundError as exc:
+            if on_missing == 'error':
+                raise
+            skipped[str(fold)] = str(exc)
+            logging.warning('%s', exc)
 
-        ckpt_path = None
-        for cand in candidate_paths:
-            if os.path.exists(cand):
-                ckpt_path = cand
-                break
-
-        if ckpt_path is None:
-            logging.warning(f"[Fold {fold}] Checkpoint not found in candidates, skipping fold {fold}!")
-            continue
-
-        print(f"\n--- [Fold {fold}/4] Đang đánh giá với weights: {ckpt_path} ---")
-
-        # Build model
-        model = model_builder(model_name, in_channels=1, num_classes=num_classes)
-        from utils.checkpoint import load_checkpoint
-        load_checkpoint(ckpt_path, model=model, device=device, prefer_ema=True)
-        model.to(device)
-        model.eval()
-
+    datasets = {}
+    seen_cases = set()
+    for fold in resolved:
         if dataset_cls is not None:
             val_dataset = dataset_cls(
                 base_dir=root_path,
@@ -124,7 +123,7 @@ def benchmark_5folds(
                 fold=fold
             )
         else:
-            d_name = dataset_name if DATASETS.contains(dataset_name) else "bhsd"
+            d_name = dataset_name
             val_dataset = DATASETS.build(
                 d_name,
                 base_dir=root_path,
@@ -136,6 +135,28 @@ def benchmark_5folds(
                 class_names=class_names
             )
 
+        cases = set(getattr(val_dataset, 'image_list', []))
+        if seen_cases & cases:
+            raise ValueError(f'OOF validation cases repeat across folds: {sorted(seen_cases & cases)[:5]}')
+        seen_cases.update(cases)
+        datasets[fold] = val_dataset
+
+    for fold, (ckpt_path, kind) in resolved.items():
+        print(f"[Fold {fold}] checkpoint={ckpt_path} kind={kind}")
+        model, metadata, actual_model = build_evaluation_model(
+            ckpt_path, model_builder, model_name, num_classes,
+            fold=fold, task=task, dataset_name=dataset_name)
+        if kind == 'best' and metadata.get('checkpoint_kind') not in (None, 'best', 'unverified'):
+            raise ValueError(f'{ckpt_path}: file named best has provenance {metadata["checkpoint_kind"]}')
+        if kind == 'best' and metadata.get('checkpoint_kind', 'unverified') == 'unverified':
+            logging.warning('%s: legacy best; validation provenance unverified', ckpt_path)
+        model.to(device)
+        model.eval()
+
+        val_dataset = datasets[fold]
+
+        if len(val_dataset) == 0:
+            raise ValueError(f"Fold {fold}: empty validation dataset")
         case_dices = []
         for idx in tqdm(range(len(val_dataset)), desc=f"Fold {fold} Eval"):
             sample_item = val_dataset[idx]
@@ -169,7 +190,11 @@ def benchmark_5folds(
             "mDice": fold_mdice,
             "per_class": fold_mean_per_class,
             "num_cases": len(val_dataset),
-            "checkpoint": ckpt_path
+            "checkpoint": ckpt_path,
+            "checkpoint_kind": kind,
+            "checkpoint_provenance": metadata.get("checkpoint_kind", "unverified"),
+            "weights_source": "ema_net" if "ema_net" in metadata else "net",
+            "model": actual_model
         }
         all_fold_dices.append(fold_mdice)
         per_class_all_folds.append(fold_mean_per_class)
@@ -179,7 +204,7 @@ def benchmark_5folds(
 
     if not all_fold_dices:
         print("[ERROR] Không tìm thấy kết quả của fold nào!")
-        return {}
+        raise RuntimeError("No folds evaluated; no benchmark result produced")
 
     overall_mean = float(np.mean(all_fold_dices))
     overall_std = float(np.std(all_fold_dices))
@@ -191,8 +216,17 @@ def benchmark_5folds(
         "dataset": dataset_name,
         "task": task,
         "model": model_name,
-        "overall_oof_mean_dice": overall_mean,
-        "overall_oof_std_dice": overall_std,
+        "fold_mean_dice": overall_mean,
+        "fold_std_dice": overall_std,
+        "aggregation": "unweighted_mean_over_folds",
+        "complete": len(fold_results) == 5,
+        "evaluated_folds": list(resolved),
+        "skipped_folds": skipped,
+        "checkpoint_preference": checkpoint_preference,
+        "allow_latest": allow_latest,
+        "metric_policy": "foreground_case_mean; empty_prediction_and_target=1",
+        "inference": {"patch_size": list(patch_size), "stride_z": stride_z,
+                      "stride_xy": stride_xy, "gaussian": use_gaussian, "tta": use_tta},
         "per_class_means": per_class_means,
         "per_class_stds": per_class_stds,
         "fold_results": fold_results
@@ -203,7 +237,7 @@ def benchmark_5folds(
     print("=== TỔNG HỢP BENCHMARK 5-FOLD CROSS VALIDATION (OOF) ===")
     print("=" * 70)
     print(f"Dataset: {dataset_name.upper()} | Model: {model_name} | Nhiệm vụ: {task.upper()}")
-    print(f"Mean OOF Dice: {overall_mean:.4f} ± {overall_std:.4f}")
+    print(f"Mean fold Dice: {overall_mean:.4f} ± {overall_std:.4f}")
     print("-" * 70)
     for c_idx, name in enumerate(fg_class_names):
         if c_idx < len(per_class_means):
@@ -214,8 +248,9 @@ def benchmark_5folds(
 
     # Save summary json
     summary_file = os.path.join(exp_dir, "benchmark_summary.json")
-    with open(summary_file, 'w') as f:
+    with open(summary_file + '.tmp', 'w') as f:
         json.dump(benchmark_summary, f, indent=2)
+    os.replace(summary_file + '.tmp', summary_file)
     print(f"-> Đã lưu chi tiết benchmark tại: {summary_file}")
 
     return benchmark_summary
