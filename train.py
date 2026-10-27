@@ -74,7 +74,7 @@ def main():
         config_file = 'configs/methods/pick.yaml'
 
     cfg = load_config(
-        config_path=config_file if (config_file and os.path.exists(config_file)) else None,
+        config_path=config_file,
         dataset_config=known_args.dataset,
         model_config=known_args.model,
         method_config=known_args.method,
@@ -97,39 +97,14 @@ def main():
     logging.info(f"  Snapshot:    {cfg.experiment.exp_dir}/{cfg.experiment.name}/fold_{fold}")
     logging.info("=" * 75)
 
-    # 1. Build Model
-    in_channels = int(getattr(cfg.model, 'in_channels', 1))
-    has_dropout = bool(getattr(cfg.model, 'has_dropout', True))
-
-    model_kwargs = {
-        'in_channels': in_channels,
-        'num_classes': num_classes,
-        'has_dropout': has_dropout
-    }
-    # Optional parameters for models (e.g. VNet, nnUNet3D)
-    if hasattr(cfg.model, 'normalization'):
-        model_kwargs['normalization'] = cfg.model.normalization
-    if hasattr(cfg.model, 'deep_supervision'):
-        model_kwargs['deep_supervision'] = cfg.model.deep_supervision
-    if hasattr(cfg.model, 'base_filters'):
-        model_kwargs['base_filters'] = cfg.model.base_filters
-    if hasattr(cfg.model, 'num_stages'):
-        model_kwargs['num_stages'] = int(cfg.model.num_stages)
-
-    # Intelligent model dispatch: if method is 'pick' and model is 'vnet', use 'pick_vnet'
-    # For all other methods, 'vnet' resolves to the clean single-decoder VNet
-    actual_model_name = model_name
-    if method_name == 'pick' and model_name == 'vnet':
-        actual_model_name = 'pick_vnet'
-
-    import inspect
-    model_cls = MODELS.get(actual_model_name)
-    sig = inspect.signature(model_cls.__init__)
-    accepts_var = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-    filtered_kwargs = model_kwargs if accepts_var else {k: v for k, v in model_kwargs.items() if k in sig.parameters}
-
-    model = MODELS.build(actual_model_name, **filtered_kwargs)
-    logging.info(f"[Registry] Built model '{actual_model_name}' successfully.")
+    from core.model_builder import model_spec_from_config, build_model_from_spec
+    model_spec = model_spec_from_config(cfg.to_dict(), num_classes)
+    cfg.model_spec = model_spec
+    from core.distributed import get_rank
+    model = build_model_from_spec(model_spec, seed=int(getattr(cfg.experiment, 'seed', 1337)),
+                                  deterministic=bool(getattr(cfg.experiment, 'deterministic', True)),
+                                  rank=get_rank())
+    logging.info("[Registry] Built model '%s'", model_spec['name'])
 
     # 2. Build Method / Trainer
     trainer = METHODS.build(method_name, model=model, cfg=cfg)
