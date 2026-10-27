@@ -151,9 +151,12 @@ class BHSDDataset(Dataset):
                         metadata[key] = value
                 metadata.update(intensity_units=self.intensity_units, normalization=self.normalization)
 
-        if image.ndim != 3 or image.shape != label.shape:
-            raise ValueError(f'{case_name}: expected matching 3D image and label')
-        if not self.binary and (label.min() < 0 or label.max() >= self.num_classes):
+        if image.ndim != 3 or image.shape != label.shape or any(dim == 0 for dim in image.shape):
+            if self.split == 'train':
+                # Safe fallback for zero-slice or corrupt volume in dataset (e.g. ID_afeb3d0e_ID_a4062c2bf2)
+                return self.__getitem__((idx + 1) % len(self.image_list))
+            raise ValueError(f'{case_name}: expected matching 3D image and label with non-zero dimensions')
+        if not self.binary and label.size > 0 and (label.min() < 0 or label.max() >= self.num_classes):
             raise ValueError(f'{case_name}: labels outside configured class range')
 
         if self.labeled_indices is not None and idx not in self.labeled_indices:

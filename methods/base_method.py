@@ -870,7 +870,12 @@ class BaseMethod(abc.ABC):
                 artifact_prefix=self.exp_name,
                 close_wandb_on_finish=True
             )
-        except BaseException:
+        except BaseException as e:
+            import traceback
+            logging.error(f"[FATAL TRAINING ERROR]: {e}")
+            traceback.print_exc()
+            sys.stdout.flush()
+            sys.stderr.flush()
             if self.writer is not None:
                 self.writer.close()
             self.wandb_manager.finish(exit_code=1)
