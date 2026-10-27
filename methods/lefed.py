@@ -4,19 +4,15 @@ Reference: "Learning Feedback for Semi-Supervised 3D Medical Image Segmentation"
 Adapted & Optimized for 3D Brain Hemorrhage Segmentation (BHSD) Multi-class setting.
 """
 
-from typing import Dict, Tuple, List, Optional
-import os
-import logging
+from typing import Dict, Tuple, List, Optional, Iterator
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from core.distributed import is_main_process
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss
 from utils.ramps import sigmoid_rampup
-
 
 @METHODS.register("lefed")
 class LeFeDMethod(BaseMethod):
@@ -51,21 +47,18 @@ class LeFeDMethod(BaseMethod):
             return self.consistency
         return self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
 
-    def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def _feedback_steps(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Iterator[Tuple[torch.Tensor, Dict[str, float]]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
         cur_epoch = iter_num / max(len(self.trainloader), 1)
         consistency_weight = self.get_current_consistency_weight(cur_epoch)
 
-        total_loss_accum = 0.0
-        loss_sup_accum = 0.0
-        loss_ds_accum = 0.0
-        loss_cons_accum = 0.0
-
         en: Optional[List[torch.Tensor]] = None
 
         # Feedback iteration loop (default: 3 steps)
+        if self.feedback_steps < 1:
+            raise ValueError('feedback_steps must be positive')
         for step in range(self.feedback_steps):
             if step == 0:
                 outputs1, outputs2, masks, deep_outs = self.model(volume_batch, None)
@@ -110,23 +103,34 @@ class LeFeDMethod(BaseMethod):
             # Step total loss
             loss_step = loss_sup + loss_ds + consistency_weight * loss_cons
 
-            self.optimizer.zero_grad()
-            loss_step.backward()
-            self.optimizer.step()
+            yield loss_step, {
+                'total': float(loss_step.detach()), 'supervised': float(loss_sup.detach()),
+                'deep_supervision': float(loss_ds.detach()) if isinstance(loss_ds, torch.Tensor) else float(loss_ds),
+                'consistency': float(loss_cons.detach()),
+                'weight': float(consistency_weight)}
 
-            total_loss_accum += loss_step.item()
-            loss_sup_accum += loss_sup.item()
-            loss_ds_accum += loss_ds.item()
-            loss_cons_accum += loss_cons.item()
 
-        # Average metric values across feedback steps
-        num_steps = float(self.feedback_steps)
-        loss_dict = {
-            "total": total_loss_accum / num_steps,
-            "supervised": loss_sup_accum / num_steps,
-            "deep_supervision": loss_ds_accum / num_steps,
-            "consistency": loss_cons_accum / num_steps,
-            "weight": float(consistency_weight)
-        }
-        # Return last step loss for tensor tracking
-        return loss_step, loss_dict
+    def train_step(self, sampled_batch, iter_num, mim_mask=None):
+        """Loss-only API for inspection; optimization uses sequential feedback steps."""
+        steps = list(self._feedback_steps(sampled_batch, iter_num, mim_mask))
+        return sum(loss for loss, _ in steps) / len(steps), self._mean_logs(steps)
+
+    @staticmethod
+    def _mean_logs(steps):
+        return {key: sum(log[key] for _, log in steps) / len(steps) for key in steps[0][1]}
+
+    def optimize_batch(self, sampled_batch, iter_num, mim_mask=None, step_fn=None):
+        """Each feedback pass gets exactly one backward/update, including AMP."""
+        if step_fn is not None and step_fn != self.train_step:
+            return super().optimize_batch(sampled_batch, iter_num, mim_mask, step_fn)
+        steps = []
+        generator = self._feedback_steps(sampled_batch, iter_num, mim_mask)
+        while True:
+            with torch.amp.autocast(self.device.type, enabled=self.use_amp):
+                try:
+                    loss, logs = next(generator)
+                except StopIteration:
+                    break
+            self.apply_gradients(loss, iter_num)
+            steps.append((loss.detach(), logs))
+        return steps[-1][0], self._mean_logs(steps)

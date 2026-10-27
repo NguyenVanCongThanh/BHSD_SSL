@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
-from methods.ssl_utils import extract_logits, split_ssl_batch
+from methods.ssl_utils import extract_logits, split_ssl_batch, compute_masked_ce_loss
 from losses import MaskDiceLoss
 from data.masking import context_mask
 
@@ -26,6 +26,8 @@ class BCPMethod(BaseMethod):
 
         self.mask_ratio = float(getattr(self.cfg.method, 'mask_ratio', 2 / 3))
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 0.5))
+        if self.u_weight < 0:
+            raise ValueError('u_weight must be nonnegative')
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
@@ -43,7 +45,7 @@ class BCPMethod(BaseMethod):
             plab = torch.argmax(un_prob, dim=1).long()
             plab_a, plab_b = plab[:sub_bs], plab[sub_bs:]
 
-            img_mask, loss_mask = context_mask(img_a, self.mask_ratio)
+            img_mask, _ = context_mask(img_a, self.mask_ratio)
 
         # Mix 1: labeled + unlabeled
         mix_img_1 = img_a * img_mask + unimg_a * (1 - img_mask)
@@ -58,8 +60,15 @@ class BCPMethod(BaseMethod):
 
         mix_logits = extract_logits(self.model(mix_imgs))
 
-        loss_ce = F.cross_entropy(mix_logits, mix_labs)
-        loss_dice = self.dice_loss(mix_logits, mix_labs)
+        # Labeled voxels carry weight 1, pseudo-labeled voxels carry u_weight.
+        forward_weights = img_mask.float() + self.u_weight * (1 - img_mask.float())
+        backward_weights = (1 - img_mask.float()) + self.u_weight * img_mask.float()
+        weights = torch.cat([
+            forward_weights.unsqueeze(0).expand(sub_bs, -1, -1, -1),
+            backward_weights.unsqueeze(0).expand(sub_bs, -1, -1, -1),
+        ], dim=0)
+        loss_ce = compute_masked_ce_loss(mix_logits, mix_labs, weights)
+        loss_dice = self.dice_loss(mix_logits, mix_labs, mask=weights)
         total_loss = (loss_ce + loss_dice) / 2.0
 
         loss_dict = {

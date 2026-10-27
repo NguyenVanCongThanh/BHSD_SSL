@@ -6,6 +6,9 @@ and full state serialization across training, evaluation, and benchmarking.
 
 import os
 import logging
+import json
+import math
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, Union
 import torch
 import torch.nn as nn
@@ -63,13 +66,32 @@ def save_checkpoint(
         'iter_num': iter_num,
         'best_dice': best_dice,
         'phase': phase,
+        'checkpoint_kind': 'latest' if Path(path).name == 'checkpoint_latest.pth' else 'unverified',
     }
     if scaler is not None and hasattr(scaler, 'state_dict'):
         state['scaler'] = scaler.state_dict()
     if extra_state:
         state.update(extra_state)
 
-    torch.save(state, str(path))
+    temporary = str(path) + '.tmp'
+    torch.save(state, temporary)
+    os.replace(temporary, path)
+    # Paths are relative to this phase directory. Publish only after checkpoint save.
+    manifest_path = Path(path).parent / 'checkpoint_manifest.json'
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {'schema_version': 1, 'checkpoints': {}}
+    manifest['checkpoints'][Path(path).name] = {
+        'path': Path(path).name,
+        'kind': state['checkpoint_kind'],
+        'phase': phase,
+        'iter_num': iter_num,
+        'best_dice': best_dice if math.isfinite(best_dice) else None,
+        'selection_metric': state.get('selection_metric'),
+        'selected_iter': state.get('selected_iter'),
+    }
+    manifest_tmp = str(manifest_path) + '.tmp'
+    with open(manifest_tmp, 'w') as stream:
+        json.dump(manifest, stream, indent=2)
+    os.replace(manifest_tmp, manifest_path)
     return str(path)
 
 
@@ -80,7 +102,8 @@ def load_checkpoint(
     scaler: Optional[Any] = None,
     device: Optional[Union[str, torch.device]] = None,
     strict: bool = False,
-    prefer_ema: bool = False
+    prefer_ema: bool = False,
+    checkpoint_state: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Load checkpoint weights into model and optionally restore optimizer/scaler state.
 
@@ -100,7 +123,7 @@ def load_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found at: {path}")
 
     map_location = device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu')
-    state = torch.load(str(path), map_location=map_location)
+    state = checkpoint_state if checkpoint_state is not None else torch.load(str(path), map_location=map_location, weights_only=True)
 
     # Resolve state_dict for model weights
     net_dict = None
@@ -119,18 +142,27 @@ def load_checkpoint(
         if missing or unexpected:
             logging.debug(f"[Checkpoint] Model load note: missing={len(missing)}, unexpected={len(unexpected)}")
 
-    # Restore optimizer
-    if optimizer is not None and 'opt' in state and state['opt'] is not None:
-        try:
-            optimizer.load_state_dict(state['opt'])
-        except Exception as e:
-            logging.warning(f"[Checkpoint] Could not restore optimizer state: {e}")
-
-    # Restore scaler
-    if scaler is not None and 'scaler' in state and state['scaler'] is not None and hasattr(scaler, 'load_state_dict'):
-        try:
-            scaler.load_state_dict(state['scaler'])
-        except Exception as e:
-            logging.warning(f"[Checkpoint] Could not restore scaler state: {e}")
-
+    # Requested training state must restore completely; partial resume is an error.
+    if optimizer is not None:
+        if state.get('opt') is None:
+            raise ValueError('Checkpoint has no optimizer state; use weights-only transfer instead of resume')
+        optimizer.load_state_dict(state['opt'])
+    if scaler is not None and state.get('scaler') is not None:
+        scaler.load_state_dict(state['scaler'])
     return state
+
+
+def validate_checkpoint_context(state, *, fold=None, task=None, num_classes=None, dataset_name=None):
+    """Reject metadata conflicts that can invalidate cross-validation results."""
+    config = state.get('config') or {}
+    data = config.get('data') or {}
+    experiment = config.get('experiment') or {}
+    pairs = {
+        'fold': (fold, experiment.get('fold')),
+        'task': (task, data.get('task', experiment.get('task'))),
+        'num_classes': (num_classes, data.get('num_classes', experiment.get('num_classes'))),
+        'dataset': (dataset_name, data.get('name')),
+    }
+    for key, (expected, actual) in pairs.items():
+        if expected is not None and actual is not None and expected != actual:
+            raise ValueError(f'Checkpoint {key} mismatch: requested {expected}, saved {actual}')
