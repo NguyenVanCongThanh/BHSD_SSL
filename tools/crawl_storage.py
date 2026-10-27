@@ -42,12 +42,14 @@ def save_run_export(run, data):
     return folder
 
 
-def comparison_file():
+def comparison_file(path=None):
     """Explicit snapshot path wins; otherwise use the newest collection export."""
+    if path:
+        return Path(path)
     import argparse
     parser = argparse.ArgumentParser(description='Compare saved W&B runs offline')
     parser.add_argument('--input', type=Path, help='Path to a wandb_results.json collection snapshot')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     if args.input:
         return args.input
     candidates = list(data_root().glob('wandb/_collections/*/wandb_results.json'))
