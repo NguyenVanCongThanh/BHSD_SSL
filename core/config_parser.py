@@ -6,10 +6,8 @@ Supports composable 3-tier configurations: Datasets + Models + Methods.
 
 from typing import Any, Dict, List, Optional, Union
 import os
-import sys
 import copy
 import yaml
-import argparse
 
 
 class Config(dict):
@@ -233,7 +231,7 @@ def load_config(
 ) -> Config:
     """
     Load YAML configuration file with multi-tier composition:
-    Base Config -> Dataset Config -> Model Config -> Method Config -> Exp Config -> CLI Overrides.
+    Base Config -> Method Config -> Dataset Config -> Model Config -> Exp Config -> CLI Overrides.
     """
     merged_dict: Dict[str, Any] = {}
 
@@ -257,10 +255,12 @@ def load_config(
     req_method = (
         method_config or
         early_overrides.get('method', {}).get('name') or
-        early_overrides.get('method')
+        (early_overrides.get('method') if isinstance(early_overrides.get('method'), str) else None)
     )
     if req_method:
         meth_path = _resolve_config_path('methods', str(req_method))
+        if meth_path is None:
+            raise FileNotFoundError(f'Method config not found: {req_method}')
         if meth_path and os.path.exists(meth_path):
             with open(meth_path, 'r', encoding='utf-8') as f:
                 _deep_update(merged_dict, yaml.safe_load(f) or {})
@@ -273,6 +273,8 @@ def load_config(
     )
     if req_dataset:
         d_path = _resolve_config_path('datasets', str(req_dataset))
+        if d_path is None:
+            raise FileNotFoundError(f'Dataset config not found: {req_dataset}')
         if d_path and os.path.exists(d_path):
             with open(d_path, 'r', encoding='utf-8') as f:
                 _deep_update(merged_dict, yaml.safe_load(f) or {})
@@ -281,15 +283,19 @@ def load_config(
     req_model = (
         model_config or
         early_overrides.get('model', {}).get('name') or
-        early_overrides.get('model')
+        (early_overrides.get('model') if isinstance(early_overrides.get('model'), str) else None)
     )
     if req_model:
         m_path = _resolve_config_path('models', str(req_model))
+        if m_path is None:
+            raise FileNotFoundError(f'Model config not found: {req_model}')
         if m_path and os.path.exists(m_path):
             with open(m_path, 'r', encoding='utf-8') as f:
                 _deep_update(merged_dict, yaml.safe_load(f) or {})
 
     # 5. Load specific experiment config if given
+    if config_path and not os.path.isfile(config_path):
+        raise FileNotFoundError(f'Experiment config not found: {config_path}')
     if config_path and os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             exp_dict = yaml.safe_load(f) or {}
@@ -300,5 +306,15 @@ def load_config(
         overrides = parse_cli_overrides(cli_args)
         _deep_update(merged_dict, overrides)
 
+    task_override = (early_overrides.get('data', {}).get('task') or
+                     early_overrides.get('experiment', {}).get('task'))
+    if task_override:
+        if task_override not in ('binary', 'multiclass'):
+            raise ValueError('Task must be binary or multiclass')
+        from data.constants import BHSD_BINARY_NAMES, BHSD_MULTICLASS_NAMES
+        names = BHSD_BINARY_NAMES if task_override == 'binary' else BHSD_MULTICLASS_NAMES
+        for section in ('data', 'experiment'):
+            merged_dict.setdefault(section, {}).update(task=task_override, num_classes=len(names))
+        merged_dict['data']['class_names'] = list(names)
     cfg = Config(merged_dict)
     return cfg

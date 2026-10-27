@@ -59,6 +59,7 @@ class BHSDDataset(Dataset):
         self.binary = bool(binary)
         self.return_mim_mask = return_mim_mask
         self._mask_generator = None
+        self.labeled_indices = None
 
         if self.binary:
             self.num_classes = 2
@@ -78,17 +79,16 @@ class BHSDDataset(Dataset):
         print(f"[BHSDDataset] {fold_str} | Split '{self.split}' | Task: {task_type} | Samples: {len(self.image_list)}")
 
     def _load_split_cases(self) -> List[str]:
-        list_file = None
+        if self.split not in ('train', 'val', 'test'):
+            raise ValueError(f'Unsupported split: {self.split}')
         if self.fold is not None:
-            fold_file = os.path.join(self.base_dir, "splits", f"fold{self.fold}_{self.split}.txt")
-            if os.path.exists(fold_file):
-                list_file = fold_file
-
-        if list_file is None:
-            list_file = os.path.join(self.base_dir, f"{self.split}.txt")
+            if not 0 <= int(self.fold) < 5:
+                raise ValueError('fold must be in 0..4')
+            list_file = os.path.join(self.base_dir, 'splits', f'fold{self.fold}_{self.split}.txt')
+        else:
+            list_file = os.path.join(self.base_dir, f'{self.split}.txt')
             if not os.path.exists(list_file):
-                alt_map = {'train': 'train.list', 'val': 'val.list', 'test': 'test.list'}
-                list_file = os.path.join(self.base_dir, alt_map.get(self.split, f"{self.split}.txt"))
+                list_file = os.path.join(self.base_dir, f'{self.split}.list')
 
         if not os.path.exists(list_file):
             raise FileNotFoundError(
@@ -97,6 +97,16 @@ class BHSDDataset(Dataset):
 
         with open(list_file, 'r', encoding='utf-8') as f:
             cases = [line.strip() for line in f if line.strip()]
+        if not cases or len(set(cases)) != len(cases):
+            raise ValueError(f'Empty split or duplicate case IDs: {list_file}')
+        if self.fold is not None and self.split in ('train', 'val'):
+            counterpart = 'val' if self.split == 'train' else 'train'
+            other = os.path.join(self.base_dir, 'splits', f'fold{self.fold}_{counterpart}.txt')
+            if os.path.isfile(other):
+                with open(other, encoding='utf-8') as stream:
+                    overlap = set(cases) & {line.strip() for line in stream if line.strip()}
+                if overlap:
+                    raise ValueError(f'Train/validation overlap in fold {self.fold}: {sorted(overlap)[:5]}')
         return cases
 
     def get_mask_generator(self) -> MaskGeneratorBHSD:
@@ -118,6 +128,13 @@ class BHSDDataset(Dataset):
             image = h5f['image'][:]
             label = h5f['label'][:]
 
+        if image.ndim != 3 or image.shape != label.shape:
+            raise ValueError(f'{case_name}: expected matching 3D image and label')
+        if not self.binary and (label.min() < 0 or label.max() >= self.num_classes):
+            raise ValueError(f'{case_name}: labels outside configured class range')
+
+        if self.labeled_indices is not None and idx not in self.labeled_indices:
+            label = np.zeros_like(label)
         if self.binary:
             label = (label > 0).astype(np.uint8)
         else:

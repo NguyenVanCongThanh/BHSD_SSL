@@ -59,7 +59,8 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
         return False
 
     from datetime import timedelta
-    torch.cuda.set_device(local_rank)
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
     dist_backend = "nccl" if torch.cuda.is_available() else "gloo"
     
     print(f"[DDP-Rank{rank}] Đang khởi tạo process group (local_rank={local_rank}, world_size={world_size}, backend={dist_backend})...", flush=True)
