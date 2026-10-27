@@ -7,6 +7,9 @@ and Trainer Instantiations across multiple configurations.
 import os
 import sys
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 import torch
 import torch.nn as nn
 
@@ -22,6 +25,27 @@ import methods
 
 
 class TestBenchmarkFramework(unittest.TestCase):
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        (root / 'splits').mkdir()
+        (root / 'splits/fold0_train.txt').write_text(''.join(f'train_{i}\n' for i in range(24)))
+        (root / 'splits/fold0_val.txt').write_text('val_0\n')
+        real_load_config = load_config
+        def isolated_config(*args, **kwargs):
+            cfg = real_load_config(*args, **kwargs)
+            cfg.experiment.exp_dir = str(root / 'experiments')
+            cfg.data.root_path = str(root)
+            cfg.logging.use_wandb = False
+            return cfg
+        config_patch = patch(__name__ + '.load_config', side_effect=isolated_config)
+        config_patch.start()
+        self.addCleanup(config_patch.stop)
+        gpu_patch = patch('torch.cuda.is_available', return_value=False)
+        gpu_patch.start()
+        self.addCleanup(gpu_patch.stop)
 
     def test_registry_population(self):
         """Verify all essential components are registered."""
