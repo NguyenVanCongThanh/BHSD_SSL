@@ -8,10 +8,60 @@ import os
 import logging
 import json
 import math
+import random
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, Union
+import numpy as np
 import torch
 import torch.nn as nn
+
+
+def capture_rng_state() -> Dict[str, Any]:
+    """Capture full RNG state across Python, NumPy, and PyTorch (CPU + CUDA) in weights_only=True compatible format."""
+    np_s = np.random.get_state()
+    return {
+        'torch_rng': torch.get_rng_state(),
+        'cuda_rng': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+        'python_rng': random.getstate(),
+        'numpy_rng_str': str(np_s[0]),
+        'numpy_rng_keys': torch.from_numpy(np_s[1].copy()),
+        'numpy_rng_pos': int(np_s[2]),
+        'numpy_rng_has_gauss': int(np_s[3]),
+        'numpy_rng_cached_gaussian': float(np_s[4]),
+    }
+
+
+def restore_rng_state(state: Dict[str, Any]) -> None:
+    """Restore RNG state from dictionary captured by capture_rng_state."""
+    if not isinstance(state, dict):
+        return
+    if 'torch_rng' in state and state['torch_rng'] is not None:
+        torch_rng = state['torch_rng']
+        if isinstance(torch_rng, torch.Tensor):
+            torch_rng = torch_rng.cpu().to(torch.uint8)
+        torch.set_rng_state(torch_rng)
+    if 'cuda_rng' in state and state['cuda_rng'] and torch.cuda.is_available():
+        try:
+            cuda_rng = [t.cpu().to(torch.uint8) if isinstance(t, torch.Tensor) else t for t in state['cuda_rng']]
+            if len(cuda_rng) == torch.cuda.device_count():
+                torch.cuda.set_rng_state_all(cuda_rng)
+            elif torch.cuda.current_device() < len(cuda_rng):
+                torch.cuda.set_rng_state(cuda_rng[torch.cuda.current_device()])
+        except Exception as e:
+            logging.warning("[Checkpoint] Could not restore CUDA RNG state: %s", e)
+    if 'python_rng' in state and state['python_rng'] is not None:
+        random.setstate(state['python_rng'])
+    if 'numpy_rng_str' in state and 'numpy_rng_keys' in state:
+        keys_tensor = state['numpy_rng_keys']
+        keys_arr = keys_tensor.cpu().numpy() if isinstance(keys_tensor, torch.Tensor) else np.array(keys_tensor, dtype=np.uint32)
+        np_state = (
+            str(state['numpy_rng_str']),
+            keys_arr,
+            int(state.get('numpy_rng_pos', 0)),
+            int(state.get('numpy_rng_has_gauss', 0)),
+            float(state.get('numpy_rng_cached_gaussian', 0.0))
+        )
+        np.random.set_state(np_state)
 
 
 def strip_module_prefix(state_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,6 +117,7 @@ def save_checkpoint(
         'best_dice': best_dice,
         'phase': phase,
         'checkpoint_kind': 'latest' if Path(path).name == 'checkpoint_latest.pth' else 'unverified',
+        'rng_state': capture_rng_state(),
     }
     if scaler is not None and hasattr(scaler, 'state_dict'):
         state['scaler'] = scaler.state_dict()
@@ -103,9 +154,10 @@ def load_checkpoint(
     device: Optional[Union[str, torch.device]] = None,
     strict: bool = False,
     prefer_ema: bool = False,
-    checkpoint_state: Optional[Dict[str, Any]] = None
+    checkpoint_state: Optional[Dict[str, Any]] = None,
+    restore_rng: bool = False
 ) -> Dict[str, Any]:
-    """Load checkpoint weights into model and optionally restore optimizer/scaler state.
+    """Load checkpoint weights into model and optionally restore optimizer/scaler/RNG state.
 
     Args:
         path: Path to .pth checkpoint file.
@@ -149,6 +201,8 @@ def load_checkpoint(
         optimizer.load_state_dict(state['opt'])
     if scaler is not None and state.get('scaler') is not None:
         scaler.load_state_dict(state['scaler'])
+    if restore_rng and 'rng_state' in state and state['rng_state'] is not None:
+        restore_rng_state(state['rng_state'])
     return state
 
 

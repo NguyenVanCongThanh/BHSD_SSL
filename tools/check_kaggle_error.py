@@ -1,9 +1,11 @@
 import os
 import json
+import sys
 from kaggle.api.kaggle_api_extended import KaggleApi
 
-os.environ['KAGGLE_USERNAME'] = 'bokhnhl'
-os.environ['KAGGLE_KEY'] = 'KGAT_26ef852621135f54947744308eee1793'
+if not os.environ.get('KAGGLE_USERNAME') or not (os.environ.get('KAGGLE_KEY') or os.environ.get('KAGGLE_API_TOKEN')):
+    print("[X] Error: KAGGLE_USERNAME and KAGGLE_KEY (or KAGGLE_API_TOKEN) environment variables must be set.", file=sys.stderr)
+    sys.exit(1)
 
 api = KaggleApi()
 try:

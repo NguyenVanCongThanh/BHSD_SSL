@@ -39,6 +39,8 @@ class TestBenchmarkFramework(unittest.TestCase):
             cfg.experiment.exp_dir = str(root / 'experiments')
             cfg.data.root_path = str(root)
             cfg.logging.use_wandb = False
+            if int(getattr(cfg.data, 'labelnum', 15)) > 15:
+                cfg.data.labelnum = 15
             return cfg
         config_patch = patch(__name__ + '.load_config', side_effect=isolated_config)
         config_patch.start()

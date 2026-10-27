@@ -34,6 +34,12 @@ def resolve_ds_weights(num_scales, weights=None):
     return [float(w / sum(weights)) for w in weights]
 
 
+NON_AUX_KEYS = {
+    'features', 'reconstruction', 'raw', 'metadata', 'mask', 'latent', 'loss',
+    'weight', 'weights', 'loss_dict', 'decoder_features', 'encoder_features', 'feedback', 'logits2'
+}
+
+
 def extract_multiscale_outputs(
     net_out: Union[torch.Tensor, Dict[str, Any], Tuple, List]
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
@@ -41,35 +47,100 @@ def extract_multiscale_outputs(
     Unpack network predictions into (main_logits, aux_logits_list).
     Supports:
       - Pure Tensor: (logits, [])
-      - Dict: {'seg': main_logits, 'aux': [aux1, aux2, ...]}
+      - Dict: {'seg'|'logits'|'out'|'main': main_logits, 'aux'|'aux_logits': [aux1, aux2, ...]}
       - Tuple/List:
           - If PICK format: (proj, main, feat) -> main is net_out[1]
+          - If LeFeD format: (out1, out2, masks, deep_outs) -> main is out1, aux is deep_outs
           - Otherwise: net_out[0] is main, net_out[1:] are aux
     """
+    if isinstance(net_out, torch.Tensor):
+        return net_out, []
+
     if isinstance(net_out, dict):
-        main = net_out.get('seg', net_out.get('out', None))
+        if not net_out:
+            raise ValueError("Empty dictionary received for multiscale output extraction")
+
+        # 1. Locate primary logits
+        main = None
+        main_key = None
+        for k in ('logits', 'seg', 'out', 'main', 'custom_logits', 'output'):
+            if k in net_out and isinstance(net_out[k], torch.Tensor):
+                main = net_out[k]
+                main_key = k
+                break
+
         if main is None:
-            # Fallback to first value
-            keys = list(net_out.keys())
-            main = net_out[keys[0]]
-            aux = [v for k, v in net_out.items() if k != keys[0] and isinstance(v, torch.Tensor)]
+            # Fallback to first tensor whose key is not non-aux
+            for k, v in net_out.items():
+                if isinstance(v, torch.Tensor) and k.lower() not in NON_AUX_KEYS:
+                    main = v
+                    main_key = k
+                    break
+            if main is None:
+                first_k = next(iter(net_out.keys()))
+                main = net_out[first_k]
+                main_key = first_k
+
+        if not isinstance(main, torch.Tensor):
+            raise TypeError(f"Primary output must be a torch.Tensor, got {type(main)}")
+
+        # 2. Extract auxiliary logits
+        aux_candidates = None
+        for aux_key in ('aux', 'aux_logits', 'auxiliary'):
+            if aux_key in net_out and aux_key != main_key:
+                aux_candidates = net_out[aux_key]
+                break
+
+        aux: List[torch.Tensor] = []
+        if aux_candidates is not None:
+            if isinstance(aux_candidates, torch.Tensor):
+                aux = [aux_candidates]
+            elif isinstance(aux_candidates, (list, tuple)):
+                aux = list(aux_candidates)
+            else:
+                raise TypeError(f"Auxiliary output must be a Tensor or list/tuple of Tensors, got {type(aux_candidates)}")
         else:
-            aux = net_out.get('aux', [])
-            if isinstance(aux, torch.Tensor):
-                aux = [aux]
-        return main, list(aux)
+            # Fallback: strictly exclude known non-aux fields (features, reconstruction, etc.)
+            for k, v in net_out.items():
+                if k == main_key or k.lower() in NON_AUX_KEYS:
+                    continue
+                if isinstance(v, torch.Tensor):
+                    aux.append(v)
+                elif isinstance(v, (list, tuple)) and all(isinstance(item, torch.Tensor) for item in v):
+                    aux.extend(v)
+
+        for i, a in enumerate(aux):
+            if not isinstance(a, torch.Tensor):
+                raise TypeError(f"Auxiliary output element at index {i} must be a torch.Tensor, got {type(a)}")
+
+        return main, aux
 
     if isinstance(net_out, (tuple, list)):
-        # Check if PICK-style (proj, out_seg, feat)
-        if len(net_out) >= 2 and isinstance(net_out[1], torch.Tensor) and net_out[1].ndim >= 4:
-            # Check if this is PICK format where net_out[0] is 2D projection/feat
-            if isinstance(net_out[0], (list, tuple)) or (isinstance(net_out[0], torch.Tensor) and net_out[0].ndim == 2):
-                return net_out[1], []
-        # Multi-scale list format: [scale_0, scale_1, scale_2, ...]
-        return net_out[0], list(net_out[1:])
+        if len(net_out) == 0:
+            raise ValueError("Empty sequence received for multiscale output extraction")
 
-    # Single tensor
-    return net_out, []
+        # Check LeFeD: (out1, out2, feedback_masks, deep_out1)
+        if (len(net_out) == 4 and isinstance(net_out[0], torch.Tensor) and isinstance(net_out[1], torch.Tensor)
+                and isinstance(net_out[2], (list, tuple)) and isinstance(net_out[3], (list, tuple))):
+            return net_out[0], list(net_out[3])
+
+        # Check if PICK-style (proj, out_seg, feat)
+        first = net_out[0]
+        is_pick = isinstance(first, (list, tuple)) or (isinstance(first, torch.Tensor) and first.ndim == 2)
+        if is_pick and len(net_out) >= 2 and isinstance(net_out[1], torch.Tensor) and net_out[1].ndim >= 4:
+            return net_out[1], []
+
+        main = net_out[0]
+        if not isinstance(main, torch.Tensor):
+            raise TypeError(f"Primary output in sequence must be a torch.Tensor, got {type(main)}")
+
+        aux = list(net_out[1:])
+        for i, a in enumerate(aux):
+            if not isinstance(a, torch.Tensor):
+                raise TypeError(f"Auxiliary output element at index {i} must be a torch.Tensor, got {type(a)}")
+        return main, aux
+
+    raise TypeError(f"Unsupported model output type for multiscale extraction: {type(net_out)}")
 
 
 from core.registry import LOSSES

@@ -1,0 +1,36 @@
+# Experiment Preset: BHSD Multi-Class Mean Teacher with nnUNet3D (Fold 0)
+experiment:
+  name: "bhsd_mt_nnunet_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "nnunet3d"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 7
+  has_dropout: false
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+
+method:
+  name: "mean_teacher"
+  base_lr: 0.01
+  max_iteration: 12000
+  ema_decay: 0.99
+  consistency: 1.0
+  consistency_rampup: 40.0
+
+data:
+  patch_size: [32, 192, 192]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 154
+

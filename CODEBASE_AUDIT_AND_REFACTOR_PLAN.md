@@ -1,8 +1,10 @@
 # BÁO CÁO RÀ SOÁT MÃ NGUỒN VÀ KẾ HOẠCH REFACTOR BHSD_SSL
 
-**Ngày đối chiếu:** 27/10/2026. **Source baseline:** `8d750d7` (HEAD tại thời điểm rà soát).  
-**Kết quả chạy lại:** 71 test được discover, **70 passed, 1 skipped**, 6.138 giây khi được phép dùng Gloo loopback.  
-**Phạm vi thay đổi lần này:** cập nhật tài liệu; chưa triển khai các bản sửa mã nguồn được đề xuất bên dưới.
+**Snapshot audit ban đầu:** 27/10/2026, source `8d750d7`; 71 tests, 70 passed và 1 skipped. Các mục 1–16 bên dưới giữ phân tích/kế hoạch của snapshot này.
+
+**Rà soát triển khai mới nhất:** HEAD `b6d4e90` cộng staged/unstaged changes và file mới trong workspace; **89 tests, 88 passed, 1 skipped**, 6.268 giây với Gloo loopback.
+
+**Kết luận hiện tại:** triển khai mới đạt một phần, **chưa đủ điều kiện nghiệm thu**. Xem [báo cáo kiểm tra triển khai và các lỗi tái hiện](docs/IMPLEMENTATION_REVIEW_2026_10_27.md) để biết trạng thái hiện hành; không dùng các mô tả “hiện tại” trong snapshot cũ như trạng thái mã nguồn sau refactor.
 
 ## Mục lục
 

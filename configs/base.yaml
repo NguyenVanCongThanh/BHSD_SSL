@@ -21,8 +21,6 @@ data:
 model:
   name: "vnet"              # "vnet", "unet3d", "unetr", "vnet_single"
   in_channels: 1
-  normalization: "batchnorm"
-  has_dropout: true
 
 method:
   name: "pick"              # "pick", "supervised", "mean_teacher", "cps", "bcp"

@@ -1,9 +1,17 @@
+#!/usr/bin/env python3
+"""Identify which Kaggle account owns a provided API token without hardcoding secrets."""
+import os
+import sys
 import requests
 from requests.auth import HTTPBasicAuth
 
-token = "KGAT_26ef852621135f54947744308eee1793"
-users_to_test = ["bokhnhl", "thnhnguynvncng"]
+token = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("KAGGLE_KEY", "").strip()
+if not token:
+    print("Usage: python identify_token_owner.py <TOKEN>")
+    print("   or: KAGGLE_KEY=<TOKEN> python identify_token_owner.py")
+    sys.exit(1)
 
+users_to_test = ["bokhnhl", "thnhnguynvncng"]
 url = "https://www.kaggle.com/api/v1/datasets/list?mine=true"
 
 for u in users_to_test:
