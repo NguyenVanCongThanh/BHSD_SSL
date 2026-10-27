@@ -176,6 +176,8 @@ class PICKMethod(BaseMethod):
     def load_pretrain_weights_for_selftrain(self):
         """Restore or load pre-trained weights before starting self-training phase."""
         pretrain_candidate = None
+        if self.pretrain_checkpoint and not os.path.isfile(self.pretrain_checkpoint):
+            raise FileNotFoundError(self.pretrain_checkpoint)
         if self.pretrain_checkpoint and os.path.exists(self.pretrain_checkpoint):
             pretrain_candidate = self.pretrain_checkpoint
         else:
@@ -187,7 +189,7 @@ class PICKMethod(BaseMethod):
             if not os.path.exists(target_pre) and self.wandb_manager.enabled and is_main_process():
                 logging.info("[RESUME] Pre-train weights not found locally. Attempting restore from W&B Cloud...")
                 self.wandb_manager.restore_artifact(
-                    artifact_name=f"{self.exp_name}_pretrain_best",
+                    artifact_name=f"{self.exp_name}_pretrain_fold{self.fold}_best",
                     dest_dir=self.pre_snapshot_path,
                     tag="latest"
                 )
@@ -203,10 +205,12 @@ class PICKMethod(BaseMethod):
                 pretrain_candidate = os.path.join(self.pre_snapshot_path, "checkpoint_latest.pth")
 
         if pretrain_candidate and os.path.exists(pretrain_candidate):
-            self.load_checkpoint(pretrain_candidate)
+            from utils.checkpoint import load_checkpoint
+            load_checkpoint(pretrain_candidate, self.model, device=self.device, strict=True)
+            self.setup_optimizer()
             logging.info(f"[INFO] Loaded pre-trained weights from {pretrain_candidate}")
         else:
-            logging.warning("[WARN] No pre-trained checkpoint found! Starting self-training from scratch.")
+            raise FileNotFoundError("PICK self-training requires a pretrained checkpoint")
 
     def run_pre_train(self) -> Tuple[int, float]:
         """Execute Phase 1: Pre-training via unified training loop."""
@@ -245,7 +249,8 @@ class PICKMethod(BaseMethod):
             start_step_offset=self.pre_max_iteration,
             best_model_name="best_model.pth",
             legacy_best_model_name="VNet_best_model.pth",
-            close_wandb_on_finish=False
+            close_wandb_on_finish=False,
+            allow_new_phase=True
         )
 
     def train(self):

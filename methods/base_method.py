@@ -6,14 +6,13 @@ Integrated with WandbManager for cloud artifacts and auto-resume.
 
 from typing import Dict, Any, Optional, Tuple, List, Union
 import abc
+import inspect
 import os
-import sys
 import time
 import logging
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 from tensorboardX import SummaryWriter
@@ -24,8 +23,7 @@ from core.distributed import (
     is_dist_avail_and_initialized,
     get_rank,
     get_world_size,
-    is_main_process,
-    reduce_tensor
+    is_main_process
 )
 from core.registry import DATASETS
 from core.optimizers import build_optimizer, calculate_lr
@@ -73,7 +71,7 @@ class BaseMethod(abc.ABC):
 
         if self.is_ddp:
             local_rank = int(os.environ.get('LOCAL_RANK', 0))
-            self.device = torch.device(f'cuda:{local_rank}')
+            self.device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -109,16 +107,15 @@ class BaseMethod(abc.ABC):
             self.model = self.model.to(self.device)
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,
-                device_ids=[local_rank],
-                output_device=local_rank,
+                device_ids=[local_rank] if self.device.type == "cuda" else None,
+                output_device=local_rank if self.device.type == "cuda" else None,
                 broadcast_buffers=False,
                 find_unused_parameters=True
             )
-            # Enable static graph for multi-branch architectures (PICK: main + mim + aux decoders)
-            # This prevents "marked as ready twice" error when calling forward multiple times per iteration
-            if hasattr(self.model, '_set_static_graph'):
+            # PICK has repeated forwards through shared encoder branches.
+            if str(getattr(cfg.method, 'name', '')).lower() == 'pick':
                 self.model._set_static_graph()
-            logging.info(f"[Model] DDP initialized on GPU {local_rank} (Rank {self.rank}/{self.world_size}) with static graph enabled")
+            logging.info('[Model] DDP initialized on %s (rank %s/%s)', self.device, self.rank, self.world_size)
         elif torch.cuda.is_available():
             # DataParallel default (preserving backward compatibility)
             if torch.cuda.device_count() > 1:
@@ -172,10 +169,6 @@ class BaseMethod(abc.ABC):
         train_transforms = transforms.Compose(aug_list)
 
         dataset_name = self.dataset_name
-        if not DATASETS.contains(dataset_name):
-            logging.warning(f"[Data] Dataset '{dataset_name}' not found in registry. Falling back to 'bhsd'.")
-            dataset_name = 'bhsd'
-
         self.db_train = DATASETS.build(
             dataset_name,
             base_dir=root_path,
@@ -199,12 +192,22 @@ class BaseMethod(abc.ABC):
             class_names=self.class_names
         )
 
+        train_cases = set(getattr(self.db_train, 'image_list', []))
+        val_cases = set(getattr(self.db_val, 'image_list', []))
+        overlap = train_cases & val_cases
+        if overlap:
+            raise ValueError(f'Train/validation split overlap: {sorted(overlap)[:5]}')
+
         batch_size = self.batch_size
         labelnum = min(int(getattr(self.cfg.data, 'labelnum', 15)), len(self.db_train))
         max_samples_cfg = int(getattr(self.cfg.data, 'max_samples', -1))
         max_samples = len(self.db_train) if max_samples_cfg <= 0 else min(max_samples_cfg, len(self.db_train))
 
+        if labelnum > max_samples:
+            raise ValueError('labelnum cannot exceed max_samples')
         labeled_idxs = list(range(labelnum))
+        # Hide unlabeled annotations before any label-dependent augmentation.
+        self.db_train.labeled_indices = set(labeled_idxs)
         unlabeled_idxs = list(range(labelnum, max_samples))
 
         if str(getattr(self.cfg.method, 'name', 'pick')) == 'supervised':
@@ -301,6 +304,8 @@ class BaseMethod(abc.ABC):
         from utils.checkpoint import save_checkpoint as _save_ckpt
         cfg_dict = self.cfg.to_dict() if hasattr(self.cfg, 'to_dict') else None
         merged_extra = {'config': cfg_dict}
+        if cfg_dict and cfg_dict.get('model_spec'):
+            merged_extra['model_spec'] = cfg_dict['model_spec']
         if extra_state:
             merged_extra.update(extra_state)
 
@@ -326,14 +331,19 @@ class BaseMethod(abc.ABC):
             )
 
     def load_checkpoint(self, path: str, prefer_ema: bool = False) -> Tuple[int, float]:
-        from utils.checkpoint import load_checkpoint as _load_ckpt
+        from utils.checkpoint import load_checkpoint as _load_ckpt, validate_checkpoint_context
+        checkpoint_state = torch.load(path, map_location=self.device, weights_only=True)
+        validate_checkpoint_context(checkpoint_state, fold=self.fold, task=self.task,
+                                    num_classes=self.num_classes, dataset_name=self.dataset_name)
         ckpt_data = _load_ckpt(
             path=path,
             model=self.model,
             optimizer=self.optimizer,
             scaler=self.scaler if hasattr(self, 'scaler') else None,
             device=self.device,
-            prefer_ema=prefer_ema
+            prefer_ema=prefer_ema,
+            strict=True,
+            checkpoint_state=checkpoint_state
         )
         return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
 
@@ -379,6 +389,66 @@ class BaseMethod(abc.ABC):
         Returns total_loss and a dictionary of scalar loss components for logging.
         """
         pass
+
+    def training_optimizers(self):
+        """All optimizers participating in one coordinated training update."""
+        return [self.optimizer]
+
+    def after_optimizer_step(self, iter_num):
+        """Update derived model state only after a successful optimizer step."""
+
+    def apply_gradients(self, loss, iter_num):
+        if loss.ndim != 0:
+            raise ValueError('Training loss must be a scalar')
+        loss_finite = torch.isfinite(loss.detach()).to(dtype=torch.int32)
+        if self.is_ddp:
+            torch.distributed.all_reduce(loss_finite, op=torch.distributed.ReduceOp.MIN)
+        if not loss_finite.item():
+            raise FloatingPointError(f'Invalid training loss at iteration {iter_num}')
+        optimizers = self.training_optimizers()
+        for optimizer in optimizers:
+            optimizer.zero_grad(set_to_none=True)
+        if self.use_amp:
+            self.scaler.scale(loss).backward()
+            for optimizer in optimizers:
+                self.scaler.unscale_(optimizer)
+        else:
+            loss.backward()
+        # Reject nonfinite gradients on every rank before any optimizer mutates state.
+        finite = torch.ones((), device=self.device, dtype=torch.int32)
+        for optimizer in optimizers:
+            for group in optimizer.param_groups:
+                for param in group['params']:
+                    if param.grad is not None:
+                        finite.mul_(torch.isfinite(param.grad).all().to(torch.int32))
+        if self.is_ddp:
+            torch.distributed.all_reduce(finite, op=torch.distributed.ReduceOp.MIN)
+        if not finite.item():
+            raise FloatingPointError(f'Nonfinite gradients at iteration {iter_num}')
+        for optimizer in optimizers:
+            if self.use_amp:
+                self.scaler.step(optimizer)
+            else:
+                optimizer.step()
+        if self.use_amp:
+            self.scaler.update()
+        self.after_optimizer_step(iter_num)
+
+    def optimize_batch(self, sampled_batch, iter_num, mim_mask=None, step_fn=None):
+        callback = step_fn or self.train_step
+        # Inspect once per call; never catch exceptions thrown inside user code.
+        args = (sampled_batch, iter_num, mim_mask)
+        signature = inspect.signature(callback)
+        for count in (3, 2, 1):
+            try:
+                signature.bind(*args[:count])
+            except TypeError:
+                continue
+            with torch.amp.autocast(self.device.type, enabled=self.use_amp):
+                loss, loss_dict = callback(*args[:count])
+            self.apply_gradients(loss, iter_num)
+            return loss, loss_dict
+        raise TypeError('Training callback must accept batch[, iteration[, mask]]')
 
     def _log_iteration_progress(
         self,
@@ -435,6 +505,10 @@ class BaseMethod(abc.ABC):
                 val_mdice, per_class = val_res
                 visual_samples = []
 
+        if not np.isfinite(val_mdice) or not np.isfinite(per_class).all():
+            raise FloatingPointError('Validation produced nonfinite metrics')
+
+        self.last_validation_dice = float(val_mdice)
         if is_main_process():
             class_names = self.class_names[1:]
             summary_str = format_dice_summary(per_class, class_names)
@@ -457,7 +531,8 @@ class BaseMethod(abc.ABC):
                     phase=phase,
                     artifact_name=f"{art_prefix}_best",
                     artifact_type="model",
-                    aliases=["latest", "best"]
+                    aliases=["latest", "best"],
+                    extra_state={"checkpoint_kind": "best", "selection_metric": "val_mDice", "selected_iter": iter_num}
                 )
                 if legacy_best_model_name and legacy_best_model_name != best_model_name:
                     legacy_pth = os.path.join(snap_dir, legacy_best_model_name)
@@ -465,7 +540,8 @@ class BaseMethod(abc.ABC):
                         path=legacy_pth,
                         iter_num=iter_num,
                         best_dice=best_dice,
-                        phase=phase
+                        phase=phase,
+                        extra_state={"checkpoint_kind": "best", "selection_metric": "val_mDice", "selected_iter": iter_num}
                     )
                 logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
                 self.wandb_manager.update_summary({
@@ -502,6 +578,9 @@ class BaseMethod(abc.ABC):
             self.wandb_manager.log_metrics(val_log, step=global_step)
 
         if self.is_ddp:
+            score = torch.tensor(best_dice, device=self.device, dtype=torch.float64)
+            torch.distributed.broadcast(score, src=0)
+            best_dice = score.item()
             torch.distributed.barrier()
 
         self.model.train()
@@ -519,7 +598,8 @@ class BaseMethod(abc.ABC):
         start_step_offset: int = 0,
         best_model_name: str = "best_model.pth",
         legacy_best_model_name: Optional[str] = "VNet_best_model.pth",
-        close_wandb_on_finish: bool = True
+        close_wandb_on_finish: bool = True,
+        allow_new_phase: bool = False
     ) -> Tuple[int, float]:
         """
         Universal, extensible training engine supporting single-phase and multi-phase algorithms.
@@ -529,16 +609,20 @@ class BaseMethod(abc.ABC):
         max_iters = int(max_iterations if max_iterations is not None else getattr(self.cfg.method, 'max_iteration', 10000))
         val_int = int(val_interval if val_interval is not None else getattr(self.cfg.logging, 'val_interval', 500))
         save_int = int(save_interval if save_interval is not None else getattr(self.cfg.logging, 'save_interval', 50))
+        if max_iters <= 0 or val_int <= 0 or save_int <= 0:
+            raise ValueError('Iteration count and validation/save intervals must be positive')
+        if len(self.trainloader) == 0:
+            raise ValueError('Training dataloader has no batches')
         snap_dir = snapshot_dir or self.snapshot_path
         os.makedirs(snap_dir, exist_ok=True)
 
         step_callback = step_fn or self.train_step
-        art_prefix = artifact_prefix or self.exp_name
+        art_prefix = f'{artifact_prefix or self.exp_name}_fold{self.fold}'
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
 
         self.model.train()
         iter_num = 0
-        best_dice = 0.0
+        best_dice = float("-inf")
 
         latest_pth = os.path.join(snap_dir, "checkpoint_latest.pth")
 
@@ -553,6 +637,16 @@ class BaseMethod(abc.ABC):
 
         if self.is_ddp:
             torch.distributed.barrier()
+
+        if not resume and any(os.path.exists(os.path.join(snap_dir, name)) for name in
+                              ('checkpoint_latest.pth', best_model_name, legacy_best_model_name or best_model_name)):
+            raise FileExistsError(f'Existing checkpoints in {snap_dir}; use resume or a new experiment directory')
+
+        if resume and not os.path.exists(latest_pth):
+            has_best = any(os.path.isfile(os.path.join(snap_dir, name)) for name in
+                           (best_model_name, legacy_best_model_name or best_model_name))
+            if has_best or not allow_new_phase:
+                raise FileNotFoundError(f'Cannot resume {phase}: latest checkpoint missing in {snap_dir}')
 
         if resume and os.path.exists(latest_pth):
             iter_num, best_dice = self.load_checkpoint(latest_pth)
@@ -583,22 +677,8 @@ class BaseMethod(abc.ABC):
                     sampled_batch = batch_data
                     mim_mask = None
 
-                try:
-                    loss, loss_dict = step_callback(sampled_batch, iter_num, mim_mask)
-                except TypeError:
-                    try:
-                        loss, loss_dict = step_callback(sampled_batch, iter_num)
-                    except TypeError:
-                        loss, loss_dict = step_callback(sampled_batch)
-
-                self.optimizer.zero_grad()
-                if self.use_amp:
-                    self.scaler.scale(loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    loss.backward()
-                    self.optimizer.step()
+                loss, loss_dict = self.optimize_batch(
+                    sampled_batch, iter_num, mim_mask, step_fn=step_callback)
 
                 iter_num += 1
                 global_step = start_step_offset + iter_num
@@ -653,22 +733,23 @@ class BaseMethod(abc.ABC):
             if iter_num >= max_iters:
                 break
 
+        if iter_num % val_int:
+            best_dice = self._handle_periodic_validation(
+                snap_dir, phase, iter_num, start_step_offset + iter_num,
+                best_dice, best_model_name, legacy_best_model_name,
+                art_prefix, latest_pth, False)
+
         if is_main_process():
             self.save_checkpoint(latest_pth, iter_num, best_dice, phase)
-            best_pth = os.path.join(snap_dir, best_model_name)
-            if not os.path.exists(best_pth):
-                self.save_checkpoint(best_pth, iter_num, best_dice, phase)
-            if legacy_best_model_name:
-                legacy_pth = os.path.join(snap_dir, legacy_best_model_name)
-                if not os.path.exists(legacy_pth):
-                    self.save_checkpoint(legacy_pth, iter_num, best_dice, phase)
+            # Do not fabricate a best checkpoint from unvalidated final weights.
             logging.info(f"=== [{phase.upper()}] FINISHED | Best mDice: {best_dice:.4f} ===")
 
         if close_wandb_on_finish:
             if self.writer is not None:
                 self.writer.close()
             self.wandb_manager.update_summary({
-                'final_mDice': best_dice,
+                'best_mDice': best_dice,
+                'last_validation_mDice': getattr(self, 'last_validation_dice', None),
                 'completed_iters': iter_num
             })
             self.wandb_manager.finish()

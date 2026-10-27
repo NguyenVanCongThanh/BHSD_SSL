@@ -84,7 +84,8 @@ def compute_masked_ce_loss(
     mask_f = mask.float()
     target_squeezed = targets.squeeze(1).long() if targets.dim() > logits.dim() - 1 else targets.long()
     ce_unreduced = F.cross_entropy(logits, target_squeezed, reduction='none')
-    mask_expanded = mask_f.squeeze(1) if mask_f.dim() > ce_unreduced.dim() else mask_f
+    from losses.dice import expand_spatial_mask
+    mask_expanded = expand_spatial_mask(mask_f, target_squeezed)
     loss = (ce_unreduced * mask_expanded).sum() / (mask_expanded.sum() + eps)
     return loss
 
@@ -111,8 +112,12 @@ def update_ema_variables(
     else:
         actual_alpha = alpha
 
-    for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-        ema_param.data.mul_(actual_alpha).add_((1.0 - actual_alpha) * param.data)
+    with torch.no_grad():
+        for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+            ema_param.mul_(actual_alpha).add_(param, alpha=1.0 - actual_alpha)
+        # Teacher remains in eval mode; its BatchNorm statistics never update by forward.
+        for ema_buffer, buffer in zip(ema_model.buffers(), model.buffers()):
+            ema_buffer.copy_(buffer)
 
 
 def get_or_create_mim_mask(

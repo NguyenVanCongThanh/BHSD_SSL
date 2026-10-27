@@ -7,13 +7,14 @@ from typing import Dict, Tuple, Optional
 import copy
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights
 from utils.ramps import sigmoid_rampup
+from utils.checkpoint import get_raw_model
+from core.optimizers import build_optimizer
 
 
 @METHODS.register("cps")
@@ -28,7 +29,7 @@ class CPSMethod(BaseMethod):
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
 
         # Build second network model2 with independent weights
-        raw_net1 = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
+        raw_net1 = get_raw_model(self.model)
         self.model2 = copy.deepcopy(raw_net1).to(self.device)
 
         # Re-initialize weights of model2
@@ -38,12 +39,12 @@ class CPSMethod(BaseMethod):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-        base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
-        momentum = float(getattr(self.cfg.method, 'momentum', 0.9))
-        weight_decay = float(getattr(self.cfg.method, 'weight_decay', 0.0001))
-        self.optimizer2 = optim.SGD(
-            self.model2.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay
-        )
+        if self.is_ddp:
+            self.model2 = nn.parallel.DistributedDataParallel(
+                self.model2, device_ids=[self.device.index] if self.device.type == "cuda" else None, broadcast_buffers=False,
+                find_unused_parameters=True)
+
+        self.optimizer2 = build_optimizer(self.model2, self.cfg)
 
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
@@ -123,11 +124,6 @@ class CPSMethod(BaseMethod):
         total_loss2 = loss_sup2 + cur_weight * loss_cps2
         total_loss = total_loss1 + total_loss2
 
-        # Step optimizer 2
-        self.optimizer2.zero_grad()
-        total_loss2.backward(retain_graph=True)
-        self.optimizer2.step()
-
         loss_dict = {
             "total": float(total_loss.item()),
             "sup1": float(loss_sup1.item()),
@@ -140,4 +136,26 @@ class CPSMethod(BaseMethod):
             loss_dict["ds1"] = float(ds_accum1)
             loss_dict["ds2"] = float(ds_accum2)
 
-        return total_loss1, loss_dict
+        return total_loss, loss_dict
+
+    def training_optimizers(self):
+        return [self.optimizer, self.optimizer2]
+
+    def update_learning_rate(self, iter_num, max_iterations):
+        lr = super().update_learning_rate(iter_num, max_iterations)
+        for group in self.optimizer2.param_groups:
+            group['lr'] = lr
+        return lr
+
+    def save_checkpoint(self, *args, extra_state=None, **kwargs):
+        state = dict(extra_state or {})
+        state.update(net2=get_raw_model(self.model2).state_dict(), opt2=self.optimizer2.state_dict())
+        return super().save_checkpoint(*args, extra_state=state, **kwargs)
+
+    def load_checkpoint(self, path, prefer_ema=False):
+        state = torch.load(path, map_location=self.device, weights_only=True)
+        if 'net2' not in state or 'opt2' not in state:
+            raise ValueError('CPS resume requires net2 and opt2; legacy checkpoint cannot restore full training state')
+        get_raw_model(self.model2).load_state_dict(state['net2'], strict=True)
+        self.optimizer2.load_state_dict(state['opt2'])
+        return super().load_checkpoint(path, prefer_ema)

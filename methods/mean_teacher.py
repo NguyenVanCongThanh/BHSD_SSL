@@ -176,12 +176,6 @@ class MeanTeacherMethod(BaseMethod):
             consistency_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
             total_loss = loss_supervised + consistency_weight * loss_consistency
 
-        # EMA update to Teacher with cosine decay schedule
-        max_iter = int(getattr(self.cfg.method, 'max_iteration', 12000))
-        raw_net = get_raw_model(self.model)
-        raw_ema = get_raw_model(self.ema_model)
-        update_ema_variables(raw_net, raw_ema, self.ema_decay, global_step=iter_num, max_steps=max_iter, schedule=self.ema_schedule)
-
         loss_dict = {
             "total": float(total_loss.item()),
             "supervised": float(loss_supervised.item()),
@@ -194,6 +188,13 @@ class MeanTeacherMethod(BaseMethod):
 
         return total_loss, loss_dict
 
+    def after_optimizer_step(self, iter_num):
+        max_iter = int(getattr(self.cfg.method, 'max_iteration', 12000))
+        raw_net = get_raw_model(self.model)
+        raw_ema = get_raw_model(self.ema_model)
+        update_ema_variables(raw_net, raw_ema, self.ema_decay, global_step=iter_num, max_steps=max_iter, schedule=self.ema_schedule)
+
+
     def save_checkpoint(
         self,
         path: str,
@@ -202,7 +203,8 @@ class MeanTeacherMethod(BaseMethod):
         phase: str = 'train',
         artifact_name: Optional[str] = None,
         artifact_type: str = "checkpoint",
-        aliases: Optional[List[str]] = None
+        aliases: Optional[List[str]] = None,
+        extra_state=None
     ):
         """Save student weights along with teacher (EMA) weights."""
         raw_ema = get_raw_model(self.ema_model)
@@ -214,21 +216,15 @@ class MeanTeacherMethod(BaseMethod):
             artifact_name=artifact_name,
             artifact_type=artifact_type,
             aliases=aliases,
-            extra_state={'ema_net': raw_ema.state_dict()}
+            extra_state={**(extra_state or {}), 'ema_net': raw_ema.state_dict()}
         )
 
     def load_checkpoint(self, path: str) -> Tuple[int, float]:
         """Load student weights and restore teacher (EMA) weights."""
         iter_num, best_dice = super().load_checkpoint(path, prefer_ema=False)
         from utils.checkpoint import load_checkpoint as _load_ckpt
-        try:
-            _load_ckpt(path, model=self.ema_model, device=self.device, prefer_ema=True)
-            logging.info("[Checkpoint] Successfully loaded Teacher (EMA) model weights.")
-        except Exception as e:
-            logging.warning(f"[Checkpoint] Fallback synchronizing Teacher from Student: {e}")
-            raw_net = get_raw_model(self.model)
-            raw_ema = get_raw_model(self.ema_model)
-            raw_ema.load_state_dict(raw_net.state_dict(), strict=False)
+        _load_ckpt(path, model=self.ema_model, device=self.device, prefer_ema=True, strict=True)
+        logging.info('[Checkpoint] Loaded Teacher weights with strict validation')
         return iter_num, best_dice
 
     def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
