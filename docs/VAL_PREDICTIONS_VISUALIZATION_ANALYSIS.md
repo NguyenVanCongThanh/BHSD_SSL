@@ -1,160 +1,186 @@
-# 📊 Phân Tích Cơ Chế Trực Quan Hóa (Visualization) Validation Predictions Trên W&B & Đề Xuất Cải Tiến
+# Validation visualization, metrics, config và W&B
 
-Tài liệu này phân tích chi tiết nguyên lý hoạt động, bản chất hiện tượng hiển thị, các hạn chế kỹ thuật hiện tại và giải pháp tối ưu hóa toàn diện cho module trực quan hóa kết quả kiểm định (**Validation Predictions**) của mô hình Mean Teacher trên nền tảng Weights & Biases (W&B).
+Cập nhật: 27/10/2026. Tài liệu này mô tả hành vi đã triển khai, thay cho các giả định về màu sắc của bản phân tích ban đầu.
 
----
+## 1. Những kết luận cần đính chính
 
-## 1. Luồng Hoạt Động Của Module Visualize Hiện Tại
+- Không thể suy ra TP/FN từ việc vùng overlay sáng hay mờ. Màu hiển thị còn phụ thuộc opacity, thứ tự layer, palette, background và lỗi nhầm class. Muốn xác định sai sót phải so nhãn prediction với GT.
+- Không có bảo đảm rằng bỏ class `0` khỏi `class_labels` khiến pixel `0` trong suốt. Mapping tên lớp không phải hợp đồng điều khiển alpha của UI.
+- Hai lớp cùng màu chồng nhau không đơn giản làm opacity tăng gấp đôi. Nếu hai lớp có cùng alpha `a`, opacity tổng trong phép compositing thông thường là `1-(1-a)^2`.
+- Palette là quy ước cố định của dự án; không tuyên bố đó là bảng màu y tế bắt buộc. Layout nhiều panel là lựa chọn giúp so sánh, không phải quy định chung của tạp chí/hội nghị.
+- Bản cũ chọn lát cắt theo prediction khi GT rỗng, nên không cố định Z qua checkpoint. Bản mới bỏ fallback đó.
 
-Cơ chế trích xuất và hiển thị kết quả kiểm định được phối hợp qua 3 module chính:
+## 2. Intensity: không áp dụng HU window lên tensor normalized
 
-```
-[ evaluation/sliding_window.py ]
-   │  Chạy sliding-window inference 3D toàn bộ tập Validation
-   │  Rank 0 gom 4 ca đầu tiên: {'case', 'image', 'label', 'pred', 'dice'}
-   ▼
-[ methods/base_method.py ]
-   │  Gọi build_visual_samples(visual_records)
-   │  Tạo class_labels = {0: 'background', 1: 'edh', 2: 'iph', 3: 'ivh', 4: 'sah', 5: 'sdh'}
-   ▼
-[ utils/visualizer.py ]
-   │  1. extract_best_slice(): Tìm lát cắt Z có diện tích tổn thương lớn nhất theo Ground Truth
-   │  2. standardize_2d_slice(): Resize lát cắt về chuẩn (512, 512)
-   │  3. create_wandb_segmentation_samples(): Đóng gói thành wandb.Image kèm dual masks
-   ▼
-[ Weights & Biases Cloud ]
-   └── Hiển thị tại mục val/predictions trên Dashboard
+Ba file H5 validation đã kiểm tra có intensity xấp xỉ `-4..4`, không phải HU trực tiếp. Một file lưu:
+
+```text
+norm_params = {'mean': 47.6804, 'std': 18.4999}
+clip_range = [11.0, 88.0]
+target_spacing = (5.0, 0.5, 0.5)
 ```
 
-### Các bước xử lý chi tiết trong `utils/visualizer.py`:
-1. **Chọn lát cắt Z tối ưu (`extract_best_slice`)**:
-   - Đếm số lượng voxel tổn thương ($> 0$) trên từng lát cắt của khối 3D Ground Truth:
-     $$\text{best\_z} = \arg\max_z \sum_{x, y} (\text{mask\_3d}[z, y, x] > 0)$$
-   - Việc ưu tiên tìm lát cắt theo Ground Truth giúp chỉ số $Z$ giữ **cố định 100% qua tất cả các checkpoint** ($250, 500, 750, \dots, 30000$), cho phép quan sát cùng một lát cắt bệnh nhân cải thiện dần theo thời gian.
-2. **Chuẩn hóa kích thước (`standardize_2d_slice`)**:
-   - Sử dụng phép nội suy Bilinear (cho ảnh CT) và Nearest (cho nhãn mask) để đưa toàn bộ về kích thước $(512, 512)$, loại bỏ cảnh báo kích thước ảnh không đồng đều của W&B.
-3. **Đóng gói đối tượng W&B Image**:
-   ```python
-   wandb.Image(
-       slice_img,
-       caption=caption,
-       masks={
-           "predictions":  {"mask_data": slice_pr, "class_labels": class_labels},
-           "ground_truth": {"mask_data": slice_gt, "class_labels": class_labels}
-       }
-   )
-   ```
+Metadata normalization không tự chứng minh toàn bộ pipeline có thể đảo chính xác: thứ tự clipping, interpolation và padding có thể làm mất hoặc đổi giá trị. Không tự suy đơn vị từ numeric range hoặc riêng `mean/std`.
 
----
+**Mặc định an toàn:** `intensity_mode: percentile`, dùng percentile của toàn volume để giữ display range cố định cho cùng case. Không dùng range của prediction hoặc min/max riêng từng lần chọn lát cắt.
 
-## 2. Giải Mã Hiện Tượng: "Tại sao lúc mờ, lúc sáng, và thay đổi sau mỗi lần Val?"
+**HU mode:** chỉ cho phép khi đã khai báo một trong hai điều kiện:
 
-Người dùng quan sát thấy: *Vùng tổn thương lúc thì màu rất mờ, lúc thì sáng bình thường, và sau mỗi lần validation lại biến đổi không đồng nhất.*
+- `data.intensity_units: HU`: array là HU trực tiếp.
+- `data.normalization: zscore_hu`: người chuẩn bị dữ liệu đã xác nhận phép biến đổi là z-score HU; H5 phải có `norm_params.mean/std` hợp lệ. Phép đảo là `image * std + mean`.
 
-### Bản chất cốt lõi: W&B đang vẽ CHỒNG ĐÈ 2 lớp mặt nạ cùng lúc!
-Panel `val/predictions` **không chỉ hiển thị riêng Ground Truth hay riêng Prediction**, mà đang nạp cả hai:
-- Lớp 1: `ground_truth` (Vùng bác sĩ khoanh vùng chuẩn).
-- Lớp 2: `predictions` (Vùng mô hình Teacher dự đoán tại checkpoint đó).
+Không tự khai báo `zscore_hu` cho dataset hiện có nếu chưa xác minh preprocessing. Dữ liệu đã clip không thể phục hồi giá trị bị cắt. Window center/width là setting hiển thị cấu hình được, không phải thay đổi input training hay hướng dẫn chẩn đoán.
 
-Mặc định trên giao diện W&B, cả 2 lớp này **được BẬT ĐỒNG THỜI** và máy tính thực hiện thuật toán **hòa trộn màu (Alpha Blending)**:
+Dataset đưa `spacing`, `norm_params`, `clip_range` và khai báo units/normalization vào sample validation/test. Không thêm metadata này vào sample training để tránh lỗi default collation của DataLoader.
 
-$$\text{Color}_{\text{display}} = \alpha \cdot \text{Color}_{\text{pred}} + (1 - \alpha) \cdot \text{Color}_{\text{gt}}$$
+## 3. Hình ảnh so sánh
 
-Từ cơ chế này, các hiện tượng cụ thể được giải thích như sau:
+`utils/visualizer.py` tạo bốn panel cùng một canvas:
 
-| Hiện tượng quan sát | Bản chất kỹ thuật bên dưới | Ý nghĩa Y tế & Machine Learning |
-|---|---|---|
-| **Vùng màu SÁNG RỰC, ĐẬM NÉT** | **True Positive (Trùng khớp)**: Cả `ground_truth` và `predictions` đều nhận diện đúng loại xuất huyết tại pixel đó. Hai lớp mask cùng màu đè khít lên nhau làm tăng gấp đôi độ đậm (Opacity). | Mô hình học tốt, dự đoán khớp hoàn toàn với chẩn đoán của bác sĩ. |
-| **Vùng màu BỊ MỜ, NHẠT, XỈN MÀU** | **False Negative (Mô hình bỏ sót)**: Bác sĩ khoanh vùng có máu (ví dụ class 2 - IPH màu đỏ/tím), nhưng mô hình (ở iter 250 còn non) đoán vùng đó là **Background (não lành)**. Lớp mask Background màu xanh của Prediction bị phủ đè lên lớp màu của Ground Truth làm giảm tương phản, gây mờ đục. | Mô hình chưa học kịp tổn thương này, đang bị bỏ sót. |
-| **Vùng màu LẠ XUẤT HIỆN Ở NÃO LÀNH** | **False Positive (Mô hình đoán thừa)**: Vị trí không có tổn thương trong Ground Truth nhưng mô hình dự đoán nhầm thành xuất huyết. | Mô hình bị dương tính giả (nhiễu). |
-| **HÌNH ẢNH THAY ĐỔI SAU MỖI LẦN VAL** | Nhãn Ground Truth là **bất biến**, nhưng trọng số của mô hình **liên tục được cập nhật**. Sau mỗi 250 bước, `pred_3d` thay đổi $\rightarrow$ mức độ giao thoa giữa `pred` và `gt` thay đổi theo. | Thể hiện quá trình mô hình đang học và tiến hóa dần qua từng bước huấn luyện. |
-
----
-
-## 3. Các Điểm Chưa Tối Ưu (Lỗ Hổng Logic) Trong Code Hiện Tại
-
-### Hạn chế 1: Đưa nhãn `background` (Class 0) vào danh sách mask
-Trong file `methods/base_method.py`:
-```python
-class_labels = {i: name for i, name in enumerate(self.class_names)}
-# Kết quả: {0: 'background', 1: 'edh', 2: 'iph', 3: 'ivh', 4: 'sah', 5: 'sdh'}
+```text
+CT | GT | Prediction | Error map
 ```
-- **Hậu quả**: Khi `0: 'background'` xuất hiện trong từ điển nhãn, W&B xem giá trị 0 là một nhóm đối tượng cần tô màu (thay vì coi là nền trong suốt). W&B tự động phủ một lớp màng màu xanh dương lên 99% diện tích (não lành và không khí).
-- Lớp màu xanh mờ này làm tối ảnh CT, làm giảm độ tương phản của xương sọ và hòa lẫn vào các tổn thương thật.
 
-### Hạn chế 2: Chồng đè 2 mặt nạ lên cùng 1 tấm ảnh (Single-Canvas Overlap)
-- Khi cả hai mask cùng bật trên một canvas, mắt người không thể bóc tách độc lập đâu là ranh giới do bác sĩ vẽ, đâu là ranh giới do AI dự đoán. Người xem dễ lầm tưởng toàn bộ bức tranh là Ground Truth bị lỗi hiển thị.
+- CT/GT/Prediction dùng cùng display range và cùng phép biến đổi không gian.
+- Overlay chỉ tác động foreground; background trong ảnh RGB giữ nguyên giá trị CT.
+- Resize giữ tỷ lệ vật lý Y/X khi có spacing, rồi padding về canvas chung. Không kéo ảnh chữ nhật thành vuông.
+- Nhãn resize bằng nearest; ảnh dùng bilinear.
+- Error map: TP đúng class = xanh lá; FN = đỏ; FP = vàng; foreground bị nhầm class = tím hồng. Đây là các nhóm lỗi loại trừ nhau trong ảnh, không phải một bảng đếm one-vs-rest.
+- Caption phân biệt **volume Dice 3D** và **slice Dice 2D**, ghi case ID, Z và display mode. Dice vẫn theo policy tại mục 5.
 
-### Hạn chế 3: Chuẩn hóa Min-Max đơn thuần thay vì CT Brain Windowing
-Trong `utils/visualizer.py`:
-```python
-min_val, max_val = slice_img.min(), slice_img.max()
-slice_img = (slice_img - min_val) / (max_val - min_val)
+`val/predictions` chứa ảnh tổng hợp RGB. Nếu bật interactive, ảnh mask vuông được log riêng ở `val/predictions_interactive`; không trộn hai kích thước vào một gallery. UI interactive vẫn có thể cho bật/tắt lớp và background; ảnh RGB là view có rendering xác định.
+
+Các ảnh hiển thị không được dùng để tính metric: metric chạy trên prediction và GT ở native evaluation grid, trước resize/padding hiển thị.
+
+## 4. Cohort cố định, ổn định khi đổi số GPU
+
+- Có thể khai báo `logging.visualization.case_ids` để chọn một nhóm case cố định, gồm lớp hiếm, tổn thương nhỏ và case âm tính.
+- Nếu không khai báo, chọn các case ID đầu tiên theo thứ tự sắp xếp. Đây là fallback xác định, **không bảo đảm đại diện đủ các lớp**.
+- Với GT có foreground, chọn Z có tổng foreground lớn nhất. Với GT rỗng, dùng lát giữa volume; prediction không được quyết định Z.
+- `slice_indices` cho phép cố định Z theo case ID, kể cả lát dành cho lớp hiếm vốn không có diện tích lớn nhất.
+- Mỗi rank suy luận phần case của mình và render thumbnail 2D cho case được chọn. Chỉ thumbnail được gather về rank 0; không gather toàn bộ ảnh/prediction 3D.
+- Rank 0 công bố số media cần thu qua collective để các rank tham gia cùng một lịch, kể cả rank không log W&B.
+
+Cohort nằm trong `validation_latest.json`. Khi cần chọn cohort có phân tầng, hãy xác lập danh sách một lần trước khi so sánh run. Chưa triển khai tự động chọn worst cases, montage mọi lát cắt hoặc lesion matching; không dùng ảnh đẹp được chọn lại theo checkpoint làm bằng chứng tổng quát.
+
+## 5. Metric và ý nghĩa thống kê
+
+Giữ nguyên công thức chọn best: trung bình foreground Dice qua các case. Khi prediction và GT cùng vắng class, Dice của class/case đó bằng `1`. Không đổi checkpoint selection ngầm khi thêm metric.
+
+Bổ sung cho từng class:
+
+| Trường | Ý nghĩa |
+|---|---|
+| `dice_case_mean` | Mean Dice trên toàn bộ case, gồm ca âm tính |
+| `dice_positive_mean` | Mean Dice chỉ trên case có GT của class |
+| `positive_cases`, `negative_cases` | Support để đọc đúng hai loại mean |
+| `negative_fp_case_rate` | Tỷ lệ case GT âm tính có ít nhất một voxel FP |
+| `negative_fp_voxels_mean` | Số voxel FP trung bình trên case âm tính |
+| `negative_fp_ml_mean` | FP volume trung bình trên case âm tính, chỉ có khi đủ spacing |
+| `precision_micro`, `recall_micro` | Precision/recall từ voxel counts gộp, không phải lesion detection sensitivity |
+| `tp_voxels`, `fp_voxels`, `fn_voxels` | Counts native grid phục vụ kiểm toán |
+| `hd95_mm_mean`, `asd_mm_mean` | Surface distances tùy chọn, chỉ mean trên cặp có cả hai mask nonempty |
+| `surface_valid_pairs` | Số cặp đủ điều kiện tính surface distance |
+
+Không có support hoặc denominator bằng 0 thì ghi `null`, không tự coi là score hoàn hảo hoặc lỗi 0. FP mL cần spacing Z/Y/X dương, đơn vị mm; voxel volume chia 1000 để thành mL.
+
+`val_surface_metrics: true` yêu cầu spacing; thiếu spacing gây lỗi rõ ràng. Surface distance dùng bề mặt voxel với connectivity mặc định của SciPy, khoảng cách Euclidean theo spacing; HD95 là percentile 95 của hai tập khoảng cách gộp, ASD là mean đối xứng gộp. Cặp mask rỗng ghi `null` và trạng thái `both_empty`/`one_empty`, không bịa penalty 100 mm. Khi so sánh với thư viện khác phải thống nhất định nghĩa HD95/ASD và empty-mask policy.
+
+Training validation, single evaluation và benchmark dùng chung hàm thống kê. Benchmark phân biệt unweighted mean qua fold với `oof_case_metrics` tính trên tất cả case đã đánh giá; nếu thiếu fold, kết quả vẫn là partial OOF, không được gọi là full 5-fold.
+
+Ví dụ export single checkpoint:
+
+```bash
+python evaluate.py --checkpoint /path/to/checkpoint.pth \
+  --dataset bhsd_multiclass --fold 0 \
+  --metrics_output /tmp/evaluation_metrics.json
 ```
-- **Hậu quả**: Xương sọ có độ hấp thụ tia X cực lớn ($+1000$ đến $+2000$ Hounsfield Units - HU), trong khi dải tổn thương xuất huyết não chỉ nằm ở khoảng $+50$ đến $+90$ HU, não lành $+20$ đến $+40$ HU.
-- Phép chia cho `max_val` bị chi phối bởi xương sọ, nén toàn bộ mô não và máu tụ vào một dải xám hẹp, làm giảm độ sắc nét của bệnh lý bên dưới.
 
----
+Thêm `--surface_metrics` khi dataset có spacing; `--no_amp` tắt evaluation autocast. Các setting TTA/patch/stride phải thống nhất khi so sánh điểm.
 
-## 4. Kế Hoạch & Đề Xuất Cải Thiện Toàn Diện
+## 6. Config thực sự có tác dụng
 
-### Đề xuất 1: Thao tác người dùng trên giao diện W&B (Ngay lập tức)
-Nếu không muốn sửa code ngay, bạn có thể kiểm soát hiển thị trên Dashboard W&B:
-1. Nhấp chuột vào ảnh để mở to.
-2. Tại thanh công cụ **Masks** ở bên phải:
-   - **Bỏ tích chọn `background`**: Lớp màng xanh dương sẽ biến mất, trả lại nền CT nguyên bản đen trắng sắc nét.
-   - **Bật riêng `ground_truth`**: Xem chính xác 100% vùng tổn thương thực tế cố định của bệnh nhân.
-   - **Bật riêng `predictions`**: Xem độc lập kết quả mô hình AI khoanh vùng tại vòng lặp đó.
-
----
-
-### Đề xuất 2: Cải tiến Code – Chuẩn hóa Class Labels (Loại bỏ Background khỏi Mask)
-Trong `methods/base_method.py`, chỉ truyền các nhãn từ Class 1 trở đi vào W&B:
-```python
-# Chỉ giữ các lớp bệnh lý (1..5), loại bỏ class 0 (background)
-class_labels = {i: name for i, name in enumerate(self.class_names) if i > 0}
+```yaml
+logging:
+  val_amp: true
+  val_gaussian: true
+  val_tta: false
+  val_surface_metrics: false
+  val_visualize: true
+  num_vis_samples: 4
+  visual_every_n_validations: 1
+  log_interval: 10
+  artifact_interval: null
+  visualization:
+    case_ids: []
+    slice_indices: {}
+    target_shape: [512, 512]
+    intensity_mode: percentile
+    percentiles: [1.0, 99.0]
+    window_center: 40.0
+    window_width: 80.0
+    alpha: 0.5
+    interactive: false
 ```
-👉 **Tác dụng**: W&B sẽ tự động coi toàn bộ pixel có giá trị 0 là **HOÀN TOÀN TRONG SUỐT (Transparent 100%)**. Chỉ những nơi có xuất huyết mới sáng màu rực rỡ, ảnh CT nền giữ nguyên độ trung thực.
 
----
+- `val_interval`: lịch inference/metric; `visual_every_n_validations`: lịch media trên các lần validation định kỳ. Validation cuối phase ngoài lịch vẫn tính metric, không bắt buộc upload ảnh.
+- `save_interval`: local latest; `artifact_interval`: xét upload latest tại các local save/validation, cộng cuối phase. Khi `null`, dùng `val_interval`. Best upload khi được chọn. Muốn upload đúng một chu kỳ cụ thể, chọn interval chia hết cho lịch save hoặc validation.
+- Training scalar log theo `log_interval`; TensorBoard dùng cùng global step với W&B.
+- Mean Teacher dùng chung evaluation options với BaseMethod, chỉ khác model được đánh giá là EMA teacher.
+- Deep-supervision weights được dùng thực sự: list bao gồm **main + tất cả auxiliary heads**, normalize theo tổng. Sai length, giá trị âm/không hữu hạn hoặc tổng 0 gây lỗi. nnUNet 7 stages có main + 5 auxiliary heads, nên config mặc định đã sửa thành 6 weights.
 
-### Đề xuất 3: Tạo Khung Hình So Sánh Song Song 3 Bảng (Tri-Panel Comparison)
-Thay vì bắt người xem phải bật/tắt thủ công trên W&B, nâng cấp `utils/visualizer.py` để sinh ra một ảnh tổng hợp gồm 3 khung hình đặt cạnh nhau (Side-by-Side):
+`resolved_config.json` lưu config sau merge cùng batch thực tế mỗi rank, model spec khi entrypoint cung cấp, số labeled case thực tế, split hashes, inference options, source revision, trạng thái workspace dirty và phiên bản Python/PyTorch. Git revision riêng không chứng minh workspace sạch; cần commit code dùng cho run hoặc lưu diff khi công bố. Split hash không chứng minh patient-level independence hoặc hash toàn bộ dataset.
 
-$$\boxed{\text{Ảnh CT Não Gốc}} \quad \Big| \quad \boxed{\text{Ground Truth (Bác sĩ)}} \quad \Big| \quad \boxed{\text{Dự đoán AI (Teacher Model)}}$$
+Metadata preprocessing và fingerprint khai báo trong config vẫn cần người tạo dataset xác nhận. Không tự chuyển UI display settings thành model preprocessing.
 
-#### Bảng màu chuẩn y tế cố định (Color Palette):
-- Class 1 (EDH - Ngoài màng cứng): Đỏ rực `[230, 25, 75]`
-- Class 2 (IPH - Nội nhu mô): Xanh lá `[60, 180, 75]`
-- Class 3 (IVH - Trong não thất): Vàng `[255, 225, 25]`
-- Class 4 (SAH - Dưới nhện): Tím `[145, 30, 180]`
-- Class 5 (SDH - Dưới màng cứng): Cam `[245, 130, 48]`
+## 7. W&B: history, resume, trạng thái và secrets
 
-#### Lợi ích vượt trội:
-1. **Minh bạch 100%**: Nhìn thấy ngay lập tức mô hình dự đoán đúng chỗ nào, sai chỗ nào mà không cần click chuột.
-2. **Chuẩn mực xuất bản**: Định dạng 3 panel ghép ngang là quy chuẩn bắt buộc của các hội nghị, tạp chí y tế hàng đầu (MICCAI, IEEE TMI, Nature Medicine).
-3. **Giữ nguyên tính năng tương tác**: Vẫn có thể giữ layer W&B Interactive Mask song song với ảnh Tri-Panel tĩnh.
+### Trục thời gian
 
----
+SDK history append-only. Manager log `global_step` như một metric và dùng `define_metric(..., step_metric='global_step')`; không ghi đè SDK history bằng training iteration. Train/val có thể là hai history row cùng `global_step`, không làm mất media vì cố ghi về một step cũ. `val/mDice` khai báo summary `max`; best/last được lưu riêng.
 
-### Đề xuất 4: Tích hợp Brain Windowing (+40 HU, Width 80 HU)
-Áp dụng cửa sổ hiển thị mô não chuẩn trước khi vẽ:
-```python
-def apply_brain_window(slice_img, window_center=40, window_width=80):
-    min_hu = window_center - window_width / 2  # 0 HU
-    max_hu = window_center + window_width / 2  # 80 HU
-    windowed = np.clip(slice_img, min_hu, max_hu)
-    return (windowed - min_hu) / (max_hu - min_hu)
+### Identity và resume
+
+- Run ID được lưu trong `<fold_dir>/wandb_run.json` và checkpoint `wandb_run`.
+- Resume dùng lại ID này hoặc explicit `logging.wandb_id`; không tự tạo ID từ tên run rồi gọi đó là resume.
+- Online resume dùng `resume='must'`. Mâu thuẫn ID/project/entity gây lỗi; không tự chuyển sang run mới khi run cũ bị xóa/xung đột.
+- Offline giữ ID nhưng mỗi lần chạy có thể tạo một segment offline riêng. Việc hợp nhất lịch sử khi sync cần kiểm tra; không cam kết offline resume là append vào cùng file cũ.
+
+### Lifecycle và lỗi
+
+- Manager dùng run handle riêng, không gọi global logging/summary để tránh ghi nhầm run.
+- Training exception đóng run với `exit_code=1`; run thành công đóng với code 0. Áp dụng cả BaseMethod và PICK.
+- Init/log thất bại có warning. Log lỗi lặp được giới hạn tần suất; `wandb_required: true` yêu cầu fail thay vì tiếp tục local-only.
+- Artifact upload là bất đồng bộ: log “queued” không phải bằng chứng upload đã hoàn thành.
+
+```yaml
+logging:
+  use_wandb: true
+  wandb_mode: offline  # online | offline | disabled; WANDB_MODE env có ưu tiên
+  wandb_required: true
 ```
-👉 Vùng máu tụ (50 - 80 HU) sẽ sáng trắng nổi bật tự nhiên trên nền nhu mô não xám, giúp bác sĩ và chuyên gia đánh giá trực quan cực kỳ chuẩn xác.
 
----
+Notebook/generator đã bỏ credential W&B literal; đọc `WANDB_API_KEY` từ environment hoặc Kaggle Secrets. Thiếu secret thì notebook báo rõ và chọn offline. Token đã có trong lịch sử Git trước đó **không bị xóa khỏi lịch sử bởi thay đổi này**; cần thu hồi/đổi token đó qua tài khoản sở hữu.
 
-## 5. Tổng Kết
+Config được redaction trước khi ghi W&B/local snapshot/checkpoint đối với các key credential thông dụng. Đây không phải bộ phát hiện mọi dạng bí mật; không đưa credential vào tên run, comment hoặc arbitrary string trong config.
 
-| Đặc điểm | Hệ Thống Hiện Tại | Sau Khi Nâng Cấp Theo Đề Xuất |
-|---|---|---|
-| **Hiển thị Background** | Bị tô màng xanh mờ toàn bộ ảnh CT | Nền trong suốt 100%, ảnh CT đen trắng rõ nét |
-| **Cách so sánh** | Chồng đè 2 mask gây mờ và lẫn lộn màu | Hiển thị 3 khung hình song song (Gốc \| Bác sĩ \| AI) |
-| **Độ ổn định trực quan** | Cảm giác mờ/sáng thất thường sau mỗi lần Val | Thấy rõ ranh giới thật cố định và AI tiến bộ từng bước |
-| **Độ tương phản ảnh CT** | Min-Max toàn ảnh bị kéo dãn bởi xương | Brain Windowing làm nổi bật tự nhiên khối máu tụ |
+### Tài liệu SDK
+
+- [W&B Run.log, define_metric và finish](https://docs.wandb.ai/ref/python/experiments/run/)
+- [Logging history và summary](https://docs.wandb.ai/models/support/difference_log_summary)
+
+## 8. Kiểm chứng và giới hạn
+
+Kết quả kiểm tra đợt này: **71 test qua**, gồm test W&B SDK **0.31.0** offline thật và DDP CPU/Gloo. Kiểm tra cú pháp notebook, compileall và `git diff --check` cũng qua.
+
+Regression tests trong `tests/test_validation_tracking.py` kiểm tra intensity units, negative-case Z, aspect ratio, RGB background, wrong-class errors, positive/negative metric semantics, spacing, DS weights, run identity, global axis, failure status, redaction và metadata H5.
+
+Có test SDK thật chỉ bật khi yêu cầu:
+
+```bash
+BHSD_TEST_WANDB_OFFLINE=1 OMP_NUM_THREADS=1 python -m unittest discover -s tests -q
+```
+
+Test SDK dùng offline, synthetic images và thư mục tạm; không cần key, không login hoặc gửi dữ liệu lên cloud. DDP hai process còn kiểm tra cohort chọn case do rank 1 sở hữu được gather đúng về rank 0. Môi trường sandbox cần quyền IPC/loopback để chạy hai kiểm thử này.
+
+Chưa xác minh giao diện interactive trên cloud, upload online, sync offline segments, CUDA AMP/NCCL, hiệu quả hội tụ hoặc khả năng hoàn thành một Kaggle run dài. Phần sửa notebook trong đợt này chỉ xử lý W&B authentication; những blocker PICK batch/resume/eval đã nêu ở lượt kiểm tra Kaggle trước đó không được tự coi là đã xử lý.

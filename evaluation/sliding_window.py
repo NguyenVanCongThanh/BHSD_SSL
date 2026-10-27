@@ -22,6 +22,7 @@ from evaluation.metrics import (
     cal_multiclass_dice,
     cal_binary_dice,
     format_dice_summary,
+    case_segmentation_stats, aggregate_segmentation_stats,
 )
 from utils.model_utils import extract_logits
 
@@ -208,7 +209,11 @@ def evaluate_dataset_sliding_window(
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
     use_gaussian: bool = True,
-    use_tta: bool = False
+    use_tta: bool = False,
+    details_sink=None,
+    visual_case_ids=None,
+    visual_settings=None,
+    compute_surface=False,
 ) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
@@ -261,6 +266,27 @@ def evaluate_dataset_sliding_window(
         # Training may use per-rank BatchNorm buffers. Evaluate one coherent model.
         for buffer in model.buffers():
             dist.broadcast(buffer, src=0)
+    local_stats = []
+    requested_visuals = return_visual_samples
+    if is_distributed:
+        count = [requested_visuals if rank == 0 else None]
+        dist.broadcast_object_list(count, src=0)
+        requested_visuals = count[0]
+    if requested_visuals < 0:
+        raise ValueError('num_vis_samples must be nonnegative')
+    if visual_case_ids and len(set(visual_case_ids)) != len(visual_case_ids):
+        raise ValueError('Visualization case IDs must be unique')
+    names = list(getattr(val_dataset, 'image_list', []))
+    if not names:
+        names = [str(i) for i in range(total_cases)]
+    if visual_case_ids:
+        missing = set(visual_case_ids) - set(names)
+        if missing:
+            raise ValueError(f'Visualization case IDs absent from validation split: {sorted(missing)}')
+        chosen = list(visual_case_ids)[:requested_visuals]
+    else:
+        chosen = sorted(names)[:requested_visuals]
+    selected = set(chosen)
     t0 = time.time()
 
     # Partition validation cases evenly among all ranks
@@ -282,7 +308,7 @@ def evaluate_dataset_sliding_window(
         sample_item = val_dataset[case_idx]
         sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
         image, label = sample['image'], sample['label']
-        case_name = sample.get('case', f"case_{case_idx:03d}")
+        case_name = sample.get('case', names[case_idx])
 
         if isinstance(image, torch.Tensor):
             image = image.squeeze().cpu().numpy()
@@ -302,24 +328,21 @@ def evaluate_dataset_sliding_window(
             use_tta=use_tta
         )
 
-        if is_binary:
-            dice = cal_binary_dice(pred, label)
-            local_case_records.append((case_idx, [dice]))
-            case_dice_metric = dice
-        else:
-            case_dices = cal_multiclass_dice(pred, label, num_classes=num_classes)
-            local_case_records.append((case_idx, case_dices))
-            case_dice_metric = case_dices
+        stats = case_segmentation_stats(pred, label, num_classes,
+            spacing=sample.get('metadata', {}).get('spacing'), compute_surface=compute_surface)
+        local_stats.append((case_idx, stats))
+        case_dices = [row['dice'] for row in stats['classes']]
+        local_case_records.append((case_idx, case_dices))
+        case_dice_metric = case_dices[0] if is_binary else case_dices
 
-        # Collect sample for visualization (rank 0 only)
-        if rank == 0 and return_visual_samples > 0 and len(visual_records) < return_visual_samples:
-            visual_records.append({
-                'case': str(case_name),
-                'image': image,
-                'label': label,
-                'pred': pred,
-                'dice': case_dice_metric
-            })
+        # Every owner rank renders only bounded 2D records; never gather 3D volumes.
+        if names[case_idx] in selected:
+            from utils.visualizer import prepare_visual_record
+            visual_records.append(prepare_visual_record({
+                'case': str(case_name), 'image': image, 'label': label, 'pred': pred,
+                'dice': case_dice_metric, 'metadata': sample.get('metadata', {}),
+                'num_classes': num_classes,
+            }, visual_settings))
 
         if log_progress and ((step_i + 1) % 5 == 0 or (step_i + 1) == num_my_cases):
             elapsed = time.time() - t0
@@ -347,6 +370,27 @@ def evaluate_dataset_sliding_window(
         all_case_dices = [dice for _, dice in all_flattened]
     else:
         all_case_dices = [dice for _, dice in local_case_records]
+
+    if is_distributed and world_size > 1:
+        gathered_stats = [None] * world_size
+        dist.all_gather_object(gathered_stats, local_stats)
+        ordered_stats = [record for group in gathered_stats if group is not None for record in group]
+        ordered_stats.sort(key=lambda item: item[0])
+        stats = [record for _, record in ordered_stats]
+        if requested_visuals:
+            gathered_visuals = [None] * world_size if rank == 0 else None
+            dist.gather_object(visual_records, gathered_visuals, dst=0)
+            visual_records = [r for group in gathered_visuals for r in group] if rank == 0 else []
+    else:
+        stats = [record for _, record in local_stats]
+    if rank == 0:
+        order = {name: i for i, name in enumerate(chosen)}
+        visual_records.sort(key=lambda r: order.get(r['case'], len(order)))
+    if details_sink is not None:
+        details_sink.update(aggregate_segmentation_stats(stats))
+        details_sink['inference'] = {'patch_size': list(patch_size), 'stride_xy': stride_xy,
+            'stride_z': stride_z, 'amp': use_amp, 'gaussian': use_gaussian, 'tta': use_tta, 'surface_metrics': compute_surface}
+        details_sink['visual_cohort'] = chosen
 
     empty_classes = [0.0] * (1 if is_binary else num_classes - 1)
     if len(all_case_dices) == 0:

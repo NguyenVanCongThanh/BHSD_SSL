@@ -9,6 +9,8 @@ import abc
 import inspect
 import os
 import time
+import json
+from pathlib import Path
 import logging
 import numpy as np
 import torch
@@ -178,7 +180,9 @@ class BaseMethod(abc.ABC):
             fold=self.fold,
             transform=train_transforms,
             num_classes=self.num_classes,
-            class_names=self.class_names
+            class_names=self.class_names,
+            intensity_units=getattr(self.cfg.data, 'intensity_units', None),
+            normalization=getattr(self.cfg.data, 'normalization', None)
         )
 
         self.db_val = DATASETS.build(
@@ -189,7 +193,9 @@ class BaseMethod(abc.ABC):
             patch_size=self.patch_size,
             fold=self.fold,
             num_classes=self.num_classes,
-            class_names=self.class_names
+            class_names=self.class_names,
+            intensity_units=getattr(self.cfg.data, 'intensity_units', None),
+            normalization=getattr(self.cfg.data, 'normalization', None)
         )
 
         train_cases = set(getattr(self.db_train, 'image_list', []))
@@ -278,6 +284,7 @@ class BaseMethod(abc.ABC):
         if is_main_process():
             os.makedirs(log_dir, exist_ok=True)
             self.writer = SummaryWriter(log_dir)
+            self._record_resolved_config()
             self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
             self.wandb_manager.update_summary({'batch_layout': self.batch_layout.to_dict()})
             self.use_wandb = self.wandb_manager.enabled
@@ -286,6 +293,46 @@ class BaseMethod(abc.ABC):
             self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
             self.wandb_manager.enabled = False
             self.use_wandb = False
+
+    def validation_options(self):
+        return {
+            'patch_size': self.patch_size,
+            'stride_xy': int(getattr(self.cfg.logging, 'val_stride_xy', 32)),
+            'stride_z': int(getattr(self.cfg.logging, 'val_stride_z', 8)),
+            'use_amp': bool(getattr(self.cfg.logging, 'val_amp', self.use_amp)),
+            'use_gaussian': bool(getattr(self.cfg.logging, 'val_gaussian', True)),
+            'use_tta': bool(getattr(self.cfg.logging, 'val_tta', False)),
+            'compute_surface': bool(getattr(self.cfg.logging, 'val_surface_metrics', False)),
+        }
+
+    def _record_resolved_config(self):
+        from utils.wandb_manager import redact_config
+        from evaluation.metrics import METRIC_POLICY
+        import sys, subprocess
+        try:
+            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[1], text=True).strip()
+            dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=Path(__file__).resolve().parents[1], text=True).strip())
+        except (OSError, subprocess.CalledProcessError):
+            revision, dirty = None, None
+        self.cfg.resolved = {
+            'source_revision': revision, 'source_dirty': dirty, 'python': sys.version.split()[0], 'torch': str(torch.__version__),
+            'batch_layout': self.batch_layout.to_dict(), 'validation': self.validation_options(),
+            'metric_policy': METRIC_POLICY,
+            'split_fingerprints': {key: getattr(dataset, 'split_fingerprint', None)
+                for key, dataset in [('train', self.db_train), ('val', self.db_val)]},
+            'intensity_units': getattr(self.cfg.data, 'intensity_units', None),
+            'normalization': getattr(self.cfg.data, 'normalization', None),
+            'actual_labeled_cases': len(getattr(self.db_train, 'labeled_indices', []) or []),
+        }
+        path = Path(self.snapshot_path) / 'resolved_config.json'
+        path.write_text(json.dumps(redact_config(self.cfg.to_dict()), indent=2))
+
+    def cloud_latest_due(self, iteration):
+        interval = getattr(self.cfg.logging, 'artifact_interval', None) or getattr(self.cfg.logging, 'val_interval', 500)
+        interval = int(interval)
+        if interval < 1:
+            raise ValueError('artifact_interval must be positive')
+        return iteration % interval == 0 or iteration == getattr(self, '_phase_max_iters', None)
 
     def save_checkpoint(
         self,
@@ -302,8 +349,16 @@ class BaseMethod(abc.ABC):
             return
 
         from utils.checkpoint import save_checkpoint as _save_ckpt
-        cfg_dict = self.cfg.to_dict() if hasattr(self.cfg, 'to_dict') else None
+        from utils.wandb_manager import redact_config
+        cfg_dict = redact_config(self.cfg.to_dict()) if hasattr(self.cfg, 'to_dict') else None
         merged_extra = {'config': cfg_dict}
+        if getattr(self.wandb_manager, 'run_id', None):
+            merged_extra['wandb_run'] = self.wandb_manager.identity()
+        from evaluation.metrics import METRIC_POLICY
+        merged_extra['metric_policy'] = METRIC_POLICY
+        merged_extra['validation_inference'] = self.validation_options()
+        if getattr(self, 'validation_details', None):
+            merged_extra['validation_metrics'] = self.validation_details
         if cfg_dict and cfg_dict.get('model_spec'):
             merged_extra['model_spec'] = cfg_dict['model_spec']
         if extra_state:
@@ -345,6 +400,7 @@ class BaseMethod(abc.ABC):
             strict=True,
             checkpoint_state=checkpoint_state
         )
+        self.validation_details = ckpt_data.get('validation_metrics') or {}
         return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
 
     def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
@@ -353,34 +409,37 @@ class BaseMethod(abc.ABC):
             return []
         from utils.visualizer import create_wandb_segmentation_samples
         class_labels = {i: name for i, name in enumerate(self.class_names)}
-        return create_wandb_segmentation_samples(visual_records, class_labels)
+        return create_wandb_segmentation_samples(visual_records, class_labels,
+            getattr(self.cfg.logging, 'visualization', {}))
 
-    def log_visual_samples(self, visual_records: List[Dict[str, Any]], step: int):
-        """Build and log interactive segmentation masks to W&B."""
-        wandb_images = self.build_visual_samples(visual_records)
-        if wandb_images:
-            self.wandb_manager.log_visual_predictions(wandb_images, step=step)
+    def build_visual_payload(self, records):
+        if not self.wandb_manager.enabled or not records:
+            return {}
+        from utils.visualizer import create_wandb_visual_payload
+        return create_wandb_visual_payload(records,
+            {i: name for i, name in enumerate(self.class_names)},
+            getattr(self.cfg.logging, 'visualization', {}))
 
-    def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
-        stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
-        stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
+    def log_visual_samples(self, visual_records, step):
+        self.wandb_manager.log_metrics(self.build_visual_payload(visual_records), step=step)
+
+    def validate(self, return_visuals=False):
         raw_net = self.model.module if hasattr(self.model, 'module') else self.model
-        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if (return_visuals and self.rank == 0) else 0
-        return evaluate_dataset_sliding_window(
-            model=raw_net,
-            val_dataset=self.db_val,
-            num_classes=self.num_classes,
-            is_binary=self.is_binary,
-            patch_size=self.patch_size,
-            stride_z=stride_z,
-            stride_xy=stride_xy,
-            use_amp=True,
-            device=self.device,
-            log_progress=(self.rank == 0),
-            return_visual_samples=num_vis,
-            rank=self.rank,
-            world_size=self.world_size
-        )
+        return self.evaluate_validation_model(raw_net, return_visuals, 'net')
+
+    def evaluate_validation_model(self, model, return_visuals=False, weights_source='net'):
+        self.validation_details = {}
+        options = self.validation_options()
+        settings = dict(getattr(self.cfg.logging, 'visualization', {}))
+        count = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
+        result = evaluate_dataset_sliding_window(
+            model=model, val_dataset=self.db_val, num_classes=self.num_classes,
+            is_binary=self.is_binary, device=self.device, log_progress=self.rank == 0,
+            return_visual_samples=count, rank=self.rank, world_size=self.world_size,
+            details_sink=self.validation_details, visual_case_ids=settings.get('case_ids'),
+            visual_settings=settings, **options)
+        self.validation_details['weights_source'] = weights_source
+        return result
 
     @abc.abstractmethod
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
@@ -509,6 +568,8 @@ class BaseMethod(abc.ABC):
             raise FloatingPointError('Validation produced nonfinite metrics')
 
         self.last_validation_dice = float(val_mdice)
+        if getattr(self, 'validation_details', None):
+            self.validation_details.update(iteration=iter_num, global_step=global_step, phase=phase)
         if is_main_process():
             class_names = self.class_names[1:]
             summary_str = format_dice_summary(per_class, class_names)
@@ -517,9 +578,9 @@ class BaseMethod(abc.ABC):
             print(end_msg, flush=True)
 
             if self.writer is not None:
-                self.writer.add_scalar('val/mDice', val_mdice, iter_num)
+                self.writer.add_scalar('val/mDice', val_mdice, global_step)
                 for c, d in enumerate(per_class):
-                    self.writer.add_scalar(f'val/dice_{class_names[c]}', d, iter_num)
+                    self.writer.add_scalar(f'val/dice_{class_names[c]}', d, global_step)
 
             if val_mdice > best_dice:
                 best_dice = val_mdice
@@ -556,7 +617,7 @@ class BaseMethod(abc.ABC):
                 iter_num=iter_num,
                 best_dice=best_dice,
                 phase=phase,
-                artifact_name=f"{art_prefix}_latest",
+                artifact_name=f"{art_prefix}_latest" if self.cloud_latest_due(iter_num) else None,
                 artifact_type="checkpoint",
                 aliases=["latest"]
             )
@@ -571,10 +632,22 @@ class BaseMethod(abc.ABC):
                 val_log[f'val/dice_{class_names[c]}'] = d
 
             if should_vis and visual_samples:
-                wandb_images = self.build_visual_samples(visual_samples)
-                if wandb_images:
-                    val_log['val/predictions'] = wandb_images
+                val_log.update(self.build_visual_payload(visual_samples))
 
+            details = getattr(self, 'validation_details', {})
+            for row in details.get('per_class', []):
+                name = self.class_names[row['class_id']]
+                for key, value in row.items():
+                    if key != 'class_id' and value is not None:
+                        val_log[f'val/{name}_{key}'] = value
+                        if self.writer is not None:
+                            self.writer.add_scalar(f'val/{name}_{key}', value, global_step)
+            if details:
+                output = dict(details, global_step=global_step, phase=phase)
+                path = Path(snap_dir) / 'validation_latest.json'
+                tmp = path.with_suffix('.tmp')
+                tmp.write_text(json.dumps(output, indent=2, allow_nan=False))
+                tmp.replace(path)
             self.wandb_manager.log_metrics(val_log, step=global_step)
 
         if self.is_ddp:
@@ -613,6 +686,7 @@ class BaseMethod(abc.ABC):
             raise ValueError('Iteration count and validation/save intervals must be positive')
         if len(self.trainloader) == 0:
             raise ValueError('Training dataloader has no batches')
+        self._phase_max_iters = max_iters
         snap_dir = snapshot_dir or self.snapshot_path
         os.makedirs(snap_dir, exist_ok=True)
 
@@ -621,6 +695,7 @@ class BaseMethod(abc.ABC):
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
 
         self.model.train()
+        self.validation_details = {}
         iter_num = 0
         best_dice = float("-inf")
 
@@ -687,14 +762,18 @@ class BaseMethod(abc.ABC):
                 if is_main_process():
                     if self.writer is not None:
                         for k, v in loss_dict.items():
-                            self.writer.add_scalar(f"loss/{k}", v, iter_num)
-                        self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], iter_num)
+                            self.writer.add_scalar(f"loss/{k}", v, global_step)
+                        self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], global_step)
 
                     wandb_dict = {f"train/{k}": v for k, v in loss_dict.items()}
                     wandb_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
                     wandb_dict['phase'] = phase
                     wandb_dict[f'{phase}/iter'] = iter_num
-                    self.wandb_manager.log_metrics(wandb_dict, step=global_step)
+                    log_interval = int(getattr(self.cfg.logging, 'log_interval', 10))
+                    if log_interval < 1:
+                        raise ValueError('log_interval must be positive')
+                    if iter_num == 1 or iter_num % log_interval == 0:
+                        self.wandb_manager.log_metrics(wandb_dict, step=global_step)
 
                 # Console progress log (Rank 0 only)
                 if is_main_process() and (iter_num % 10 == 0 or iter_num == 1):
@@ -707,13 +786,18 @@ class BaseMethod(abc.ABC):
                             path=latest_pth,
                             iter_num=iter_num,
                             best_dice=best_dice,
-                            phase=phase
+                            phase=phase,
+                            artifact_name=f"{art_prefix}_latest" if self.cloud_latest_due(iter_num) else None,
+                            artifact_type="checkpoint"
                         )
 
                 # Periodic Validation (All DDP Ranks evaluate in parallel)
                 if iter_num % val_int == 0:
                     val_visualize = bool(getattr(self.cfg.logging, 'val_visualize', True))
-                    should_vis = self.wandb_manager.enabled and val_visualize and is_main_process()
+                    visual_every = int(getattr(self.cfg.logging, 'visual_every_n_validations', 1))
+                    if visual_every < 1:
+                        raise ValueError('visual_every_n_validations must be positive')
+                    should_vis = self.wandb_manager.enabled and val_visualize and is_main_process() and (iter_num // val_int) % visual_every == 0
                     best_dice = self._handle_periodic_validation(
                         snap_dir=snap_dir,
                         phase=phase,
@@ -740,7 +824,7 @@ class BaseMethod(abc.ABC):
                 art_prefix, latest_pth, False)
 
         if is_main_process():
-            self.save_checkpoint(latest_pth, iter_num, best_dice, phase)
+            # Final validation already saved latest and any selected best.
             # Do not fabricate a best checkpoint from unvalidated final weights.
             logging.info(f"=== [{phase.upper()}] FINISHED | Best mDice: {best_dice:.4f} ===")
 
@@ -762,14 +846,19 @@ class BaseMethod(abc.ABC):
         max_iterations = int(getattr(self.cfg.method, 'max_iteration', 10000))
         val_interval = int(getattr(self.cfg.logging, 'val_interval', 500))
         save_interval = int(getattr(self.cfg.logging, 'save_interval', 50))
-        self.run_training_loop(
-            phase='train',
-            max_iterations=max_iterations,
-            val_interval=val_interval,
-            save_interval=save_interval,
-            step_fn=self.train_step,
-            snapshot_dir=self.snapshot_path,
-            artifact_prefix=self.exp_name,
-            close_wandb_on_finish=True
-        )
-
+        try:
+            self.run_training_loop(
+                phase='train',
+                max_iterations=max_iterations,
+                val_interval=val_interval,
+                save_interval=save_interval,
+                step_fn=self.train_step,
+                snapshot_dir=self.snapshot_path,
+                artifact_prefix=self.exp_name,
+                close_wandb_on_finish=True
+            )
+        except BaseException:
+            if self.writer is not None:
+                self.writer.close()
+            self.wandb_manager.finish(exit_code=1)
+            raise

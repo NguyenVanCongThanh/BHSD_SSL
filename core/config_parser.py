@@ -100,6 +100,8 @@ SECTION_MAPPING = {
     'labeled_bs': 'data',
     'labelnum': 'data',
     'max_samples': 'data',
+    'intensity_units': 'data',
+    'normalization': 'data',
     
     # Method section
     'method': 'method',
@@ -144,10 +146,21 @@ SECTION_MAPPING = {
     'wandb_entity': 'logging',
     'wandb_run_name': 'logging',
     'wandb_id': 'logging',
+    'wandb_mode': 'logging',
+    'wandb_required': 'logging',
+    'artifact_interval': 'logging',
+    'log_interval': 'logging',
     'val_interval': 'logging',
     'save_interval': 'logging',
     'val_stride_xy': 'logging',
     'val_stride_z': 'logging',
+    'val_amp': 'logging',
+    'val_gaussian': 'logging',
+    'val_surface_metrics': 'logging',
+    'val_tta': 'logging',
+    'val_visualize': 'logging',
+    'num_vis_samples': 'logging',
+    'visual_every_n_validations': 'logging',
 }
 
 

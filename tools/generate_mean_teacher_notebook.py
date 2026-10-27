@@ -212,20 +212,25 @@ def build_mean_teacher_notebook():
             "metadata": {},
             "outputs": [],
             "source": [
-                "import os\n",
-                "import wandb\n",
-                "\n",
-                "# API Key W&B tích hợp sẵn cho 1 lần Run\n",
-                "WANDB_API_KEY = \"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\"\n",
-                "WANDB_PROJECT = \"BHSD_MeanTeacher\"\n",
-                "\n",
-                "os.environ[\"WANDB_API_KEY\"] = WANDB_API_KEY\n",
-                "os.environ[\"WANDB_PROJECT\"] = WANDB_PROJECT\n",
-                "\n",
-                "print(\"[*] Đang kết nối tới Weights & Biases...\", flush=True)\n",
-                "wandb.login(key=WANDB_API_KEY, relogin=True)\n",
-                "print(f\"[SUCCESS] Đăng nhập W&B thành công! Dữ liệu huấn luyện sẽ được lưu tại project: '{WANDB_PROJECT}'\", flush=True)"
-            ]
+    "import os\n",
+    "import wandb\n",
+    "\n",
+    "WANDB_PROJECT = 'BHSD_MeanTeacher'\n",
+    "key = os.environ.get(\"WANDB_API_KEY\", \"\")\n",
+    "if not key:\n",
+    "    try:\n",
+    "        from kaggle_secrets import UserSecretsClient\n",
+    "        key = UserSecretsClient().get_secret(\"WANDB_API_KEY\")\n",
+    "    except Exception:\n",
+    "        key = \"\"\n",
+    "if key:\n",
+    "    os.environ[\"WANDB_API_KEY\"] = key\n",
+    "    wandb.login(key=key)\n",
+    "else:\n",
+    "    os.environ[\"WANDB_MODE\"] = \"offline\"\n",
+    "    print(\"No W&B secret configured: logging offline; sync output later.\")\n",
+    "os.environ[\"WANDB_PROJECT\"] = WANDB_PROJECT\n"
+]
         },
         # Cell 11: Step 6 - Markdown
         {
@@ -305,7 +310,6 @@ def build_mean_teacher_notebook():
                 "\n",
                 "env = os.environ.copy()\n",
                 "env[\"PYTHONUNBUFFERED\"] = \"1\"\n",
-                "env[\"WANDB_API_KEY\"] = WANDB_API_KEY\n",
                 "env[\"NCCL_DEBUG\"] = \"WARN\"\n",
                 "env[\"NCCL_IB_DISABLE\"] = \"1\"\n",
                 "env[\"NCCL_P2P_DISABLE\"] = \"1\"\n",

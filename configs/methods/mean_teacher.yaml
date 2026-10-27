@@ -37,7 +37,7 @@ method:
   student_noise_std: 0.02             # Gentle Gaussian noise standard deviation
   student_intensity_scale: 0.05       # Subtle intensity scaling (+-5%)
   deep_supervision:
-    weights: [0.516, 0.258, 0.129, 0.065, 0.032] # Normalized exponential decay weights for 5 aux scales (stages 2-6)
+    weights: [1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125] # Main + five auxiliary heads; normalized at runtime
     consistency_multiscale: false         # Disabled on intermediate aux heads to avoid blurry lesion collapse
 
 data:

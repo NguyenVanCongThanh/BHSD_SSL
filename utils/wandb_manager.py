@@ -7,6 +7,8 @@ and summary metric tracking for MedSSL-BHSD.
 from typing import Dict, Any, Optional, List, Union
 import os
 import logging
+import json
+from pathlib import Path
 
 
 class WandbManager:
@@ -29,9 +31,14 @@ class WandbManager:
         self.fold = fold if fold is not None else getattr(cfg.experiment, 'fold', 0)
         self.run = None
         self.run_id = None
+        self.mode = os.environ.get('WANDB_MODE', getattr(cfg.logging, 'wandb_mode', 'online'))
+        if self.mode not in ('online', 'offline', 'disabled'):
+            raise ValueError('wandb_mode must be online, offline or disabled')
+        self.identity_path = Path(getattr(cfg.experiment, 'exp_dir', '../experiments')) / getattr(cfg.experiment, 'name', 'exp') / f'fold_{self.fold}' / 'wandb_run.json'
+        self.log_failures = 0
 
         from core.distributed import is_main_process
-        if self.enabled and is_main_process():
+        if self.enabled and self.mode != "disabled" and is_main_process():
             self._init_wandb()
         else:
             self.enabled = False
@@ -41,91 +48,99 @@ class WandbManager:
             import wandb
             import re
 
-            # Ensure any lingering run in current process is finished cleanly
-            if wandb.run is not None:
-                try:
-                    wandb.finish()
-                except Exception:
-                    pass
-
             if not self.run_name:
                 exp_name = getattr(self.cfg.experiment, 'name', 'exp')
                 method_name = getattr(self.cfg.method, 'name', 'method')
                 self.run_name = f"{exp_name}_{method_name}_fold{self.fold}"
 
             is_resume = bool(getattr(self.cfg.experiment, 'resume', False))
+            identity = self._resume_identity() if is_resume else None
             custom_id = getattr(self.cfg.logging, 'wandb_id', None)
-
-            if custom_id:
-                run_id = str(custom_id)
-                resume_mode = "allow" if is_resume else None
-            elif is_resume:
-                clean_slug = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.run_name)
-                run_id = clean_slug[:128]
-                resume_mode = "allow"
-            else:
-                run_id = None
-                resume_mode = None
-
+            if identity and custom_id and identity['id'] != custom_id:
+                raise ValueError('wandb_id conflicts with saved run identity')
+            run_id = custom_id or (identity['id'] if identity else None)
+            if is_resume and not run_id:
+                raise ValueError('W&B resume needs persisted run identity or explicit logging.wandb_id')
             config_dict = self.cfg.to_dict() if hasattr(self.cfg, 'to_dict') else dict(self.cfg)
             init_kwargs = {
-                'project': self.project,
-                'entity': self.entity,
-                'name': self.run_name,
-                'config': config_dict,
-                'reinit': 'finish_previous'
+                'project': self.project, 'entity': self.entity, 'name': self.run_name,
+                'config': redact_config(config_dict), 'mode': self.mode,
+                'reinit': 'create_new',
             }
-            if run_id is not None:
-                init_kwargs['id'] = run_id
-            if resume_mode is not None:
-                init_kwargs['resume'] = resume_mode
-
-            try:
-                self.run = wandb.init(**init_kwargs)
-            except Exception as init_err:
-                err_msg = str(init_err).lower()
-                if any(k in err_msg for k in ["deleted", "in use", "in_use", "usageerror", "conflict"]):
-                    logging.warning(
-                        f"[W&B CLOUD] Run ID '{run_id}' xung đột hoặc đã bị xoá trên web ({init_err}). "
-                        f"Tự động fallback sang Run ID mới để duy trì đồng bộ W&B Cloud..."
-                    )
-                    init_kwargs.pop('id', None)
-                    init_kwargs.pop('resume', None)
-                    self.run = wandb.init(**init_kwargs)
-                else:
-                    raise init_err
-
+            if run_id:
+                init_kwargs['id'] = str(run_id)
+            if self.mode == 'online':
+                init_kwargs['resume'] = 'must' if is_resume else 'never'
+            elif is_resume:
+                logging.warning('W&B offline resume preserves run ID; remote history must be reconciled on sync')
+            self.run = wandb.init(**init_kwargs)
+            self.run.define_metric('global_step')
+            for prefix in ('train/*', 'val/*', 'pre_train/*', 'self_train/*'):
+                self.run.define_metric(prefix, step_metric='global_step')
+            self.run.define_metric('val/mDice', step_metric='global_step', summary='max')
             self.run_id = self.run.id
+            self.entity = getattr(self.run, 'entity', None) or self.entity
+            self.identity_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.identity_path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(self.identity(), indent=2))
+            temporary.replace(self.identity_path)
             logging.info(
-                f"[W&B CLOUD] Initialized Run '{self.run_name}' (ID: {self.run_id}, resume={resume_mode}) "
+                f"[W&B CLOUD] Initialized Run '{self.run_name}' (ID: {self.run_id}, mode={self.mode}) "
                 f"in project '{self.project}'{f' (entity: {self.entity})' if self.entity else ''}"
             )
         except Exception as e:
+            if self.run is not None:
+                self.run.finish(exit_code=1)
+            if bool(getattr(self.cfg.experiment, 'resume', False)) or getattr(self.cfg.logging, 'wandb_required', False):
+                raise
             logging.warning(f"[W&B CLOUD] Failed to initialize W&B: {e}. Degrading to local-only logging.")
             self.enabled = False
             self.run = None
             self.run_id = None
 
-    def log_metrics(self, metrics: Dict[str, Any], step: Optional[int] = None):
-        """Log key-value metrics at specific global step."""
+    def identity(self):
+        return {'id': self.run_id, 'project': self.project, 'entity': self.entity, 'mode': self.mode}
+
+    def _resume_identity(self):
+        if self.identity_path.exists():
+            identity = json.loads(self.identity_path.read_text())
+        else:
+            import torch
+            phase = getattr(self.cfg.experiment, 'phase', 'all')
+            directories = ['self_train', '', 'pre_train'] if phase == 'all' else [phase, '']
+            identity = None
+            for directory in directories:
+                path = self.identity_path.parent / directory / 'checkpoint_latest.pth'
+                if path.is_file():
+                    identity = torch.load(path, map_location='cpu', weights_only=True).get('wandb_run')
+                    if identity:
+                        break
+        if identity:
+            if self.entity is None:
+                self.entity = identity.get('entity')
+            if identity.get('project') != self.project or (self.entity and identity.get('entity') != self.entity):
+                raise ValueError('W&B project/entity conflicts with saved identity')
+        return identity
+
+    def log_metrics(self, metrics, step=None):
+        """Use an explicit training axis; SDK history steps remain append-only."""
         if not self.enabled or self.run is None:
             return
+        payload = dict(metrics)
+        if step is not None:
+            payload['global_step'] = step
         try:
-            import wandb
-            wandb.log(metrics, step=step)
-        except Exception as e:
-            logging.debug(f"[W&B] Failed to log metrics at step {step}: {e}")
+            self.run.log(payload, commit=True)
+        except Exception as exc:
+            self.log_failures += 1
+            if self.log_failures == 1 or self.log_failures % 100 == 0:
+                logging.warning('[W&B] %d log failures; latest: %s', self.log_failures, exc)
+            if getattr(self.cfg.logging, 'wandb_required', False):
+                raise
 
-    def log_visual_predictions(self, images: List[Any], step: Optional[int] = None, key: str = "val/predictions"):
-        """Log rich visual predictions (e.g. wandb.Image with masks) to W&B."""
-        if not self.enabled or self.run is None or not images:
-            return
-        try:
-            import wandb
-            wandb.log({key: images}, step=step)
-            logging.info(f"[W&B] Logged {len(images)} visual prediction samples at step {step}")
-        except Exception as e:
-            logging.warning(f"[W&B] Failed to log visual predictions at step {step}: {e}")
+    def log_visual_predictions(self, images, step=None, key='val/predictions'):
+        if images:
+            self.log_metrics({key: images}, step)
 
     def log_artifact(
         self,
@@ -155,8 +170,8 @@ class WandbManager:
             )
             artifact.add_file(file_path)
             aliases = aliases or ["latest"]
-            wandb.log_artifact(artifact, aliases=aliases)
-            logging.info(f"[W&B ARTIFACT] Uploaded '{name}' ({artifact_type}) with aliases {aliases}")
+            self.run.log_artifact(artifact, aliases=aliases)
+            logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
             return True
         except Exception as e:
             logging.warning(f"[W&B ARTIFACT] Failed to log artifact '{name}': {e}")
@@ -208,21 +223,29 @@ class WandbManager:
         if not self.enabled or self.run is None:
             return
         try:
-            import wandb
             for k, v in summary_dict.items():
-                wandb.run.summary[k] = v
+                self.run.summary[k] = v
         except Exception as e:
             logging.debug(f"[W&B] Failed to update summary: {e}")
 
-    def finish(self):
+    def finish(self, exit_code=0):
         """Cleanly terminate W&B run to finalize sync."""
         if not self.enabled or self.run is None:
             return
         try:
-            import wandb
-            wandb.finish()
+            self.run.finish(exit_code=exit_code)
             logging.info(f"[W&B CLOUD] Finalized run '{self.run_name}'.")
         except Exception as e:
-            logging.debug(f"[W&B] Error finalizing run: {e}")
+            logging.warning(f"[W&B] Error finalizing run: {e}")
         finally:
             self.run = None
+
+
+def redact_config(value):
+    """Prevent credentials from entering run config or local config snapshots."""
+    if isinstance(value, dict):
+        return {key: '[REDACTED]' if any(word in key.lower() for word in ('api_key', 'token', 'password', 'secret'))
+                else redact_config(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_config(item) for item in value]
+    return value

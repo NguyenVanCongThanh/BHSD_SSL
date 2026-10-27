@@ -22,6 +22,7 @@ import os
 import sys
 import argparse
 import logging
+import json
 import torch
 
 from core.registry import MODELS, DATASETS
@@ -64,6 +65,9 @@ def main():
     parser.add_argument('--allow_latest', action='store_true', help='Allow best to fall back to latest')
     parser.add_argument('--include_pretrain', action='store_true')
     parser.add_argument('--on_missing', choices=['error', 'skip'], default='error')
+    parser.add_argument('--metrics_output', help='Optional JSON path for single-checkpoint metrics and inference policy')
+    parser.add_argument('--no_amp', action='store_true', help='Disable evaluation autocast')
+    parser.add_argument('--surface_metrics', action='store_true', help='Compute physical HD95/ASD; spacing metadata required')
     args = parser.parse_args()
 
     if args.gpu not in ('auto', 'all', None):
@@ -104,6 +108,8 @@ def main():
             checkpoint_preference=args.checkpoint_preference,
             allow_latest=args.allow_latest,
             include_pretrain=args.include_pretrain,
+            use_amp=not args.no_amp,
+            compute_surface=args.surface_metrics,
             on_missing=args.on_missing
         )
     elif args.checkpoint:
@@ -125,9 +131,12 @@ def main():
             patch_size=patch_size,
             fold=args.fold,
             num_classes=num_classes,
-            class_names=class_names
+            class_names=class_names,
+            intensity_units=getattr(cfg.data, 'intensity_units', None),
+            normalization=getattr(cfg.data, 'normalization', None)
         )
 
+        details = {}
         mdice, per_class = evaluate_dataset_sliding_window(
             model=model,
             val_dataset=val_dataset,
@@ -138,7 +147,7 @@ def main():
             stride_xy=args.stride_xy,
             device=device,
             use_gaussian=not args.no_gaussian,
-            use_tta=args.use_tta
+            use_tta=args.use_tta, use_amp=not args.no_amp, details_sink=details, compute_surface=args.surface_metrics
         )
 
         fg_names = class_names[1:] if len(class_names) > 1 else class_names
@@ -149,6 +158,14 @@ def main():
         print(f"Mean Dice:  {mdice:.4f}")
         print(f"Per-Class:  {summary_str}")
         print("=" * 65)
+        for row in details['per_class']:
+            print(f"{class_names[row['class_id']]}: positive Dice={row['dice_positive_mean']}, "
+                  f"positive cases={row['positive_cases']}, negative FP rate={row['negative_fp_case_rate']}")
+        if args.metrics_output:
+            from pathlib import Path
+            output = dict(details, checkpoint=args.checkpoint, model=actual_model,
+                          weights_source='ema_net' if 'ema_net' in metadata else 'net')
+            Path(args.metrics_output).write_text(json.dumps(output, indent=2, allow_nan=False))
 
         if args.profile:
             input_shape = (1, 1, patch_size[0], patch_size[1], patch_size[2])

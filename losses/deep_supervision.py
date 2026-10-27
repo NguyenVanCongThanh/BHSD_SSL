@@ -24,6 +24,16 @@ def compute_ds_weights(num_scales: int) -> List[float]:
     return [w / total for w in raw]
 
 
+def resolve_ds_weights(num_scales, weights=None):
+    """Configured weights cover main plus every auxiliary head; never silently ignored."""
+    if weights is None:
+        return compute_ds_weights(num_scales)
+    import math
+    if len(weights) != num_scales or not all(math.isfinite(w) and w >= 0 for w in weights) or sum(weights) <= 0:
+        raise ValueError(f'Deep supervision requires {num_scales} finite nonnegative weights (main + aux) with positive sum')
+    return [float(w / sum(weights)) for w in weights]
+
+
 def extract_multiscale_outputs(
     net_out: Union[torch.Tensor, Dict[str, Any], Tuple, List]
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
@@ -93,13 +103,7 @@ class DeepSupervisionLoss(nn.Module):
         """
         all_logits = [main_logits] + list(aux_logits_list)
         num_scales = len(all_logits)
-
-        # Compute weights if not provided or length mismatch
-        if self.weights is None or len(self.weights) != num_scales:
-            weights = compute_ds_weights(num_scales)
-        else:
-            total_w = sum(self.weights)
-            weights = [w / total_w for w in self.weights]
+        weights = resolve_ds_weights(num_scales, self.weights)
 
         total_loss = torch.tensor(0.0, device=main_logits.device, dtype=main_logits.dtype)
         scale_losses = []
