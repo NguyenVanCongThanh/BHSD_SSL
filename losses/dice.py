@@ -13,6 +13,16 @@ import torch.nn.functional as F
 from core.registry import LOSSES
 
 
+def expand_spatial_mask(mask, target):
+    """Broadcast spatial/shared masks to every target voxel before reduction."""
+    if mask.dim() == target.dim() + 1 and mask.shape[1] == 1:
+        mask = mask.squeeze(1)
+    try:
+        return torch.broadcast_to(mask, target.shape).to(device=target.device, dtype=torch.float32)
+    except RuntimeError as exc:
+        raise ValueError(f'Mask {tuple(mask.shape)} cannot cover targets {tuple(target.shape)}') from exc
+
+
 def to_one_hot(tensor: torch.Tensor, num_classes: int) -> torch.Tensor:
     """
     Convert target integer tensor [N, 1, ...] to one-hot format [N, num_classes, ...].
@@ -36,6 +46,7 @@ def get_probability(logits: torch.Tensor):
     If C == 1, converts via sigmoid into 2-class probability [1 - p, p].
     If C > 1, applies softmax across channel dimension.
     """
+    logits = logits.float()
     num_classes = logits.shape[1]
     if num_classes > 1:
         pred = F.softmax(logits, dim=1)
@@ -67,13 +78,26 @@ class MaskDiceLoss(nn.Module):
         if class_weights is None:
             weights = torch.ones((1, nclass), dtype=torch.float32)
         else:
-            w_arr = np.asarray(class_weights, dtype=np.float32)
+            w_arr = (class_weights.detach().cpu().numpy() if isinstance(class_weights, torch.Tensor)
+                     else np.asarray(class_weights, dtype=np.float32))
             assert w_arr.shape[0] == nclass, (
                 f"class_weights length {w_arr.shape[0]} does not match nclass {nclass}"
             )
             weights = torch.from_numpy(w_arr).unsqueeze(0)
 
+        if not torch.isfinite(weights).all() or (weights < 0).any() or weights.sum() <= 0:
+            raise ValueError('Class weights must be finite, nonnegative, and have a positive sum')
         self.register_buffer("class_weights", weights)
+
+    def _reduce_dice(self, dice):
+        weights = self.class_weights.to(device=dice.device, dtype=dice.dtype)
+        if weights.shape[1] != dice.shape[1]:
+            raise ValueError('Dice loss class count does not match predictions')
+        if not self.include_background and dice.shape[1] > 1:
+            dice, weights = dice[:, 1:], weights[:, 1:]
+        if weights.sum() <= 0:
+            raise ValueError('Selected foreground classes must have positive total weight')
+        return 1.0 - (dice * weights).sum() / (weights.sum() * dice.shape[0])
 
     def prob_forward(
         self,
@@ -84,6 +108,7 @@ class MaskDiceLoss(nn.Module):
         """
         Compute loss from probability maps [N, C, ...].
         """
+        pred = pred.float()
         N = pred.shape[0]
         nclass = pred.shape[1]
 
@@ -109,10 +134,7 @@ class MaskDiceLoss(nn.Module):
 
         dice = (2.0 * inter + self.smooth) / (union + self.smooth)
 
-        if not self.include_background and nclass > 1:
-            dice = dice[:, 1:]
-
-        return 1.0 - dice.mean()
+        return self._reduce_dice(dice)
 
     def forward(
         self,
@@ -149,10 +171,7 @@ class MaskDiceLoss(nn.Module):
 
         dice = (2.0 * inter + self.smooth) / (union + self.smooth)
 
-        if not self.include_background and nclass > 1:
-            dice = dice[:, 1:]
-
-        return 1.0 - dice.mean()
+        return self._reduce_dice(dice)
 
 
 # Backward-compatible alias for existing imports

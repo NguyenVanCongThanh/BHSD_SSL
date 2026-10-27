@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import LOSSES
-from losses.dice import MaskDiceLoss
+from losses.dice import MaskDiceLoss, expand_spatial_mask
 
 
 @LOSSES.register("dice_ce")
@@ -47,7 +47,7 @@ class DiceCELoss(nn.Module):
         target_squeezed = target.squeeze(1).long() if target.dim() > logits.dim() - 1 else target.long()
         if mask is not None:
             ce_raw = F.cross_entropy(logits, target_squeezed, reduction='none')
-            mask_expanded = mask.squeeze(1) if mask.dim() > ce_raw.dim() else mask
+            mask_expanded = expand_spatial_mask(mask, target_squeezed)
             ce_l = (ce_raw * mask_expanded).sum() / (mask_expanded.sum() + 1e-7)
         else:
             ce_l = F.cross_entropy(logits, target_squeezed)

@@ -19,17 +19,21 @@ def extract_logits(model_output: Any) -> torch.Tensor:
         return model_output
 
     if isinstance(model_output, (tuple, list)):
-        if len(model_output) >= 2 and isinstance(model_output[1], torch.Tensor) and model_output[1].ndim >= 4:
+        # PICK returns (encoder_features, segmentation, decoder_features).
+        first = model_output[0] if model_output else None
+        is_pick = isinstance(first, (list, tuple)) or (isinstance(first, torch.Tensor) and first.ndim == 2)
+        if is_pick and len(model_output) >= 2 and isinstance(model_output[1], torch.Tensor):
             return model_output[1]
-        if len(model_output) > 0 and isinstance(model_output[0], torch.Tensor):
-            return model_output[0]
-        raise ValueError(f"Unable to extract tensor logits from sequence of types: {[type(x) for x in model_output]}")
+        # Deep supervision lists are ordered main/highest resolution first.
+        if isinstance(first, torch.Tensor):
+            return first
+        raise ValueError(f'Unable to extract logits from sequence: {[type(x) for x in model_output]}')
 
     if isinstance(model_output, dict):
         for key in ('seg', 'logits', 'out', 'main'):
             if key in model_output and isinstance(model_output[key], torch.Tensor):
                 return model_output[key]
-        first_val = next(iter(model_output.values()))
+        first_val = next(iter(model_output.values()), None)
         if isinstance(first_val, torch.Tensor):
             return first_val
 
