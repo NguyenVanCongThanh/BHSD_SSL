@@ -100,8 +100,10 @@ class CheckpointTests(unittest.TestCase):
         class Dataset:
             def __init__(self, **kwargs): pass
             def __len__(self): return 1
-            def __getitem__(self, idx): return {'image': None, 'label': None}
-        with patch('evaluation.benchmark.sliding_window_inference_3d', return_value=None), patch('evaluation.benchmark.cal_binary_dice', return_value=.5):
+            def __getitem__(self, idx):
+                import numpy as np
+                return {'image': np.zeros((1, 1, 3)), 'label': np.array([[[1, 1, 0]]])}
+        with patch('evaluation.benchmark.sliding_window_inference_3d', return_value=__import__('numpy').array([[[1, 0, 1]]])), patch('evaluation.benchmark.cal_binary_dice', return_value=.5):
             summary = benchmark_5folds(builder, str(self.root), '', task='binary', model_name='test', dataset_cls=Dataset, on_missing='skip')
         self.assertFalse(summary['complete'])
         self.assertEqual(summary['evaluated_folds'], [0])

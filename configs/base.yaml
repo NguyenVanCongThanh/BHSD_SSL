@@ -40,3 +40,24 @@ logging:
   val_interval: 500
   val_stride_xy: 32
   val_stride_z: 8
+  wandb_mode: "online"     # online | offline | disabled; WANDB_MODE env overrides
+  wandb_required: false    # Fail rather than degrade on initialization/log failures
+  artifact_interval: null  # Defaults to val_interval; checked at local saves/validation, plus phase end
+  log_interval: 10
+  val_amp: true
+  val_gaussian: true
+  val_surface_metrics: false
+  val_tta: false
+  val_visualize: true
+  num_vis_samples: 4
+  visual_every_n_validations: 1
+  visualization:
+    case_ids: []           # Explicit fixed cohort, including rare classes/negative cases
+    slice_indices: {}     # Optional case ID -> fixed axial Z; otherwise GT-max or centre
+    target_shape: [512, 512]
+    intensity_mode: "percentile"  # hu requires declared HU or verified zscore_hu metadata
+    percentiles: [1.0, 99.0]      # Fixed volume-wide range; never per-prediction
+    window_center: 40.0
+    window_width: 80.0
+    alpha: 0.5
+    interactive: false    # Optional dual mask view in addition to deterministic RGB panels

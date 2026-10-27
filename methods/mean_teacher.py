@@ -20,6 +20,7 @@ from methods.base_method import BaseMethod
 from methods.ssl_utils import update_ema_variables
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, ConsistencyLoss
 from utils.ramps import sigmoid_rampup
+from losses.deep_supervision import resolve_ds_weights
 from utils.checkpoint import get_raw_model
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 
@@ -61,10 +62,10 @@ class MeanTeacherMethod(BaseMethod):
         )
         ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
         if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
-            self.ds_weights = list(getattr(ds_cfg, 'weights', [0.533, 0.267, 0.133, 0.067]))
+            self.ds_weights = ds_cfg.get('weights')
             self.ds_consistency = bool(getattr(ds_cfg, 'consistency_multiscale', True))
         else:
-            self.ds_weights = [0.533, 0.267, 0.133, 0.067]
+            self.ds_weights = None
             self.ds_consistency = True
 
         # Class balancing: Background downweighted to 0.05, Foregrounds full weight 1.0
@@ -145,7 +146,7 @@ class MeanTeacherMethod(BaseMethod):
             loss_ds_accum = 0.0
             if self.ds_enabled and len(student_aux) > 0:
                 all_student_lab = [lab_logits] + [aux[:self.labeled_bs] for aux in student_aux]
-                norm_w = compute_ds_weights(len(all_student_lab))
+                norm_w = resolve_ds_weights(len(all_student_lab), self.ds_weights)
                 loss_supervised = norm_w[0] * loss_sup_main
                 target_shape = lab_targets.shape[1:]
 
@@ -165,7 +166,7 @@ class MeanTeacherMethod(BaseMethod):
             if self.ds_enabled and self.ds_consistency and len(student_aux) > 0 and len(teacher_aux) == len(student_aux):
                 all_student = [student_logits] + student_aux
                 all_teacher = [teacher_logits] + teacher_aux
-                norm_w = compute_ds_weights(len(all_student))
+                norm_w = resolve_ds_weights(len(all_student), self.ds_weights)
                 loss_consistency = norm_w[0] * loss_cons_main
                 for idx in range(1, len(all_student)):
                     loss_consistency = loss_consistency + norm_w[idx] * self.consistency_loss(all_student[idx], all_teacher[idx])
@@ -227,25 +228,6 @@ class MeanTeacherMethod(BaseMethod):
         logging.info('[Checkpoint] Loaded Teacher weights with strict validation')
         return iter_num, best_dice
 
-    def validate(self, return_visuals: bool = False) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
-        """Evaluate sliding window on Teacher (EMA) model as primary metric."""
-        stride_xy = int(getattr(self.cfg.logging, 'val_stride_xy', 32))
-        stride_z = int(getattr(self.cfg.logging, 'val_stride_z', 8))
-        self.ema_model.eval()
-        num_vis = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if (return_visuals and self.rank == 0) else 0
-
-        return evaluate_dataset_sliding_window(
-            model=get_raw_model(self.ema_model),
-            val_dataset=self.db_val,
-            num_classes=self.num_classes,
-            is_binary=self.is_binary,
-            patch_size=self.patch_size,
-            stride_z=stride_z,
-            stride_xy=stride_xy,
-            use_amp=True,
-            device=self.device,
-            log_progress=(self.rank == 0),
-            return_visual_samples=num_vis,
-            rank=self.rank,
-            world_size=self.world_size
-        )
+    def validate(self, return_visuals=False):
+        """Use the common inference/metric/visualization policy on the EMA teacher."""
+        return self.evaluate_validation_model(get_raw_model(self.ema_model), return_visuals, 'ema_net')

@@ -19,6 +19,7 @@ from evaluation.metrics import (
     cal_multiclass_dice,
     cal_binary_dice,
     format_dice_summary,
+    case_segmentation_stats, aggregate_segmentation_stats, METRIC_POLICY,
 )
 from evaluation.sliding_window import sliding_window_inference_3d
 from utils.checkpoint_resolver import resolve_checkpoint
@@ -46,6 +47,7 @@ def benchmark_5folds(
     allow_latest=False,
     include_pretrain=False,
     on_missing="error",
+    compute_surface=False,
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
@@ -89,6 +91,7 @@ def benchmark_5folds(
     fold_results = {}
     all_fold_dices = []
     per_class_all_folds = []
+    oof_stats = []
 
     print("==========================================================================")
     print(f"=== BENCHMARK 5-FOLD CROSS VALIDATION: {os.path.basename(exp_dir)} ===")
@@ -158,6 +161,7 @@ def benchmark_5folds(
         if len(val_dataset) == 0:
             raise ValueError(f"Fold {fold}: empty validation dataset")
         case_dices = []
+        fold_stats = []
         for idx in tqdm(range(len(val_dataset)), desc=f"Fold {fold} Eval"):
             sample_item = val_dataset[idx]
             sample = sample_item[0] if isinstance(sample_item, tuple) else sample_item
@@ -176,17 +180,16 @@ def benchmark_5folds(
                 use_tta=use_tta
             )
 
-            if is_binary:
-                d = cal_binary_dice(pred, label)
-                case_dices.append([d])
-            else:
-                cd = cal_multiclass_dice(pred, label, num_classes=num_classes)
-                case_dices.append(cd)
+            fold_stats.append(case_segmentation_stats(pred, label, num_classes,
+                              spacing=sample.get('metadata', {}).get('spacing'), compute_surface=compute_surface))
+            case_dices.append([row['dice'] for row in fold_stats[-1]['classes']])
 
         fold_mean_per_class = np.mean(np.array(case_dices), axis=0).tolist()
         fold_mdice = float(np.mean(fold_mean_per_class))
 
+        oof_stats.extend(fold_stats)
         fold_results[f"fold_{fold}"] = {
+            "detailed_metrics": aggregate_segmentation_stats(fold_stats),
             "mDice": fold_mdice,
             "per_class": fold_mean_per_class,
             "num_cases": len(val_dataset),
@@ -224,7 +227,8 @@ def benchmark_5folds(
         "skipped_folds": skipped,
         "checkpoint_preference": checkpoint_preference,
         "allow_latest": allow_latest,
-        "metric_policy": "foreground_case_mean; empty_prediction_and_target=1",
+        "metric_policy": METRIC_POLICY,
+        "oof_case_metrics": aggregate_segmentation_stats(oof_stats),
         "inference": {"patch_size": list(patch_size), "stride_z": stride_z,
                       "stride_xy": stride_xy, "gaussian": use_gaussian, "tta": use_tta},
         "per_class_means": per_class_means,

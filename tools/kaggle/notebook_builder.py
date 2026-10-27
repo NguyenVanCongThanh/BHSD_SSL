@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, List
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NOTEBOOKS_CONFIG_FILE = PROJECT_ROOT / "configs" / "kaggle" / "notebooks.json"
 RUNS_BASE_DIR = PROJECT_ROOT / "kaggle_runs"
+WANDB_SECRET_FILE = PROJECT_ROOT / "configs" / "kaggle" / "secrets" / "wandb_api_key.txt"
 
 class NotebookBuilder:
     def __init__(self, config_path: Optional[Path] = None):
@@ -62,7 +63,16 @@ class NotebookBuilder:
 
         target_code_path = bundle_dir / code_file_name
 
-        # 1. Tìm hoặc sinh file notebook
+        # 1. Luôn chạy generator script (nếu có) để đảm bảo notebook mới nhất trước khi đóng gói
+        gen_script = spec.get("generator_script")
+        if gen_script:
+            gen_path = PROJECT_ROOT / gen_script
+            if gen_path.exists():
+                try:
+                    subprocess.run([sys.executable, str(gen_path)], cwd=str(PROJECT_ROOT), check=True, timeout=30)
+                except Exception as e:
+                    print(f"[!] Cảnh báo khi chạy generator script {gen_script}: {e}")
+
         possible_sources = [
             PROJECT_ROOT / "scripts" / code_file_name,
             PROJECT_ROOT / f"kaggle_{notebook_type}" / code_file_name,
@@ -75,26 +85,14 @@ class NotebookBuilder:
                 found_source = p
                 break
 
-        # Nếu chưa tìm thấy file và có generator script, chạy generator script
-        if not found_source:
-            gen_script = spec.get("generator_script")
-            if gen_script:
-                gen_path = PROJECT_ROOT / gen_script
-                if gen_path.exists():
-                    try:
-                        subprocess.run([sys.executable, str(gen_path)], cwd=str(PROJECT_ROOT), check=True, timeout=30)
-                        for p in possible_sources:
-                            if p.exists():
-                                found_source = p
-                                break
-                    except Exception as e:
-                        print(f"[!] Cảnh báo khi chạy generator script {gen_script}: {e}")
-
         # Đồng bộ file notebook vào bundle
         if found_source and found_source.exists():
             shutil.copy2(found_source, target_code_path)
         elif not target_code_path.exists():
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
+
+        # 1b. Tự động tiêm fallback WANDB_API_KEY từ kho secret cục bộ (git-ignored) vào bundle đẩy lên Kaggle Private Kernel
+        self._inject_wandb_key_into_bundle(target_code_path)
 
 
         # 2. Xử lý dataset sources
@@ -130,3 +128,36 @@ class NotebookBuilder:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
         return bundle_dir
+
+    def _inject_wandb_key_into_bundle(self, notebook_path: Path) -> None:
+        """
+        Đọc WANDB_API_KEY từ biến môi trường hoặc configs/kaggle/secrets/wandb_api_key.txt (git-ignored)
+        và tiêm làm fallback vào bản bundle trong kaggle_runs/ để Kaggle Private Kernel luôn chạy online 100%,
+        trong khi mã nguồn trên GitHub vẫn hoàn toàn sạch không chứa secret.
+        """
+        wandb_key = os.environ.get("WANDB_API_KEY", "").strip()
+        if not wandb_key and WANDB_SECRET_FILE.is_file():
+            wandb_key = WANDB_SECRET_FILE.read_text(encoding="utf-8").strip()
+        if not wandb_key or not notebook_path.is_file():
+            return
+
+        nb_data = json.loads(notebook_path.read_text(encoding="utf-8"))
+        modified = False
+        for cell in nb_data.get("cells", []):
+            if cell.get("cell_type") != "code":
+                continue
+            source = cell.get("source", [])
+            new_source = []
+            for line in source:
+                if 'except Exception:' in line:
+                    new_source.append(line)
+                elif line.strip() == 'key = ""' and any("UserSecretsClient" in s for s in source):
+                    indent = line[:len(line) - len(line.lstrip())]
+                    new_source.append(f'{indent}key = "{wandb_key}"\n')
+                    modified = True
+                else:
+                    new_source.append(line)
+            cell["source"] = new_source
+
+        if modified:
+            notebook_path.write_text(json.dumps(nb_data, indent=1, ensure_ascii=False), encoding="utf-8")

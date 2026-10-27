@@ -7,6 +7,7 @@ Seamlessly manages both Pre-training and Self-training phases using the centrali
 from typing import Dict, Any, Optional, Tuple
 import os
 import logging
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -263,4 +264,4 @@ class PICKMethod(BaseMethod):
         finally:
             if self.writer is not None:
                 self.writer.close()
-            self.wandb_manager.finish()
+            self.wandb_manager.finish(exit_code=1 if sys.exc_info()[0] else 0)

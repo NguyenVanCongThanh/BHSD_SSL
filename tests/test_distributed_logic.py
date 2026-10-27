@@ -83,6 +83,23 @@ def _worker(rank, root):
             dist.all_gather_object(scores, best)
             assert scores[0] == scores[1]
             results[method] = {'parameters_equal': True, 'validation_best_equal': True}
+            if method == 'mean_teacher':
+                class CohortDataset:
+                    image_list = ['case_b', 'case_a']
+                    def __len__(self): return 2
+                    def __getitem__(self, index): return {
+                        'image': np.zeros((2,4,4), np.float32),
+                        'label': np.zeros((2,4,4), np.uint8), 'case': self.image_list[index]}
+                details = {}
+                output = evaluate_dataset_sliding_window(trainer.ema_model, CohortDataset(),
+                    num_classes=2, is_binary=True, patch_size=(2,4,4), stride_z=1, stride_xy=2,
+                    device=torch.device('cpu'), return_visual_samples=1 if rank == 0 else 0,
+                    visual_settings={'target_shape': [16,16]}, details_sink=details)
+                assert details['num_cases'] == 2
+                if rank == 0:
+                    assert output[2][0]['case'] == 'case_a', 'Cohort must include selected case owned by rank 1'
+                    assert output[2][0]['image'].shape == (16,16)
+
             # Nonfinite loss on one rank must fail on both before backward.
             from utils.model_utils import extract_logits
             loss = extract_logits(trainer.model(batch['image'])).sum()

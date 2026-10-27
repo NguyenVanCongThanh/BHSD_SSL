@@ -7,6 +7,8 @@ Integrated with 5-fold cross-validation and optional MIM masking.
 
 from typing import Callable, Optional, Tuple, Dict, Any, Union, List
 import os
+import ast
+import hashlib
 import h5py
 import numpy as np
 import torch
@@ -58,6 +60,8 @@ class BHSDDataset(Dataset):
         self.patch_size = tuple(patch_size) if patch_size else (32, 160, 160)
         self.binary = bool(binary)
         self.return_mim_mask = return_mim_mask
+        self.intensity_units = kwargs.get('intensity_units')
+        self.normalization = kwargs.get('normalization')
         self._mask_generator = None
         self.labeled_indices = None
 
@@ -95,6 +99,8 @@ class BHSDDataset(Dataset):
                 f"Split list file not found in {self.base_dir}! (looked for fold {self.fold} {self.split})"
             )
 
+        with open(list_file, 'rb') as stream:
+            self.split_fingerprint = hashlib.sha256(stream.read()).hexdigest()
         with open(list_file, 'r', encoding='utf-8') as f:
             cases = [line.strip() for line in f if line.strip()]
         if not cases or len(set(cases)) != len(cases):
@@ -127,6 +133,23 @@ class BHSDDataset(Dataset):
         with h5py.File(h5_path, 'r') as h5f:
             image = h5f['image'][:]
             label = h5f['label'][:]
+            metadata = {}
+            if self.split != 'train':
+                for source, key in [('target_spacing', 'spacing'), ('norm_params', 'norm_params'),
+                                    ('clip_range', 'clip_range')]:
+                    value = h5f.attrs.get(source)
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8')
+                    if isinstance(value, str):
+                        try:
+                            value = ast.literal_eval(value)
+                        except (ValueError, SyntaxError):
+                            raise ValueError(f'{case_name}: invalid metadata {source}')
+                    if isinstance(value, np.ndarray):
+                        value = value.tolist()
+                    if value is not None:
+                        metadata[key] = value
+                metadata.update(intensity_units=self.intensity_units, normalization=self.normalization)
 
         if image.ndim != 3 or image.shape != label.shape:
             raise ValueError(f'{case_name}: expected matching 3D image and label')
@@ -145,6 +168,9 @@ class BHSDDataset(Dataset):
             'label': label,
             'case': case_name
         }
+
+        if self.split != 'train':
+            sample['metadata'] = metadata
 
         if self.transform is not None:
             sample = self.transform(sample)
