@@ -64,6 +64,9 @@ class BHSDDataset(Dataset):
         self.normalization = kwargs.get('normalization')
         self._mask_generator = None
         self.labeled_indices = None
+        self.unlabeled_indices = None
+        self.max_samples = kwargs.get('max_samples')
+        self._fallback_depth = 0
 
         if self.binary:
             self.num_classes = 2
@@ -126,6 +129,30 @@ class BHSDDataset(Dataset):
     def get_case_name(self, idx: int) -> str:
         return self.image_list[idx]
 
+    def _get_partition_safe_index(self, idx: int) -> int:
+        """Find an alternative sample index strictly within the same labeled or unlabeled partition."""
+        if self.labeled_indices is not None:
+            if idx in self.labeled_indices:
+                pool = sorted(self.labeled_indices)
+                name = "labeled"
+            else:
+                if self.unlabeled_indices is not None:
+                    pool = sorted(self.unlabeled_indices)
+                else:
+                    max_idx = self.max_samples if (self.max_samples is not None and 0 < self.max_samples <= len(self.image_list)) else len(self.image_list)
+                    pool = [i for i in range(max_idx) if i not in self.labeled_indices]
+                name = "unlabeled"
+            if len(pool) <= 1:
+                raise ValueError(f"No alternative {name} sample available for corrupt index {idx}")
+            current_pos = pool.index(idx) if idx in pool else 0
+            next_pos = (current_pos + 1) % len(pool)
+            return pool[next_pos]
+        else:
+            max_idx = self.max_samples if (self.max_samples is not None and 0 < self.max_samples <= len(self.image_list)) else len(self.image_list)
+            if max_idx <= 1:
+                raise ValueError(f"No alternative sample available for corrupt index {idx}")
+            return (idx + 1) % max_idx
+
     def __getitem__(self, idx: int) -> Union[Dict[str, Any], Tuple[Dict[str, Any], np.ndarray]]:
         case_name = self.image_list[idx]
         h5_path = os.path.join(self.base_dir, "data", f"{case_name}.h5")
@@ -151,13 +178,33 @@ class BHSDDataset(Dataset):
                         metadata[key] = value
                 metadata.update(intensity_units=self.intensity_units, normalization=self.normalization)
 
-        if image.ndim != 3 or image.shape != label.shape or any(dim == 0 for dim in image.shape):
+        if (image.ndim != 3 or image.shape != label.shape or any(dim == 0 for dim in image.shape)
+                or not np.isfinite(image).all() or not np.isfinite(label).all()):
             if self.split == 'train':
-                # Safe fallback for zero-slice or corrupt volume in dataset (e.g. ID_afeb3d0e_ID_a4062c2bf2)
-                return self.__getitem__((idx + 1) % len(self.image_list))
-            raise ValueError(f'{case_name}: expected matching 3D image and label with non-zero dimensions')
-        if not self.binary and label.size > 0 and (label.min() < 0 or label.max() >= self.num_classes):
-            raise ValueError(f'{case_name}: labels outside configured class range')
+                if self._fallback_depth >= 5:
+                    raise ValueError(f'{case_name}: exceeded fallback depth limit for corrupt volumes')
+                safe_idx = self._get_partition_safe_index(idx)
+                partition_str = 'labeled' if (self.labeled_indices is not None and idx in self.labeled_indices) else 'unlabeled'
+                import logging
+                logging.warning(
+                    'Corrupt/empty volume %s at index %d (%s); falling back to index %d in the same partition',
+                    case_name, idx, partition_str, safe_idx
+                )
+                try:
+                    self._fallback_depth += 1
+                    return self.__getitem__(safe_idx)
+                finally:
+                    self._fallback_depth -= 1
+            raise ValueError(f'{case_name}: expected matching finite 3D image and label with non-zero dimensions')
+        if label.size > 0:
+            if not np.all(np.equal(np.mod(label, 1), 0)):
+                raise ValueError(f'{case_name}: non-integer label values detected')
+            if label.min() < 0:
+                raise ValueError(f'{case_name}: negative labels not allowed')
+            if not self.binary and label.max() >= self.num_classes:
+                raise ValueError(f'{case_name}: labels outside configured class range')
+            if self.binary and label.max() > 5:
+                raise ValueError(f'{case_name}: labels outside valid source class range')
 
         if self.labeled_indices is not None and idx not in self.labeled_indices:
             label = np.zeros_like(label)

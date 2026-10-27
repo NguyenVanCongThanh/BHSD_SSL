@@ -14,14 +14,26 @@ def model_spec_from_config(config, num_classes, legacy=False):
     if method == 'lefed' and name != 'lefed_net':
         raise ValueError('LeFeD requires lefed_net')
     signature = inspect.signature(MODELS.get(name).__init__)
+    explicit_params = {
+        k: p for k, p in signature.parameters.items()
+        if k != 'self' and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
     if legacy:
         # Older train.py forwarded only these fields, even if config held more.
         keys = {'in_channels', 'has_dropout', 'normalization', 'deep_supervision', 'base_filters', 'num_stages'}
-        model = {key: value for key, value in model.items() if key in keys}
-    kwargs = {key: value for key, value in model.items() if key in signature.parameters}
+        kwargs = {key: value for key, value in model.items() if key in keys and key in signature.parameters}
+    else:
+        # Strict parameter validation for modern execution (reject typos/unknown kwargs)
+        unsupported = set(model.keys()) - set(explicit_params.keys())
+        if unsupported:
+            raise ValueError(
+                f"Unsupported model parameter(s) for '{name}': {sorted(list(unsupported))}. "
+                f"Allowed parameters are: {sorted(list(explicit_params.keys()))}"
+            )
+        kwargs = dict(model)
     kwargs.setdefault('in_channels', 1)
     kwargs['num_classes'] = num_classes
-    if not legacy and 'img_shape' in signature.parameters:
+    if not legacy and 'img_shape' in explicit_params:
         kwargs.setdefault('img_shape', tuple(config.get('data', {}).get('patch_size', (32, 160, 160))))
     return {'name': name, 'kwargs': kwargs}
 

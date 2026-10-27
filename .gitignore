@@ -3,7 +3,7 @@ __pycache__/
 *$py.class
 *.log
 *.err
-experiments/
+/experiments/
 .ipynb_checkpoints/
 pick_code.zip
 *.zip
@@ -12,6 +12,8 @@ pick_code.zip
 .kaggle/
 *.kaggle*/
 configs/kaggle/secrets/
+configs/kaggle/accounts.json
+kaggle_mean_teacher/accounts.json
 kaggle_runs/
 experiment_data/
 

@@ -11,11 +11,6 @@ data:
     - "Subarachnoid"
     - "Subdural"
   root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
-  patch_size: [32, 160, 160]
-  batch_size: 4
-  labeled_bs: 2
-  labelnum: 15
-  max_samples: 2200
 
 experiment:
   task: "multiclass"

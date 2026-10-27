@@ -8,6 +8,8 @@ tài khoản và mọi notebook sau này.
 
 import sys
 import json
+import ast
+import re
 import argparse
 from pathlib import Path
 
@@ -27,12 +29,12 @@ def cmd_account_list(args):
     print("\n" + "=" * 80)
     print("DANH SÁCH TÀI KHOẢN KAGGLE ĐƯỢC QUẢN LÝ (MedSSL-BHSD)")
     print("=" * 80)
-    print(f"{'ID':<4} | {'Slug':<10} | {'Username':<18} | {'Key Prefix':<12} | {'Tên hiển thị'}")
+    print(f"{'ID':<4} | {'Slug':<10} | {'Username':<18} | {'Credential Status':<18} | {'Tên hiển thị'}")
     print("-" * 80)
     for acc_id, acc in accounts.items():
-        key = acc.get("key", "")
-        masked_key = (key[:8] + "...") if len(key) > 8 else (key or "(from global)")
-        print(f"{acc_id:<4} | {acc.get('slug', ''):<10} | {acc.get('username', ''):<18} | {masked_key:<12} | {acc.get('name', '')}")
+        key = (acc.get("key") or "").strip()
+        status_str = "Configured" if key else "(from env/global)"
+        print(f"{acc_id:<4} | {acc.get('slug', ''):<10} | {acc.get('username', ''):<18} | {status_str:<18} | {acc.get('name', '')}")
     print("=" * 80 + "\n")
 
 def cmd_account_test(args):
@@ -148,6 +150,81 @@ def cmd_status(args):
     status = executor.get_status(kernel_id)
     print(f"[>] Trạng thái: {status}")
 
+def cmd_build(args):
+    builder = NotebookBuilder()
+    notebook_type = args.notebook or "mean_teacher"
+    username = args.username or "dry_run_user"
+    print("\n" + "=" * 80)
+    print(f"BUILD & VALIDATE NOTEBOOK '{notebook_type.upper()}' CỤC BỘ (DRY-RUN)")
+    print(f"Target Username: {username}")
+    print("=" * 80)
+
+    bundle_dir = builder.build_bundle(
+        notebook_type=notebook_type,
+        target_username=username,
+        custom_slug=args.slug,
+        custom_title=args.title,
+        custom_datasets=[args.dataset] if args.dataset else None,
+        enable_gpu=not args.no_gpu
+    )
+
+    metadata_file = bundle_dir / "kernel-metadata.json"
+    if not metadata_file.exists():
+        print(f"[X] Lỗi: kernel-metadata.json không tồn tại trong {bundle_dir}")
+        sys.exit(1)
+
+    with open(metadata_file, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    required_keys = ["id", "code_file", "language", "kernel_type", "is_private", "enable_gpu"]
+    for k in required_keys:
+        if k not in meta:
+            print(f"[X] Metadata thiếu key bắt buộc: {k}")
+            sys.exit(1)
+
+    code_path = bundle_dir / meta["code_file"]
+    if not code_path.exists():
+        print(f"[X] File notebook không tồn tại: {code_path}")
+        sys.exit(1)
+
+    with open(code_path, "r", encoding="utf-8") as f:
+        nb_data = json.load(f)
+        if "cells" not in nb_data:
+            print("[X] Notebook JSON không hợp lệ (thiếu cells)")
+            sys.exit(1)
+
+    # Validate Python code syntax and secrets in all code cells
+    secret_patterns = [r"wandb_v1_[A-Za-z0-9_]{50,}", r"KGAT_[a-f0-9]{32}"]
+    for idx, cell in enumerate(nb_data.get("cells", [])):
+        if cell.get("cell_type") == "code":
+            raw_src = cell.get("source", "")
+            source = "".join(raw_src) if isinstance(raw_src, list) else str(raw_src)
+            # Check for embedded credentials
+            for pat in secret_patterns:
+                if re.search(pat, source):
+                    print(f"[X] Phát hiện token nhạy cảm trong cell code #{idx}!")
+                    sys.exit(1)
+            # Filter IPython magics and shell commands (!pip, %cd, %%writefile, etc.)
+            clean_lines = []
+            for line in source.splitlines():
+                stripped = line.strip()
+                if stripped.startswith(('!', '%')):
+                    clean_lines.append("# " + line)
+                else:
+                    clean_lines.append(line)
+            py_code = "\n".join(clean_lines)
+            try:
+                ast.parse(py_code)
+            except SyntaxError as e:
+                print(f"[X] Lỗi cú pháp Python trong cell code #{idx}: {e}")
+                sys.exit(1)
+
+    print(f"[✓ HỢP LỆ] Bundle xây dựng thành công tại: {bundle_dir}")
+    print(f"    Kernel ID:   {meta.get('id')}")
+    print(f"    Code File:   {meta.get('code_file')} ({len(nb_data.get('cells', []))} cells)")
+    print(f"    GPU Enabled: {meta.get('enable_gpu')}")
+    print("=" * 80 + "\n")
+
 def main():
     parser = argparse.ArgumentParser(
         description="MedSSL-BHSD Kaggle Controller: Quản lý đa tài khoản & submit notebook Kaggle chuyên nghiệp",
@@ -171,6 +248,15 @@ def main():
     add_acc.add_argument("--name", "-n", help="Tên hiển thị dễ nhớ")
     add_acc.add_argument("--slug", "-s", help="Slug viết tắt (ví dụ: user3)")
     add_acc.add_argument("--desc", "-d", help="Mô tả bổ sung")
+
+    # Subcommand: build
+    parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")
+    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_build.add_argument("--username", "-u", default="dry_run_user", help="Username giả định để build metadata")
+    parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
+    parser_build.add_argument("--title", help="Ghi đè title của notebook")
+    parser_build.add_argument("--dataset", "-d", help="Ghi đè dataset source")
+    parser_build.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     # Subcommand: push
     parser_push = subparsers.add_parser("push", help="Đẩy notebook lên Kaggle")
@@ -199,6 +285,8 @@ def main():
             cmd_account_test(args)
         elif args.acc_command == "add":
             cmd_account_add(args)
+    elif args.command == "build":
+        cmd_build(args)
     elif args.command == "push":
         cmd_push(args)
     elif args.command == "status":

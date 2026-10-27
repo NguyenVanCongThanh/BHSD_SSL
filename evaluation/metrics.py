@@ -200,6 +200,22 @@ def aggregate_segmentation_stats(records):
             'recall_micro': tp / (tp + fn) if tp + fn else None,
             'tp_voxels': tp, 'fp_voxels': fp, 'fn_voxels': fn,
         })
+
+    eligible_classes = []
+    positive_dices = []
+    positive_support = {}
+    for item in result['per_class']:
+        cid = item['class_id']
+        cnt = item['positive_cases']
+        positive_support[cid] = cnt
+        if cnt > 0 and item['dice_positive_mean'] is not None:
+            eligible_classes.append(cid)
+            positive_dices.append(item['dice_positive_mean'])
+
+    result['macro_case_mean_dice'] = float(np.mean([item['dice_case_mean'] for item in result['per_class']])) if result['per_class'] else None
+    result['macro_positive_dice'] = float(np.mean(positive_dices)) if positive_dices else None
+    result['eligible_positive_classes'] = eligible_classes
+    result['positive_support'] = positive_support
     return result
 
 

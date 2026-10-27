@@ -48,6 +48,7 @@ def benchmark_5folds(
     include_pretrain=False,
     on_missing="error",
     compute_surface=False,
+    folds: Optional[List[int]] = None,
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
@@ -100,10 +101,24 @@ def benchmark_5folds(
 
     if on_missing not in ('error', 'skip'):
         raise ValueError('on_missing must be error or skip')
+
+    if folds is not None:
+        if len(folds) == 0:
+            raise ValueError("folds list cannot be empty")
+        if len(set(folds)) != len(folds):
+            raise ValueError(f"Duplicate fold IDs found in folds: {folds}")
+        for f in folds:
+            if not isinstance(f, int) or isinstance(f, bool) or f < 0:
+                raise ValueError(f"Fold ID must be a non-negative integer, got {f}")
+        target_folds = list(folds)
+    else:
+        target_folds = list(range(5))
+    requested_folds = list(target_folds)
+
     resolved = {}
     skipped = {}
     # Preflight all folds before expensive inference.
-    for fold in range(5):
+    for fold in target_folds:
         try:
             resolved[fold] = resolve_checkpoint(
                 exp_dir, fold, model_name, checkpoint_preference,
@@ -118,13 +133,21 @@ def benchmark_5folds(
     seen_cases = set()
     for fold in resolved:
         if dataset_cls is not None:
-            val_dataset = dataset_cls(
-                base_dir=root_path,
-                split='val',
-                binary=is_binary,
-                patch_size=patch_size,
-                fold=fold
-            )
+            import inspect
+            sig = inspect.signature(dataset_cls.__init__)
+            has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            kwargs = {
+                'base_dir': root_path,
+                'split': 'val',
+                'binary': is_binary,
+                'patch_size': patch_size,
+                'fold': fold,
+            }
+            if 'num_classes' in sig.parameters or has_var_kw:
+                kwargs['num_classes'] = num_classes
+            if 'class_names' in sig.parameters or has_var_kw:
+                kwargs['class_names'] = class_names
+            val_dataset = dataset_cls(**kwargs)
         else:
             d_name = dataset_name
             val_dataset = DATASETS.build(
@@ -215,20 +238,24 @@ def benchmark_5folds(
     per_class_means = np.mean(per_class_matrix, axis=0).tolist()
     per_class_stds = np.std(per_class_matrix, axis=0).tolist()
 
+    agg_oof = aggregate_segmentation_stats(oof_stats)
     benchmark_summary = {
         "dataset": dataset_name,
         "task": task,
         "model": model_name,
         "fold_mean_dice": overall_mean,
         "fold_std_dice": overall_std,
+        "oof_case_mean_dice": agg_oof.get('macro_case_mean_dice'),
+        "oof_macro_positive_dice": agg_oof.get('macro_positive_dice'),
         "aggregation": "unweighted_mean_over_folds",
-        "complete": len(fold_results) == 5,
+        "complete": len(fold_results) == len(target_folds),
+        "requested_folds": requested_folds,
         "evaluated_folds": list(resolved),
         "skipped_folds": skipped,
         "checkpoint_preference": checkpoint_preference,
         "allow_latest": allow_latest,
         "metric_policy": METRIC_POLICY,
-        "oof_case_metrics": aggregate_segmentation_stats(oof_stats),
+        "oof_case_metrics": agg_oof,
         "inference": {"patch_size": list(patch_size), "stride_z": stride_z,
                       "stride_xy": stride_xy, "gaussian": use_gaussian, "tta": use_tta},
         "per_class_means": per_class_means,

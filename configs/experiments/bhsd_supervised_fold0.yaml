@@ -1,0 +1,27 @@
+# Experiment Preset: BHSD Multi-Class Supervised Baseline (Fold 0)
+experiment:
+  name: "bhsd_supervised_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet_single"
+  in_channels: 1
+
+method:
+  name: "supervised"
+  base_lr: 0.01
+  max_iteration: 6000
+
+data:
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 4
+  labelnum: 15
+

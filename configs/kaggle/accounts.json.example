@@ -1,0 +1,26 @@
+{
+  "default_account": "1",
+  "accounts": {
+    "1": {
+      "id": "1",
+      "slug": "acc1",
+      "name": "Tài khoản 1 (Chính)",
+      "username": "thnhnguynvncng",
+      "source": "global_or_key",
+      "key": "",
+      "description": "Tài khoản Kaggle chính (cấu hình qua KAGGLE_KEY hoặc ~/.kaggle/kaggle.json)",
+      "default_dataset_owner": "thnhnguynvncng"
+    },
+    "2": {
+      "id": "2",
+      "slug": "acc2",
+      "name": "Tài khoản 2 (Phụ)",
+      "username": "bokhnhl",
+      "source": "global_or_key",
+      "key": "",
+      "description": "Tài khoản Kaggle phụ (cấu hình qua KAGGLE_KEY hoặc configs/kaggle/accounts.json local)",
+      "default_dataset_owner": "thnhnguynvncng"
+    }
+  }
+}
+

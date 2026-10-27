@@ -42,6 +42,7 @@ from data.transforms3d import (
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import format_dice_summary
 from utils.wandb_manager import WandbManager
+from training import GradientHandler, ValidationRunner
 
 
 class BaseMethod(abc.ABC):
@@ -143,6 +144,7 @@ class BaseMethod(abc.ABC):
         self.setup_dataloaders()
         self.setup_optimizer()
         self.setup_logging()
+        self.successful_updates = 0
 
     def _setup_environment(self):
         deterministic = getattr(self.cfg.experiment, 'deterministic', True)
@@ -215,6 +217,8 @@ class BaseMethod(abc.ABC):
         # Hide unlabeled annotations before any label-dependent augmentation.
         self.db_train.labeled_indices = set(labeled_idxs)
         unlabeled_idxs = list(range(labelnum, max_samples))
+        self.db_train.unlabeled_indices = set(unlabeled_idxs)
+        self.db_train.max_samples = max_samples
 
         if str(getattr(self.cfg.method, 'name', 'pick')) == 'supervised':
             if labelnum < self.batch_layout.global_batch_size:
@@ -357,6 +361,7 @@ class BaseMethod(abc.ABC):
         from evaluation.metrics import METRIC_POLICY
         merged_extra['metric_policy'] = METRIC_POLICY
         merged_extra['validation_inference'] = self.validation_options()
+        merged_extra['successful_updates'] = getattr(self, 'successful_updates', 0)
         if getattr(self, 'validation_details', None):
             merged_extra['validation_metrics'] = self.validation_details
         if cfg_dict and cfg_dict.get('model_spec'):
@@ -398,9 +403,14 @@ class BaseMethod(abc.ABC):
             device=self.device,
             prefer_ema=prefer_ema,
             strict=True,
-            checkpoint_state=checkpoint_state
+            checkpoint_state=checkpoint_state,
+            restore_rng=True
         )
         self.validation_details = ckpt_data.get('validation_metrics') or {}
+        if 'successful_updates' in ckpt_data:
+            self.successful_updates = ckpt_data['successful_updates']
+        elif 'successful_updates' in ckpt_data.get('extra_state', {}):
+            self.successful_updates = ckpt_data['extra_state']['successful_updates']
         return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
 
     def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
@@ -428,18 +438,20 @@ class BaseMethod(abc.ABC):
         return self.evaluate_validation_model(raw_net, return_visuals, 'net')
 
     def evaluate_validation_model(self, model, return_visuals=False, weights_source='net'):
-        self.validation_details = {}
-        options = self.validation_options()
-        settings = dict(getattr(self.cfg.logging, 'visualization', {}))
-        count = int(getattr(self.cfg.logging, 'num_vis_samples', 4)) if return_visuals else 0
-        result = evaluate_dataset_sliding_window(
-            model=model, val_dataset=self.db_val, num_classes=self.num_classes,
-            is_binary=self.is_binary, device=self.device, log_progress=self.rank == 0,
-            return_visual_samples=count, rank=self.rank, world_size=self.world_size,
-            details_sink=self.validation_details, visual_case_ids=settings.get('case_ids'),
-            visual_settings=settings, **options)
-        self.validation_details['weights_source'] = weights_source
-        return result
+        runner = ValidationRunner(
+            val_dataset=self.db_val,
+            num_classes=self.num_classes,
+            is_binary=self.is_binary,
+            device=self.device,
+            rank=self.rank,
+            world_size=self.world_size,
+            options=self.validation_options(),
+            visual_settings=dict(getattr(self.cfg.logging, 'visualization', {})),
+            num_vis_samples=int(getattr(self.cfg.logging, 'num_vis_samples', 4))
+        )
+        res = runner.run(model, return_visuals=return_visuals, weights_source=weights_source)
+        self.validation_details = runner.last_details
+        return res
 
     @abc.abstractmethod
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
@@ -453,58 +465,31 @@ class BaseMethod(abc.ABC):
         """All optimizers participating in one coordinated training update."""
         return [self.optimizer]
 
+    def training_models(self):
+        """All models participating in one coordinated training update (e.g. model1 and model2 for CPS)."""
+        models = [self.model]
+        if hasattr(self, 'model2') and isinstance(self.model2, nn.Module):
+            models.append(self.model2)
+        return models
+
     def after_optimizer_step(self, iter_num):
         """Update derived model state only after a successful optimizer step."""
 
     def apply_gradients(self, loss, iter_num):
-        if loss.ndim != 0:
-            raise ValueError('Training loss must be a scalar')
-        loss_finite = torch.isfinite(loss.detach()).to(dtype=torch.int32)
-        if self.is_ddp:
-            torch.distributed.all_reduce(loss_finite, op=torch.distributed.ReduceOp.MIN)
-        if not loss_finite.item():
-            raise FloatingPointError(f'Invalid training loss at iteration {iter_num}')
-        optimizers = self.training_optimizers()
-        for optimizer in optimizers:
-            optimizer.zero_grad(set_to_none=True)
-        if self.use_amp:
-            self.scaler.scale(loss).backward()
-            for optimizer in optimizers:
-                self.scaler.unscale_(optimizer)
-            # Clip gradient norm to 12.0 (nnUNet v2 standard for 3D volumetric models)
-            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
-            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=12.0)
-            scale_before = self.scaler.get_scale()
-            for optimizer in optimizers:
-                self.scaler.step(optimizer)
-            self.scaler.update()
-            scale_after = self.scaler.get_scale()
-            if scale_after < scale_before:
-                logging.warning(
-                    '[AMP] Iteration %d: Nonfinite gradient overflow detected; optimizer step skipped by GradScaler, '
-                    'scale adjusted from %.1f to %.1f', iter_num, scale_before, scale_after
-                )
-                if scale_after < 1e-4:
-                    raise FloatingPointError(f'GradScaler scale underflow at iteration {iter_num}: model or loss diverged')
-            else:
-                self.after_optimizer_step(iter_num)
-        else:
-            loss.backward()
-            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
-            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=12.0)
-            finite = torch.ones((), device=self.device, dtype=torch.int32)
-            for optimizer in optimizers:
-                for group in optimizer.param_groups:
-                    for param in group['params']:
-                        if param.grad is not None:
-                            finite.mul_(torch.isfinite(param.grad).all().to(torch.int32))
-            if self.is_ddp:
-                torch.distributed.all_reduce(finite, op=torch.distributed.ReduceOp.MIN)
-            if not finite.item():
-                raise FloatingPointError(f'Nonfinite gradients at iteration {iter_num}')
-            for optimizer in optimizers:
-                optimizer.step()
-            self.after_optimizer_step(iter_num)
+        handler = GradientHandler(
+            optimizers=self.training_optimizers(),
+            models=self.training_models(),
+            scaler=self.scaler if hasattr(self, 'scaler') else None,
+            use_amp=self.use_amp,
+            is_ddp=self.is_ddp,
+            device=self.device,
+            clip_norm=12.0,
+            after_step_fn=self.after_optimizer_step
+        )
+        success = handler.apply_gradients(loss, iter_num)
+        if success and hasattr(self, 'successful_updates'):
+            self.successful_updates += 1
+        return success
 
     def optimize_batch(self, sampled_batch, iter_num, mim_mask=None, step_fn=None):
         callback = step_fn or self.train_step

@@ -71,7 +71,7 @@ class NotebookBuilder:
                 try:
                     subprocess.run([sys.executable, str(gen_path)], cwd=str(PROJECT_ROOT), check=True, timeout=30)
                 except Exception as e:
-                    print(f"[!] Cảnh báo khi chạy generator script {gen_script}: {e}")
+                    raise RuntimeError(f"Lỗi khi chạy generator script {gen_script}: {e}")
 
         possible_sources = [
             PROJECT_ROOT / "scripts" / code_file_name,
@@ -88,11 +88,12 @@ class NotebookBuilder:
         # Đồng bộ file notebook vào bundle
         if found_source and found_source.exists():
             shutil.copy2(found_source, target_code_path)
-        elif not target_code_path.exists():
+        else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
 
-        # 1b. Tự động tiêm fallback WANDB_API_KEY từ kho secret cục bộ (git-ignored) vào bundle đẩy lên Kaggle Private Kernel
-        self._inject_wandb_key_into_bundle(target_code_path)
+        # 1b. Bảo mật (SEC-02): Không tiêm plaintext key vào notebook bundle.
+        # Notebook sử dụng secret runtime Kaggle (UserSecretsClient) hoặc biến môi trường.
+        # self._inject_wandb_key_into_bundle(target_code_path)
 
 
         # 2. Xử lý dataset sources
@@ -131,33 +132,7 @@ class NotebookBuilder:
 
     def _inject_wandb_key_into_bundle(self, notebook_path: Path) -> None:
         """
-        Đọc WANDB_API_KEY từ biến môi trường hoặc configs/kaggle/secrets/wandb_api_key.txt (git-ignored)
-        và tiêm làm fallback vào bản bundle trong kaggle_runs/ để Kaggle Private Kernel luôn chạy online 100%,
-        trong khi mã nguồn trên GitHub vẫn hoàn toàn sạch không chứa secret.
+        Bảo mật (SEC-02): Vô hiệu hóa việc tiêm API key vào notebook bundle.
+        Kaggle notebook sẽ sử dụng Kaggle UserSecretsClient hoặc biến môi trường ở runtime.
         """
-        wandb_key = os.environ.get("WANDB_API_KEY", "").strip()
-        if not wandb_key and WANDB_SECRET_FILE.is_file():
-            wandb_key = WANDB_SECRET_FILE.read_text(encoding="utf-8").strip()
-        if not wandb_key or not notebook_path.is_file():
-            return
-
-        nb_data = json.loads(notebook_path.read_text(encoding="utf-8"))
-        modified = False
-        for cell in nb_data.get("cells", []):
-            if cell.get("cell_type") != "code":
-                continue
-            source = cell.get("source", [])
-            new_source = []
-            for line in source:
-                if 'except Exception:' in line:
-                    new_source.append(line)
-                elif line.strip() == 'key = ""' and any("UserSecretsClient" in s for s in source):
-                    indent = line[:len(line) - len(line.lstrip())]
-                    new_source.append(f'{indent}key = "{wandb_key}"\n')
-                    modified = True
-                else:
-                    new_source.append(line)
-            cell["source"] = new_source
-
-        if modified:
-            notebook_path.write_text(json.dumps(nb_data, indent=1, ensure_ascii=False), encoding="utf-8")
+        return

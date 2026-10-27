@@ -288,6 +288,53 @@ class LogicAuditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             model_spec_from_config({'model': {'name': 'unet3d'}, 'method': {'name': 'pick'}}, 2)
 
+    def test_corrupt_sample_fallback_preserves_partitions(self):
+        """DATA-02: Fallback on corrupt volumes must never cross labeled/unlabeled partition boundary."""
+        split_dir = self.root / 'splits'
+        split_dir.mkdir(exist_ok=True)
+        # 4 cases: 0, 1 (labeled), 2, 3 (unlabeled)
+        cases = ['case_l0', 'case_l1', 'case_u2', 'case_u3']
+        (split_dir / 'fold0_train.txt').write_text('\n'.join(cases) + '\n')
+        (split_dir / 'fold0_val.txt').write_text('case_val\n')
+        data_dir = self.root / 'data'
+        data_dir.mkdir(exist_ok=True)
+
+        # case_l0: valid labeled
+        with h5py.File(data_dir / 'case_l0.h5', 'w') as f:
+            f['image'] = np.ones((2, 4, 4), dtype=np.float32)
+            f['label'] = np.ones((2, 4, 4), dtype=np.uint8)
+
+        # case_l1: corrupt labeled (0-slice)
+        with h5py.File(data_dir / 'case_l1.h5', 'w') as f:
+            f['image'] = np.zeros((0, 4, 4), dtype=np.float32)
+            f['label'] = np.zeros((0, 4, 4), dtype=np.uint8)
+
+        # case_u2: valid unlabeled
+        with h5py.File(data_dir / 'case_u2.h5', 'w') as f:
+            f['image'] = np.full((2, 4, 4), 2.0, dtype=np.float32)
+            f['label'] = np.ones((2, 4, 4), dtype=np.uint8)  # raw file has ground truth
+
+        # case_u3: corrupt unlabeled (0-slice)
+        with h5py.File(data_dir / 'case_u3.h5', 'w') as f:
+            f['image'] = np.zeros((0, 4, 4), dtype=np.float32)
+            f['label'] = np.zeros((0, 4, 4), dtype=np.uint8)
+
+        dataset = BHSDDataset(str(self.root), split='train', fold=0)
+        dataset.labeled_indices = {0, 1}
+
+        # 1. Access corrupt unlabeled sample at index 3 (boundary wrap-around):
+        # Must fallback to case_u2 (index 2), NOT wrap to index 0 (case_l0)!
+        sample_u = dataset[3]
+        self.assertEqual(sample_u['case'], 'case_u2')
+        # Annotations for unlabeled must remain completely zeroed out:
+        self.assertFalse(sample_u['label'].any())
+
+        # 2. Access corrupt labeled sample at index 1:
+        # Must fallback to case_l0 (index 0), retaining ground truth:
+        sample_l = dataset[1]
+        self.assertEqual(sample_l['case'], 'case_l0')
+        self.assertTrue(sample_l['label'].all())
+
 
 if __name__ == '__main__':
     unittest.main()

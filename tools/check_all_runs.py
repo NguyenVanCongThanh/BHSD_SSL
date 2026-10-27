@@ -1,8 +1,11 @@
 import os
-import json
+import sys
 import wandb
 
-WANDB_API_KEY = "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"
+WANDB_API_KEY = os.environ.get("WANDB_API_KEY")
+if not WANDB_API_KEY:
+    print("[X] Error: WANDB_API_KEY environment variable is required.", file=sys.stderr)
+    sys.exit(1)
 os.environ["WANDB_API_KEY"] = WANDB_API_KEY
 
 api = wandb.Api()

@@ -1,0 +1,29 @@
+# Experiment Preset: BHSD Multi-Class Cross Pseudo Supervision (Fold 0)
+experiment:
+  name: "bhsd_cps_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet_single"
+  in_channels: 1
+
+method:
+  name: "cps"
+  base_lr: 0.01
+  max_iteration: 12000
+  cps_weight: 1.5
+  consistency_rampup: 40.0
+
+data:
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+
