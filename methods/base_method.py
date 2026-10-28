@@ -633,6 +633,46 @@ class BaseMethod(abc.ABC):
                 val_log.update(self.build_visual_payload(visual_samples))
 
             details = getattr(self, 'validation_details', {})
+            macro_pos = details.get('macro_positive_dice')
+            if macro_pos is not None:
+                val_log['val/macro_positive_dice'] = float(macro_pos)
+                if self.writer is not None:
+                    self.writer.add_scalar('val/macro_positive_dice', float(macro_pos), global_step)
+
+            if self.wandb_manager.enabled and details.get('per_class'):
+                try:
+                    import wandb
+                    columns = [
+                        "class_id", "class_name", "positive_cases", "negative_cases",
+                        "dice_case", "dice_positive", "hd95_mm", "asd_mm",
+                        "surface_valid_pairs", "fp_case_rate", "fp_ml",
+                        "precision_micro", "recall_micro", "tp_voxels", "fp_voxels", "fn_voxels"
+                    ]
+                    table_rows = []
+                    for row in details['per_class']:
+                        name = self.class_names[row['class_id']]
+                        table_rows.append([
+                            row.get('class_id'),
+                            name,
+                            row.get('positive_cases'),
+                            row.get('negative_cases'),
+                            row.get('dice_case_mean'),
+                            row.get('dice_positive_mean'),
+                            row.get('hd95_mm_mean'),
+                            row.get('asd_mm_mean'),
+                            row.get('surface_valid_pairs'),
+                            row.get('negative_fp_case_rate'),
+                            row.get('negative_fp_ml_mean'),
+                            row.get('precision_micro'),
+                            row.get('recall_micro'),
+                            row.get('tp_voxels'),
+                            row.get('fp_voxels'),
+                            row.get('fn_voxels')
+                        ])
+                    val_log['val/evaluation_table'] = wandb.Table(columns=columns, data=table_rows)
+                except Exception as table_err:
+                    logging.warning(f"[W&B] Failed to build evaluation summary table: {table_err}")
+
             for row in details.get('per_class', []):
                 name = self.class_names[row['class_id']]
                 for key, value in row.items():
