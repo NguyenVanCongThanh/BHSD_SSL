@@ -19,6 +19,7 @@ show_help() {
     echo "  --list-accounts            Xem danh sách tài khoản"
     echo "  --test-accounts            Kiểm tra kết nối tất cả tài khoản"
     echo "  --status                   Xem trạng thái notebook"
+    echo "  --log                      Kéo riêng file log của notebook về"
     echo "  --help, -h                 Xem hướng dẫn"
     echo "=========================================================================="
     exit 0
@@ -28,4 +29,16 @@ if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
     show_help
 fi
 
-PYTHONUNBUFFERED=1 python3 "$KAGGLE_CTL" push "$@"
+if [ "$1" == "--list-accounts" ]; then
+    exec python3 "$KAGGLE_CTL" account list
+elif [ "$1" == "--test-accounts" ]; then
+    exec python3 "$KAGGLE_CTL" account test
+elif [ "$1" == "--status" ] || [ "$1" == "status" ]; then
+    shift
+    exec python3 "$KAGGLE_CTL" status "$@"
+elif [ "$1" == "--log" ] || [ "$1" == "log" ]; then
+    shift
+    exec python3 "$KAGGLE_CTL" log "$@"
+fi
+
+PYTHONUNBUFFERED=1 exec python3 "$KAGGLE_CTL" push "$@"

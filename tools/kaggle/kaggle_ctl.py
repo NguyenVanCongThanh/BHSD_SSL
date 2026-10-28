@@ -150,6 +150,54 @@ def cmd_status(args):
     status = executor.get_status(kernel_id)
     print(f"[>] Trạng thái: {status}")
 
+def cmd_log(args):
+    mgr = AccountsManager()
+    acc = mgr.get_account(args.account)
+    if not acc:
+        print(f"[X] Không tìm thấy tài khoản với định danh: {args.account}")
+        sys.exit(1)
+    account_id = acc.get("id", args.account)
+    username, _ = mgr.resolve_credentials(acc)
+    profile_dir = mgr.create_isolated_profile(account_id)
+    executor = KaggleExecutor(profile_dir)
+
+    kernel_id = args.kernel
+    if not kernel_id:
+        notebook_type = args.notebook or "mean_teacher"
+        builder = NotebookBuilder()
+        spec = builder.get_notebook_spec(notebook_type)
+        slug = spec.get("slug", "kaggle-bhsd-mean-teacher-dual-gpu")
+        kernel_id = f"{username}/{slug}"
+    else:
+        slug = kernel_id.split("/")[-1]
+
+    print(f"[*] Đang kéo log từ Kaggle cho kernel: {kernel_id}...")
+    ok, content = executor.get_log(kernel_id)
+    if not ok:
+        print(f"[X] {content}")
+        sys.exit(1)
+
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        logs_dir = PROJECT_ROOT / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        out_path = logs_dir / f"{slug}.log"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    lines = content.splitlines()
+    print(f"[✓] Đã lưu log thành công: {out_path} ({len(lines):,} dòng, {len(content):,} bytes)")
+
+    tail_n = args.tail if args.tail is not None else 25
+    if tail_n > 0 and lines:
+        print(f"\n--- {min(tail_n, len(lines))} DÒNG CUỐI CỦA LOG ---")
+        for line in lines[-tail_n:]:
+            print(line)
+        print("=" * 60)
+
 def cmd_build(args):
     builder = NotebookBuilder()
     notebook_type = args.notebook or "mean_teacher"
@@ -273,6 +321,14 @@ def main():
     parser_status.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook")
     parser_status.add_argument("--kernel", "-k", help="Định danh kernel đầy đủ (username/slug)")
 
+    # Subcommand: log
+    parser_log = subparsers.add_parser("log", help="Kéo riêng file log văn bản từ Kaggle về (nhẹ, nhanh, không tải checkpoint)")
+    parser_log.add_argument("--account", "-a", default="1", help="Tài khoản (ID hoặc slug, mặc định: 1)")
+    parser_log.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_log.add_argument("--kernel", "-k", help="Định danh kernel đầy đủ (username/slug)")
+    parser_log.add_argument("--output", "-o", help="Đường dẫn file đích để lưu log (mặc định: logs/<kernel_slug>.log)")
+    parser_log.add_argument("--tail", "-t", type=int, default=25, help="Số dòng cuối cần in ra màn hình sau khi tải (mặc định: 25, 0 để tắt)")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -291,6 +347,8 @@ def main():
         cmd_push(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "log":
+        cmd_log(args)
 
 if __name__ == "__main__":
     main()

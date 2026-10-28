@@ -1,0 +1,27 @@
+{
+  "training_rows": 1626,
+  "validation_rows": 64,
+  "last_train_iteration": 16250,
+  "last_validation_iteration": 16000,
+  "best_legacy": {
+    "iteration": 2750,
+    "legacy_mdice": 0.4625826402719186,
+    "positive_macro": 0.10432305371181276,
+    "Epidural": 0,
+    "Intraparenchymal": 0.4151932718513017,
+    "Intraventricular": 0.10640823246467625,
+    "Subarachnoid": 1.3764243085803103e-05,
+    "Subdural": 0
+  },
+  "best_positive_macro": {
+    "iteration": 14500,
+    "legacy_mdice": 0.37016902396126716,
+    "positive_macro": 0.341668579342327,
+    "Epidural": 0,
+    "Intraparenchymal": 0.5371535913535055,
+    "Intraventricular": 0.5224099052611012,
+    "Subarachnoid": 0.29291883350065007,
+    "Subdural": 0.355860566596378
+  },
+  "all_background_legacy": 0.5578947368421052
+}
