@@ -26,6 +26,13 @@ def new_snapshot(service, identifier, **metadata):
         'service': service, 'identifier': identifier,
         'crawled_at_utc': now.isoformat(), **metadata,
     })
+    try:
+        latest_sym = folder.parent / 'latest'
+        if latest_sym.is_symlink() or latest_sym.exists():
+            latest_sym.unlink()
+        latest_sym.symlink_to(folder.name)
+    except Exception:
+        pass
     return folder
 
 

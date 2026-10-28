@@ -317,3 +317,51 @@ class KaggleExecutor:
             pass
 
         return res.stderr.strip() or res.stdout.strip()
+
+    def get_log(self, kernel_id: str) -> Tuple[bool, str]:
+        """
+        Lấy nội dung raw log của session hiện tại từ Kaggle REST API mà không cần tải
+        checkpoint hay output files lớn (vài GB).
+        """
+        try:
+            import requests
+            with open(self.kaggle_json, "r", encoding="utf-8") as f:
+                kdata = json.load(f)
+            u = kdata.get("username", "").strip()
+            k = kdata.get("key", "").strip()
+            headers = {"User-Agent": "Kaggle-MultiAccount-Manager/1.0"}
+            auth = None
+            if k.startswith("KGAT_"):
+                headers["Authorization"] = f"Bearer {k}"
+            else:
+                auth = (u, k)
+
+            parts = kernel_id.split("/")
+            user_part = parts[0] if len(parts) > 1 else u
+            slug_part = parts[1] if len(parts) > 1 else parts[0]
+            resp = requests.get(
+                f"https://www.kaggle.com/api/v1/kernels/output?userName={user_part}&kernelSlug={slug_part}",
+                headers=headers,
+                auth=auth,
+                timeout=30
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_log = data.get("log") or ""
+                if not raw_log:
+                    return False, "Không có nội dung log nào được ghi nhận cho kernel này."
+                try:
+                    events = json.loads(raw_log)
+                    if isinstance(events, list):
+                        plain_text = "".join(e.get("data", "") for e in events if isinstance(e, dict) and "data" in e)
+                        return True, plain_text
+                except Exception:
+                    pass
+                return True, raw_log
+            elif resp.status_code == 404:
+                return False, f"Lỗi 404: Không tìm thấy kernel '{kernel_id}' hoặc chưa có output session."
+            else:
+                return False, f"Lỗi HTTP {resp.status_code} khi tải log: {resp.text[:200]}"
+        except Exception as exc:
+            return False, f"Lỗi kết nối khi tải log: {exc}"
+

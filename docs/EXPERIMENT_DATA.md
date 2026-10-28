@@ -1,5 +1,8 @@
 # Lưu và crawl kết quả thí nghiệm
 
+> [!TIP]
+> Xem chi tiết báo cáo rà soát hiện trạng, dọn dẹp snapshot và hướng dẫn kiến trúc chuẩn tại [EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md](EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md).
+
 Code và báo cáo nằm trong Git. Dữ liệu crawl nằm ở `experiment_data/`, đã được
 `.gitignore` loại trừ. Không xóa thư mục này nếu còn cần so sánh offline; muốn dọn
 repo thêm có thể chuyển nó sang ổ lưu trữ khác và đặt `BHSD_EXPERIMENT_DATA` trỏ
