@@ -78,6 +78,11 @@ class WandbManager:
             for prefix in ('train/*', 'val/*', 'pre_train/*', 'self_train/*'):
                 self.run.define_metric(prefix, step_metric='global_step')
             self.run.define_metric('val/mDice', step_metric='global_step', summary='max')
+            self.run.define_metric('val/macro_positive_dice', step_metric='global_step', summary='max')
+            self.run.define_metric('train/total', step_metric='global_step', summary='min')
+            # Hide raw count metrics from auto-generated default panels to prevent chart clutter
+            for pattern in ('*_tp_voxels', '*_fp_voxels', '*_fn_voxels', '*_positive_cases', '*_negative_cases', '*_surface_valid_pairs'):
+                self.run.define_metric(f'val/{pattern}', step_metric='global_step', hidden=True)
             self.run_id = self.run.id
             self.entity = getattr(self.run, 'entity', None) or self.entity
             self.identity_path.parent.mkdir(parents=True, exist_ok=True)

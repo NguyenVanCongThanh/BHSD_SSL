@@ -186,6 +186,39 @@ class ValidationTrackingTests(unittest.TestCase):
         self.assertEqual(images[0]['image'].shape,(16,16))
         self.assertEqual(details['per_class'][0]['negative_cases'],2)
 
+    def test_wandb_metric_definitions_include_summary_and_hidden(self):
+        self.manager()
+        calls = self.run.define_metric.call_args_list
+        defined = {call.args[0]: call.kwargs for call in calls if call.args}
+        self.assertEqual(defined.get('val/mDice', {}).get('summary'), 'max')
+        self.assertEqual(defined.get('val/macro_positive_dice', {}).get('summary'), 'max')
+        self.assertEqual(defined.get('train/total', {}).get('summary'), 'min')
+        self.assertTrue(defined.get('val/*_tp_voxels', {}).get('hidden'))
+        self.assertTrue(defined.get('val/*_positive_cases', {}).get('hidden'))
+
+    @unittest.skipUnless(importlib.util.find_spec('wandb_workspaces') and importlib.util.find_spec('wandb'),
+                         'wandb-workspaces not installed in test environment')
+    def test_setup_wandb_dashboard_builders(self):
+        from tools.setup_wandb_dashboard import (
+            build_overview_workspace,
+            build_evaluation_workspace,
+            build_diagnostics_workspace,
+            inspect_workspace
+        )
+        classes = ['Epidural', 'Subdural']
+        overview = build_overview_workspace('entity', 'proj', classes)
+        eval_ws = build_evaluation_workspace('entity', 'proj', classes)
+        diag = build_diagnostics_workspace('entity', 'proj', classes)
+
+        info_o = inspect_workspace(overview)
+        info_e = inspect_workspace(eval_ws)
+        info_d = inspect_workspace(diag)
+
+        self.assertEqual(info_o['total_panels'], 7)
+        self.assertFalse(info_o['auto_generate_panels'])
+        self.assertEqual(info_e['total_panels'], 7)
+        self.assertEqual(info_d['total_panels'], 6)
+
 
 @unittest.skipUnless(os.environ.get('BHSD_TEST_WANDB_OFFLINE')=='1' and importlib.util.find_spec('wandb'),
                      'Enable explicitly with an installed SDK for real offline integration')
