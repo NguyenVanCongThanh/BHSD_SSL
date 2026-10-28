@@ -16,6 +16,7 @@ show_help() {
     echo "  --account, -a <id|slug>    Chọn tài khoản (1: Thành, 2: Khánh, ...)"
     echo "  --notebook, -n <type>      Loại notebook (mean_teacher, pick, ...)"
     echo "  --dataset, -d <slug>       Ghi đè dataset nguồn"
+    echo "  --wandb-key, -w <key>      W&B API Key (nếu muốn ghi đè key mặc định)"
     echo "  --list-accounts            Xem danh sách tài khoản"
     echo "  --test-accounts            Kiểm tra kết nối tất cả tài khoản"
     echo "  --status                   Xem trạng thái notebook"

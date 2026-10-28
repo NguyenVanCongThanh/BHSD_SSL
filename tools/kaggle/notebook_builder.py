@@ -46,7 +46,8 @@ class NotebookBuilder:
                      custom_slug: Optional[str] = None,
                      custom_title: Optional[str] = None,
                      custom_datasets: Optional[List[str]] = None,
-                     enable_gpu: Optional[bool] = None) -> Path:
+                     enable_gpu: Optional[bool] = None,
+                     wandb_key: Optional[str] = None) -> Path:
         """
         Chuẩn bị thư mục bundle hoàn chỉnh gồm file .ipynb và file kernel-metadata.json
         cho tài khoản target_username.
@@ -87,6 +88,28 @@ class NotebookBuilder:
         # Đồng bộ file notebook vào bundle
         if found_source and found_source.exists():
             shutil.copy2(found_source, target_code_path)
+            # Nếu có W&B API key, điền trực tiếp vào notebook bundle (trong kaggle_runs/ được gitignore bảo vệ)
+            if wandb_key and wandb_key.strip():
+                try:
+                    with open(target_code_path, "r", encoding="utf-8") as f:
+                        nb_json = json.load(f)
+                    key_injected = False
+                    for cell in nb_json.get("cells", []):
+                        if cell.get("cell_type") == "code":
+                            lines = cell.get("source", [])
+                            new_lines = []
+                            for line in lines:
+                                if line.strip().startswith('WANDB_API_KEY ='):
+                                    new_lines.append(f'WANDB_API_KEY = "{wandb_key.strip()}"\n')
+                                    key_injected = True
+                                else:
+                                    new_lines.append(line)
+                            cell["source"] = new_lines
+                    if key_injected:
+                        with open(target_code_path, "w", encoding="utf-8") as f:
+                            json.dump(nb_json, f, indent=1, ensure_ascii=False)
+                except Exception as e:
+                    print(f"[!] Cảnh báo: Không thể inject W&B key vào notebook: {e}", flush=True)
         else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
 

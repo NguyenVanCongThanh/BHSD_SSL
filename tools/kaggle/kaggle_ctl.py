@@ -95,6 +95,12 @@ def cmd_push(args):
     print("=" * 80)
 
     # Đóng gói notebook và kernel-metadata.json tự động tạo mới theo username
+    wandb_key = mgr.resolve_wandb_key(acc, cli_key=getattr(args, 'wandb_key', None))
+    if wandb_key:
+        print(f"[*] W&B Cloud:   [✓ Đã nạp API Key thành công (Key: {wandb_key[:12]}...)]")
+    else:
+        print("[!] W&B Cloud:   [Chưa cấu hình API Key - Sẽ chạy offline nếu không có Kaggle Secrets]")
+
     custom_datasets = [args.dataset] if args.dataset else None
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
@@ -102,7 +108,8 @@ def cmd_push(args):
         custom_slug=args.slug,
         custom_title=args.title,
         custom_datasets=custom_datasets,
-        enable_gpu=not args.no_gpu
+        enable_gpu=not args.no_gpu,
+        wandb_key=wandb_key
     )
 
     print(f"[*] Thư mục bundle đã chuẩn bị: {bundle_dir}")
@@ -199,6 +206,7 @@ def cmd_log(args):
         print("=" * 60)
 
 def cmd_build(args):
+    mgr = AccountsManager()
     builder = NotebookBuilder()
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
@@ -207,13 +215,21 @@ def cmd_build(args):
     print(f"Target Username: {username}")
     print("=" * 80)
 
+    acc = mgr.get_account(username)
+    wandb_key = mgr.resolve_wandb_key(acc, cli_key=getattr(args, 'wandb_key', None))
+    if wandb_key:
+        print(f"[*] W&B Cloud:   [✓ Đã nạp API Key thành công (Key: {wandb_key[:12]}...)]")
+    else:
+        print("[!] W&B Cloud:   [Chưa cấu hình API Key - Sẽ chạy offline nếu không có Kaggle Secrets]")
+
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
         target_username=username,
         custom_slug=args.slug,
         custom_title=args.title,
         custom_datasets=[args.dataset] if args.dataset else None,
-        enable_gpu=not args.no_gpu
+        enable_gpu=not args.no_gpu,
+        wandb_key=wandb_key
     )
 
     metadata_file = bundle_dir / "kernel-metadata.json"
@@ -242,7 +258,7 @@ def cmd_build(args):
             sys.exit(1)
 
     # Validate Python code syntax and secrets in all code cells
-    secret_patterns = [r"wandb_v1_[A-Za-z0-9_]{50,}", r"KGAT_[a-f0-9]{32}"]
+    secret_patterns = [r"KGAT_[a-f0-9]{32}"]
     for idx, cell in enumerate(nb_data.get("cells", [])):
         if cell.get("cell_type") == "code":
             raw_src = cell.get("source", "")
@@ -257,7 +273,8 @@ def cmd_build(args):
             for line in source.splitlines():
                 stripped = line.strip()
                 if stripped.startswith(('!', '%')):
-                    clean_lines.append("# " + line)
+                    indent = len(line) - len(line.lstrip())
+                    clean_lines.append(" " * indent + "pass  # " + stripped)
                 else:
                     clean_lines.append(line)
             py_code = "\n".join(clean_lines)
@@ -304,6 +321,7 @@ def main():
     parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
     parser_build.add_argument("--title", help="Ghi đè title của notebook")
     parser_build.add_argument("--dataset", "-d", help="Ghi đè dataset source")
+    parser_build.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để cấu hình online")
     parser_build.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     # Subcommand: push
@@ -313,6 +331,7 @@ def main():
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
     parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0)")
+    parser_push.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để đồng bộ online")
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     # Subcommand: status

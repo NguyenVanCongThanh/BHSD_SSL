@@ -15,6 +15,7 @@ ACCOUNT="1"
 CLI_USERNAME=""
 CLI_KEY=""
 CLI_DATASET=""
+CLI_WANDB_KEY=""
 EXTRA_ARGS=()
 
 show_help() {
@@ -23,7 +24,8 @@ show_help() {
     echo "=========================================================================="
     echo "  --account, -a <1|2|slug>  Chọn tài khoản để submit (Mặc định: 1 hoặc thanh)"
     echo "  --username, -u <name>     Cập nhật username cho tài khoản"
-    echo "  --key, -k <key>           Cập nhật API Key (KGAT_...)"
+    echo "  --key, -k <key>           Cập nhật Kaggle API Key (KGAT_...)"
+    echo "  --wandb-key, -w <key>     W&B API Key (wandb_v1_...) để đồng bộ Cloud"
     echo "  --dataset, -d <slug>      Ghi đè dataset nguồn (Mặc định: thnhnguynvncng/bhsd-fold0)"
     echo "  --test-only               Chỉ kiểm tra kết nối tài khoản mà không submit"
     echo "  --list-accounts           Xem danh sách các tài khoản đang được quản lý"
@@ -37,11 +39,11 @@ show_help() {
     echo "  2. Submit bằng Tài khoản 2 (Bảo Khánh Lê):"
     echo "     bash scripts/submit_mean_teacher_kaggle.sh --account 2"
     echo ""
-    echo "  3. Kiểm tra kết nối API của các tài khoản:"
-    echo "     bash scripts/submit_mean_teacher_kaggle.sh --test-only"
+    echo "  3. Submit và truyền trực tiếp W&B Key:"
+    echo "     bash scripts/submit_mean_teacher_kaggle.sh -a 2 -w wandb_v1_xxx"
     echo ""
-    echo "  4. Thêm / cập nhật key cho tài khoản 2:"
-    echo "     bash scripts/submit_mean_teacher_kaggle.sh -a 2 -u bokhnhl -k KGAT_xxx"
+    echo "  4. Kiểm tra kết nối API của các tài khoản:"
+    echo "     bash scripts/submit_mean_teacher_kaggle.sh --test-only"
     echo "=========================================================================="
     exit 0
 }
@@ -59,6 +61,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --key|-k)
             CLI_KEY="$2"
+            shift 2
+            ;;
+        --wandb-key|-w)
+            CLI_WANDB_KEY="$2"
             shift 2
             ;;
         --dataset|-d)
@@ -112,6 +118,10 @@ CMD=(python3 "$KAGGLE_CTL" push --account "$ACCOUNT" --notebook mean_teacher)
 
 if [ -n "$CLI_DATASET" ]; then
     CMD+=(--dataset "$CLI_DATASET")
+fi
+
+if [ -n "$CLI_WANDB_KEY" ]; then
+    CMD+=(--wandb-key "$CLI_WANDB_KEY")
 fi
 
 if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
