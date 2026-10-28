@@ -1,4 +1,7 @@
 # Optional tooling dependencies for W&B dashboards, data caching, exports, and profiling
+# These lower bounds are an inventory, not a tested lockfile.
+# Kaggle CLI/API and requests for submission tooling are managed separately;
+# see docs/KAGGLE_MULTI_ACCOUNT_GUIDE.md.
 -r requirements.txt
 wandb>=0.16.0
 pandas>=2.0.0

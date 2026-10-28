@@ -1,5 +1,7 @@
 # MedSSL-BHSD Core Training & Evaluation Dependencies
-# Pin ranges validated against Python 3.10 runtime
+# Dependency inventory, not a lockfile or a validated compatibility matrix.
+# Lower bounds have not all been tested; use a matching torch/torchvision pair
+# for your CUDA runtime and record exact versions from the validated environment.
 torch>=2.0.0
 torchvision>=0.15.0
 numpy>=1.23.0
