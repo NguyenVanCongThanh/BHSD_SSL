@@ -9,6 +9,18 @@ Hệ thống quản lý Kaggle Submission đã được tái cấu trúc toàn d
 
 ## 1. Cấu Trúc Hệ Thống Mới
 
+Notebook Mean Teacher chuẩn nằm ở [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](../scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb).
+Metadata được tạo từ [`configs/kaggle/notebooks.json`](../configs/kaggle/notebooks.json) trong bundle `kaggle_runs/<notebook>/<username>/`; bundle tĩnh cũ `kaggle_mean_teacher/` đã được loại bỏ.
+Để tạo và kiểm tra bundle cục bộ trước khi submit:
+
+```bash
+python tools/kaggle/kaggle_ctl.py build --notebook mean_teacher --username dry_run_user
+```
+
+Môi trường chạy controller cần `kaggle` CLI/API và `requests`, ngoài dependency của từng công cụ trong `requirements-tools.txt`.
+Các file requirements liệt kê dependency và cận dưới tham khảo; chưa có lockfile hay xác nhận mọi tổ hợp phiên bản/CUDA đều tương thích.
+Khi tái lập thực nghiệm, lưu phiên bản thực tế đã kiểm chứng của Python, PyTorch/torchvision, CUDA và các package liên quan.
+
 ```
 BHSD_SSL/
 ├── configs/kaggle/

@@ -61,7 +61,7 @@
   * Định kỳ mỗi 5 ca bệnh in ra: `[Validation Progress] Done X/38 cases (Y%) | Zs`, giúp người dùng theo dõi trực tiếp tiến độ suy luận thay vì màn hình im lặng.
 
 ### 3.2. Cập nhật Notebook Kaggle & Generator Tool:
-*Files liên quan: [`kaggle_mean_teacher/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](file:///home/u001015/BHSD_SSL/kaggle_mean_teacher/kaggle_bhsd_mean_teacher_dual_gpu.ipynb), [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](file:///home/u001015/BHSD_SSL/scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb), [`tools/generate_mean_teacher_notebook.py`](file:///home/u001015/BHSD_SSL/tools/generate_mean_teacher_notebook.py)*.
+*Files liên quan: [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](../scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb), [`tools/generate_mean_teacher_notebook.py`](../tools/generate_mean_teacher_notebook.py), [hướng dẫn tạo bundle Kaggle](KAGGLE_MULTI_ACCOUNT_GUIDE.md).*
 
 1. **Bước 1: Bật thanh tiến trình trực quan cho Pip**:
    ```bash
