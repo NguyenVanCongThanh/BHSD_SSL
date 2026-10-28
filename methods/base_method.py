@@ -4,19 +4,16 @@ Provides unified training loops, validation engine, checkpointing, and logging (
 Integrated with WandbManager for cloud artifacts and auto-resume.
 """
 
-from typing import Dict, Any, Optional, Tuple, List, Union
+from typing import Dict, Any, Optional, Tuple, List
 import abc
 import inspect
 import os
+import sys
 import time
-import json
 from pathlib import Path
 import logging
-import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Subset
-from torchvision import transforms
 from tensorboardX import SummaryWriter
 
 from core.config_parser import Config
@@ -27,20 +24,9 @@ from core.distributed import (
     get_world_size,
     is_main_process
 )
-from core.registry import DATASETS
 from core.optimizers import build_optimizer, calculate_lr
 from data.dataset_bhsd import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
-from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
-from data.transforms3d import (
-    RandomRotFlip,
-    RandomCrop,
-    ToTensor,
-    RandomScaling3D,
-    GaussianBlur3D,
-    GammaTransform,
-)
-from evaluation.sliding_window import evaluate_dataset_sliding_window
-from evaluation.metrics import format_dice_summary
+from data.dataloader_factory import build_bhsd_dataloaders
 from utils.wandb_manager import WandbManager
 from training import GradientHandler, ValidationRunner
 
@@ -153,113 +139,24 @@ class BaseMethod(abc.ABC):
         set_seed(seed=seed, deterministic=deterministic, rank=self.rank if self.is_ddp else 0)
 
     def setup_dataloaders(self):
-        root_path = getattr(self.cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
-        
-        # Check if extended nnUNet-style data augmentation is enabled in config
-        use_extended_da = getattr(self.cfg.data, 'extended_aug', True)
-        aug_list = [
-            RandomRotFlip(),
-        ]
-        if use_extended_da:
-            aug_list.extend([
-                RandomScaling3D(scale_range=(0.85, 1.15), prob=0.2),
-                GammaTransform(gamma_range=(0.7, 1.5), prob=0.2),
-                GaussianBlur3D(sigma_range=(0.5, 1.0), prob=0.15),
-            ])
-        aug_list.extend([
-            RandomCrop(self.patch_size),
-            ToTensor()
-        ])
-        train_transforms = transforms.Compose(aug_list)
-
-        dataset_name = self.dataset_name
-        self.db_train = DATASETS.build(
-            dataset_name,
-            base_dir=root_path,
-            split='train',
-            binary=self.is_binary,
-            patch_size=self.patch_size,
+        bundle = build_bhsd_dataloaders(
+            cfg=self.cfg,
+            batch_layout=self.batch_layout,
+            dataset_name=self.dataset_name,
             fold=self.fold,
-            transform=train_transforms,
-            num_classes=self.num_classes,
-            class_names=self.class_names,
-            intensity_units=getattr(self.cfg.data, 'intensity_units', None),
-            normalization=getattr(self.cfg.data, 'normalization', None)
-        )
-
-        self.db_val = DATASETS.build(
-            dataset_name,
-            base_dir=root_path,
-            split='val',
-            binary=self.is_binary,
+            is_ddp=self.is_ddp,
+            rank=self.rank,
+            world_size=self.world_size,
             patch_size=self.patch_size,
-            fold=self.fold,
             num_classes=self.num_classes,
+            is_binary=self.is_binary,
             class_names=self.class_names,
-            intensity_units=getattr(self.cfg.data, 'intensity_units', None),
-            normalization=getattr(self.cfg.data, 'normalization', None)
         )
-
-        train_cases = set(getattr(self.db_train, 'image_list', []))
-        val_cases = set(getattr(self.db_val, 'image_list', []))
-        overlap = train_cases & val_cases
-        if overlap:
-            raise ValueError(f'Train/validation split overlap: {sorted(overlap)[:5]}')
-
-        batch_size = self.batch_size
-        labelnum = min(int(getattr(self.cfg.data, 'labelnum', 15)), len(self.db_train))
-        max_samples_cfg = int(getattr(self.cfg.data, 'max_samples', -1))
-        max_samples = len(self.db_train) if max_samples_cfg <= 0 else min(max_samples_cfg, len(self.db_train))
-
-        if labelnum > max_samples:
-            raise ValueError('labelnum cannot exceed max_samples')
-        labeled_idxs = list(range(labelnum))
-        # Hide unlabeled annotations before any label-dependent augmentation.
-        self.db_train.labeled_indices = set(labeled_idxs)
-        unlabeled_idxs = list(range(labelnum, max_samples))
-        self.db_train.unlabeled_indices = set(unlabeled_idxs)
-        self.db_train.max_samples = max_samples
-
-        if str(getattr(self.cfg.method, 'name', 'pick')) == 'supervised':
-            if labelnum < self.batch_layout.global_batch_size:
-                raise ValueError('Labeled pool must contain at least one global supervised batch.')
-            labeled_dataset = Subset(self.db_train, labeled_idxs)
-            self.train_sampler = None
-            if self.is_ddp:
-                self.train_sampler = torch.utils.data.distributed.DistributedSampler(
-                    labeled_dataset, num_replicas=self.world_size, rank=self.rank,
-                    shuffle=True, drop_last=True,
-                )
-            self.trainloader = DataLoader(
-                labeled_dataset, batch_size=batch_size, sampler=self.train_sampler,
-                shuffle=self.train_sampler is None, drop_last=True,
-                num_workers=2 if self.is_ddp else 4, pin_memory=self.is_ddp,
-            )
-            return
-
-        if labelnum < self.batch_layout.global_labeled_bs or len(unlabeled_idxs) < self.batch_layout.global_unlabeled_bs:
-            raise ValueError('Dataset must contain at least one global batch of both labeled and unlabeled cases.')
-
-        unlabeled_bs = self.unlabeled_bs
-        if self.is_ddp:
-            self.batch_sampler = DistributedTwoStreamBatchSampler(
-                labeled_idxs, unlabeled_idxs,
-                batch_size=batch_size, secondary_batch_size=unlabeled_bs,
-                num_replicas=self.world_size, rank=self.rank,
-                seed=int(getattr(self.cfg.experiment, 'seed', 1337)),
-            )
-            self.trainloader = DataLoader(
-                self.db_train, batch_sampler=self.batch_sampler,
-                num_workers=2, pin_memory=True,
-            )
-        else:
-            self.batch_sampler = TwoStreamBatchSampler(
-                labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs,
-            )
-            self.trainloader = DataLoader(
-                self.db_train, batch_sampler=self.batch_sampler,
-                num_workers=4, pin_memory=False,
-            )
+        self.db_train = bundle.db_train
+        self.db_val = bundle.db_val
+        self.trainloader = bundle.trainloader
+        self.train_sampler = bundle.train_sampler
+        self.batch_sampler = bundle.batch_sampler
 
     def setup_optimizer(self):
         self.optimizer = build_optimizer(self.model, self.cfg)
@@ -310,26 +207,17 @@ class BaseMethod(abc.ABC):
         }
 
     def _record_resolved_config(self):
-        from utils.wandb_manager import redact_config
-        from evaluation.metrics import METRIC_POLICY
-        import sys, subprocess
-        try:
-            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[1], text=True).strip()
-            dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=Path(__file__).resolve().parents[1], text=True).strip())
-        except (OSError, subprocess.CalledProcessError):
-            revision, dirty = None, None
-        self.cfg.resolved = {
-            'source_revision': revision, 'source_dirty': dirty, 'python': sys.version.split()[0], 'torch': str(torch.__version__),
-            'batch_layout': self.batch_layout.to_dict(), 'validation': self.validation_options(),
-            'metric_policy': METRIC_POLICY,
-            'split_fingerprints': {key: getattr(dataset, 'split_fingerprint', None)
-                for key, dataset in [('train', self.db_train), ('val', self.db_val)]},
-            'intensity_units': getattr(self.cfg.data, 'intensity_units', None),
-            'normalization': getattr(self.cfg.data, 'normalization', None),
-            'actual_labeled_cases': len(getattr(self.db_train, 'labeled_indices', []) or []),
-        }
-        path = Path(self.snapshot_path) / 'resolved_config.json'
-        path.write_text(json.dumps(redact_config(self.cfg.to_dict()), indent=2))
+        from utils.system_info import record_resolved_config
+        repo_root = Path(__file__).resolve().parents[1]
+        record_resolved_config(
+            snapshot_path=self.snapshot_path,
+            cfg=self.cfg,
+            batch_layout=self.batch_layout,
+            validation_options=self.validation_options(),
+            db_train=self.db_train,
+            db_val=self.db_val,
+            repo_root=repo_root
+        )
 
     def cloud_latest_due(self, iteration):
         interval = getattr(self.cfg.logging, 'artifact_interval', None) or getattr(self.cfg.logging, 'val_interval', 500)
@@ -354,20 +242,17 @@ class BaseMethod(abc.ABC):
 
         from utils.checkpoint import save_checkpoint as _save_ckpt
         from utils.wandb_manager import redact_config
+        from training.checkpoint_metadata import build_checkpoint_metadata
         cfg_dict = redact_config(self.cfg.to_dict()) if hasattr(self.cfg, 'to_dict') else None
-        merged_extra = {'config': cfg_dict}
-        if getattr(self.wandb_manager, 'run_id', None):
-            merged_extra['wandb_run'] = self.wandb_manager.identity()
-        from evaluation.metrics import METRIC_POLICY
-        merged_extra['metric_policy'] = METRIC_POLICY
-        merged_extra['validation_inference'] = self.validation_options()
-        merged_extra['successful_updates'] = getattr(self, 'successful_updates', 0)
-        if getattr(self, 'validation_details', None):
-            merged_extra['validation_metrics'] = self.validation_details
-        if cfg_dict and cfg_dict.get('model_spec'):
-            merged_extra['model_spec'] = cfg_dict['model_spec']
-        if extra_state:
-            merged_extra.update(extra_state)
+        wandb_ident = self.wandb_manager.identity() if getattr(self.wandb_manager, 'run_id', None) else None
+        merged_extra = build_checkpoint_metadata(
+            config_dict=cfg_dict,
+            wandb_identity=wandb_ident,
+            validation_options=self.validation_options(),
+            successful_updates=getattr(self, 'successful_updates', 0),
+            validation_details=getattr(self, 'validation_details', None),
+            extra_state=extra_state
+        )
 
         _save_ckpt(
             path=path,
@@ -516,20 +401,19 @@ class BaseMethod(abc.ABC):
         phase: str
     ) -> float:
         """Log iteration progress to console (Rank 0 only). Returns refreshed timer."""
+        from utils.logger import format_iteration_progress_string
         elapsed_10 = time.time() - iter_t0
         sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
-        rem_steps = max(max_iters - iter_num, 0)
-        eta_sec = rem_steps * sec_per_it
-        eta_str = time.strftime('%Hh%Mm%Ss', time.gmtime(eta_sec)) if eta_sec < 86400 else f"{eta_sec/3600:.1f}h"
-        vram_used = torch.cuda.memory_reserved() / (1024**3) if torch.cuda.is_available() else 0
-        pct = (iter_num / max_iters) * 100
-
-        losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in loss_dict.items()])
-        logging.info(
-            f"[{phase}] Iter {iter_num}/{max_iters} ({pct:.1f}%) | "
-            f"{sec_per_it:.2f}s/it | ETA: {eta_str} | "
-            f"{losses_str} | VRAM: {vram_used:.1f}GB"
+        vram_used = torch.cuda.memory_reserved() / (1024**3) if torch.cuda.is_available() else 0.0
+        msg = format_iteration_progress_string(
+            iter_num=iter_num,
+            max_iters=max_iters,
+            sec_per_it=sec_per_it,
+            loss_dict=loss_dict,
+            phase=phase,
+            vram_used=vram_used,
         )
+        logging.info(msg)
         return time.time()
 
     def _handle_periodic_validation(
@@ -546,156 +430,56 @@ class BaseMethod(abc.ABC):
         should_vis: bool
     ) -> float:
         """Run validation across all DDP ranks, log metrics, and update checkpoints."""
-        if is_main_process():
-            num_gpus_str = f" across {self.world_size} GPU(s)" if self.world_size > 1 else ""
-            msg = f"\n>>> [{phase} Validation] Periodic evaluation at Iter {iter_num}{num_gpus_str}..."
-            logging.info(msg)
-            print(msg, flush=True)
+        from training.validation_coordinator import (
+            ValidationCoordinator,
+            ValidationRequest,
+            ValidationRuntime,
+            ValidationCallbacks,
+        )
+        request = ValidationRequest(
+            snap_dir=snap_dir,
+            phase=phase,
+            iter_num=iter_num,
+            global_step=global_step,
+            best_dice=best_dice,
+            best_model_name=best_model_name,
+            legacy_best_model_name=legacy_best_model_name,
+            art_prefix=art_prefix,
+            latest_pth=latest_pth,
+            should_vis=should_vis,
+        )
+        runtime = ValidationRuntime(
+            device=self.device,
+            is_ddp=self.is_ddp,
+            rank=self.rank,
+            world_size=self.world_size,
+            class_names=self.class_names,
+        )
 
-        if should_vis:
-            val_mdice, per_class, visual_samples = self.validate(return_visuals=True)
-        else:
-            val_res = self.validate(return_visuals=False)
-            if isinstance(val_res, tuple) and len(val_res) == 3:
-                val_mdice, per_class, visual_samples = val_res
-            else:
-                val_mdice, per_class = val_res
-                visual_samples = []
+        def publish_validation_state(dice, details):
+            self.last_validation_dice = dice
+            self.validation_details = details
 
-        if not np.isfinite(val_mdice) or not np.isfinite(per_class).all():
-            raise FloatingPointError('Validation produced nonfinite metrics')
-
-        self.last_validation_dice = float(val_mdice)
-        if getattr(self, 'validation_details', None):
-            self.validation_details.update(iteration=iter_num, global_step=global_step, phase=phase)
-        if is_main_process():
-            class_names = self.class_names[1:]
-            summary_str = format_dice_summary(per_class, class_names)
-            end_msg = f"<<< [{phase} Validation] Iter {iter_num} | mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
-            logging.info(end_msg)
-            print(end_msg, flush=True)
-
-            if self.writer is not None:
-                self.writer.add_scalar('val/mDice', val_mdice, global_step)
-                for c, d in enumerate(per_class):
-                    self.writer.add_scalar(f'val/dice_{class_names[c]}', d, global_step)
-
-            if val_mdice > best_dice:
-                best_dice = val_mdice
-                best_pth = os.path.join(snap_dir, best_model_name)
-                self.save_checkpoint(
-                    path=best_pth,
-                    iter_num=iter_num,
-                    best_dice=best_dice,
-                    phase=phase,
-                    artifact_name=f"{art_prefix}_best",
-                    artifact_type="model",
-                    aliases=["latest", "best"],
-                    extra_state={"checkpoint_kind": "best", "selection_metric": "val_mDice", "selected_iter": iter_num}
-                )
-                if legacy_best_model_name and legacy_best_model_name != best_model_name:
-                    legacy_pth = os.path.join(snap_dir, legacy_best_model_name)
-                    self.save_checkpoint(
-                        path=legacy_pth,
-                        iter_num=iter_num,
-                        best_dice=best_dice,
-                        phase=phase,
-                        extra_state={"checkpoint_kind": "best", "selection_metric": "val_mDice", "selected_iter": iter_num}
-                    )
-                logging.info(f"  [★ NEW BEST MODEL] Saved best model with mDice: {best_dice:.4f}")
-                self.wandb_manager.update_summary({
-                    f'{phase}/best_mDice': best_dice,
-                    f'{phase}/best_iter': iter_num,
-                    'best_mDice': best_dice
-                })
-
-            # Save and upload latest checkpoint
-            self.save_checkpoint(
-                path=latest_pth,
-                iter_num=iter_num,
-                best_dice=best_dice,
-                phase=phase,
-                artifact_name=f"{art_prefix}_latest" if self.cloud_latest_due(iter_num) else None,
-                artifact_type="checkpoint",
-                aliases=["latest"]
-            )
-
-            # Atomic logging: bundle metrics + visual predictions in the SAME payload
-            val_log = {
-                'val/mDice': val_mdice,
-                'val/best_mDice': best_dice,
-                f'{phase}/val_mDice': val_mdice
-            }
-            for c, d in enumerate(per_class):
-                val_log[f'val/dice_{class_names[c]}'] = d
-
-            if should_vis and visual_samples:
-                val_log.update(self.build_visual_payload(visual_samples))
-
-            details = getattr(self, 'validation_details', {})
-            macro_pos = details.get('macro_positive_dice')
-            if macro_pos is not None:
-                val_log['val/macro_positive_dice'] = float(macro_pos)
-                if self.writer is not None:
-                    self.writer.add_scalar('val/macro_positive_dice', float(macro_pos), global_step)
-
-            if self.wandb_manager.enabled and details.get('per_class'):
-                try:
-                    import wandb
-                    columns = [
-                        "class_id", "class_name", "positive_cases", "negative_cases",
-                        "dice_case", "dice_positive", "hd95_mm", "asd_mm",
-                        "surface_valid_pairs", "fp_case_rate", "fp_ml",
-                        "precision_micro", "recall_micro", "tp_voxels", "fp_voxels", "fn_voxels"
-                    ]
-                    table_rows = []
-                    for row in details['per_class']:
-                        name = self.class_names[row['class_id']]
-                        table_rows.append([
-                            row.get('class_id'),
-                            name,
-                            row.get('positive_cases'),
-                            row.get('negative_cases'),
-                            row.get('dice_case_mean'),
-                            row.get('dice_positive_mean'),
-                            row.get('hd95_mm_mean'),
-                            row.get('asd_mm_mean'),
-                            row.get('surface_valid_pairs'),
-                            row.get('negative_fp_case_rate'),
-                            row.get('negative_fp_ml_mean'),
-                            row.get('precision_micro'),
-                            row.get('recall_micro'),
-                            row.get('tp_voxels'),
-                            row.get('fp_voxels'),
-                            row.get('fn_voxels')
-                        ])
-                    val_log['val/evaluation_table'] = wandb.Table(columns=columns, data=table_rows)
-                except Exception as table_err:
-                    logging.warning(f"[W&B] Failed to build evaluation summary table: {table_err}")
-
-            for row in details.get('per_class', []):
-                name = self.class_names[row['class_id']]
-                for key, value in row.items():
-                    if key != 'class_id' and value is not None:
-                        val_log[f'val/{name}_{key}'] = value
-                        if self.writer is not None:
-                            self.writer.add_scalar(f'val/{name}_{key}', value, global_step)
-            if details:
-                output = dict(details, global_step=global_step, phase=phase)
-                path = Path(snap_dir) / 'validation_latest.json'
-                tmp = path.with_suffix('.tmp')
-                tmp.write_text(json.dumps(output, indent=2, allow_nan=False))
-                tmp.replace(path)
-            self.wandb_manager.log_metrics(val_log, step=global_step)
-
-        if self.is_ddp:
-            score = torch.tensor(best_dice, device=self.device, dtype=torch.float64)
-            torch.distributed.broadcast(score, src=0)
-            best_dice = score.item()
-            torch.distributed.barrier()
-
-        self.model.train()
-        return best_dice
+        callbacks = ValidationCallbacks(
+            validate=self.validate,
+            save_checkpoint=self.save_checkpoint,
+            cloud_latest_due=self.cloud_latest_due,
+            build_visual_payload=self.build_visual_payload,
+            get_validation_details=lambda: getattr(self, 'validation_details', {}),
+            resume_training_mode=self.model.train,
+            publish_validation_state=publish_validation_state,
+        )
+        coordinator = ValidationCoordinator()
+        outcome = coordinator.handle(
+            request=request,
+            runtime=runtime,
+            callbacks=callbacks,
+            writer=self.writer,
+            wandb_manager=self.wandb_manager,
+        )
+        self.last_validation_dice = outcome.last_validation_dice
+        self.validation_details = outcome.validation_details
+        return outcome.best_dice
 
     def run_training_loop(
         self,
