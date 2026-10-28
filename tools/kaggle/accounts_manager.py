@@ -106,6 +106,43 @@ class AccountsManager:
             raise ValueError(f"Tài khoản '{account.get('name', 'Unknown')}' thiếu Username hoặc API Key hợp lệ!")
         return username, key
 
+    def resolve_wandb_key(self,
+                          account: Optional[Dict[str, Any]] = None,
+                          cli_key: Optional[str] = None) -> str:
+        """
+        Trích xuất W&B API Key theo thứ tự ưu tiên:
+        1. CLI override (--wandb-key)
+        2. Cấu hình riêng của tài khoản trong accounts.json (account.wandb_key)
+        3. Cấu hình chung default_wandb_key trong accounts.json
+        4. Biến môi trường WANDB_API_KEY
+        5. File ~/.netrc máy local
+        """
+        if cli_key and str(cli_key).strip():
+            return str(cli_key).strip()
+
+        if account:
+            acc_wb = account.get("wandb_key") or account.get("wandb_api_key")
+            if acc_wb and str(acc_wb).strip():
+                return str(acc_wb).strip()
+
+        default_wb = self.accounts_data.get("default_wandb_key")
+        if default_wb and str(default_wb).strip():
+            return str(default_wb).strip()
+
+        env_wb = os.environ.get("WANDB_API_KEY")
+        if env_wb and env_wb.strip():
+            return env_wb.strip()
+
+        try:
+            import netrc
+            auth = netrc.netrc().authenticators('api.wandb.ai')
+            if auth and auth[2] and auth[2].strip():
+                return auth[2].strip()
+        except Exception:
+            pass
+
+        return ""
+
     def create_isolated_profile(self, account_id_or_slug: str) -> Path:
         """
         Tạo một profile directory biệt lập chứa kaggle.json an toàn (chmod 600)
