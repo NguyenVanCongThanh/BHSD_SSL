@@ -3,7 +3,7 @@
 # Kaggle CLI/API and requests for submission tooling are managed separately;
 # see docs/KAGGLE_MULTI_ACCOUNT_GUIDE.md.
 -r requirements.txt
-wandb>=0.16.0
+wandb>=0.19.10
 pandas>=2.0.0
 blosc2>=2.0.0
 wandb-workspaces>=0.1.0

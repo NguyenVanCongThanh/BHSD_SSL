@@ -132,6 +132,42 @@ class ValidationTrackingTests(unittest.TestCase):
         self.manager()
         self.assertEqual(self.sdk.init.call_args.kwargs['id'],'from-checkpoint')
 
+    def test_fresh_run_preserves_identity_when_checkpoints_exist(self):
+        for directory in ('', 'pre_train', 'self_train'):
+            with self.subTest(directory=directory):
+                self.cfg.method.name = 'pick'
+                folder = self.root / 'experiment/fold_0'
+                checkpoint = folder / directory / 'checkpoint_latest.pth'
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint.touch()
+                identity_path = folder / 'wandb_run.json'
+                original = json.dumps({'id': 'original-run', 'project': 'test'})
+                identity_path.write_text(original)
+                with self.assertRaises(FileExistsError):
+                    self.manager()
+                self.sdk.init.assert_not_called()
+                self.assertEqual(identity_path.read_text(), original)
+                checkpoint.unlink()
+
+    def test_fresh_self_train_can_use_existing_pretraining(self):
+        self.cfg.method.name = 'pick'
+        self.cfg.experiment.phase = 'self_train'
+        folder = self.root / 'experiment/fold_0/pre_train'
+        folder.mkdir(parents=True)
+        (folder / 'checkpoint_latest.pth').touch()
+        self.assertTrue(self.manager().enabled)
+
+    def test_resume_rejects_identity_conflicting_with_checkpoint(self):
+        first = self.manager()
+        first.finish()
+        self.sdk.init.reset_mock()
+        torch.save({'wandb_run': {'id': 'different-run', 'project': 'test', 'entity': None}},
+                   first.identity_path.parent / 'checkpoint_latest.pth')
+        self.cfg.experiment.resume = True
+        with self.assertRaisesRegex(ValueError, 'conflicts with checkpoint'):
+            self.manager()
+        self.sdk.init.assert_not_called()
+
     def test_resume_without_identity_fails(self):
         self.cfg.experiment.resume=True
         with self.assertRaisesRegex(ValueError,'persisted run identity'):self.manager()
@@ -187,14 +223,26 @@ class ValidationTrackingTests(unittest.TestCase):
         self.assertEqual(details['per_class'][0]['negative_cases'],2)
 
     def test_wandb_metric_definitions_include_summary_and_hidden(self):
-        self.manager()
+        def validate_glob(name, **kwargs):
+            if '*' in name.rstrip('*'):
+                raise ValueError('Only suffix globs are supported')
+        self.run.define_metric.side_effect = validate_glob
+        manager = self.manager()
+        self.assertTrue(manager.enabled)
+        counts = {f'val/CustomClass_{suffix}': 1 for suffix in (
+            'tp_voxels', 'fp_voxels', 'fn_voxels', 'positive_cases',
+            'negative_cases', 'surface_valid_pairs')}
+        manager.log_metrics({'val/mDice': .5, **counts}, step=10)
+        manager.log_metrics(counts, step=20)
         calls = self.run.define_metric.call_args_list
         defined = {call.args[0]: call.kwargs for call in calls if call.args}
         self.assertEqual(defined.get('val/mDice', {}).get('summary'), 'max')
         self.assertEqual(defined.get('val/macro_positive_dice', {}).get('summary'), 'max')
         self.assertEqual(defined.get('train/total', {}).get('summary'), 'min')
-        self.assertTrue(defined.get('val/*_tp_voxels', {}).get('hidden'))
-        self.assertTrue(defined.get('val/*_positive_cases', {}).get('hidden'))
+        for key in counts:
+            self.assertTrue(defined[key]['hidden'])
+            self.assertEqual(sum(call.args[0] == key for call in calls), 1)
+        self.assertEqual(self.run.log.call_count, 2)
 
     @unittest.skipUnless(importlib.util.find_spec('wandb_workspaces') and importlib.util.find_spec('wandb'),
                          'wandb-workspaces not installed in test environment')
@@ -238,7 +286,9 @@ class WandbOfflineIntegration(unittest.TestCase):
                 'label':volume.astype(np.uint8),'pred':volume.astype(np.uint8),'dice':[1.]}],
                 {0:'Background',1:'Foreground'}, {'target_shape':[32,32],'interactive':True})
             manager.log_metrics({'train/loss':.5},step=10)
-            manager.log_metrics({'val/mDice':1.,**payload},step=10)
+            manager.log_metrics({'val/mDice':1., 'val/Foreground_tp_voxels': 0,
+                                 'val/Foreground_positive_cases': 0, **payload},step=10)
+            self.assertEqual(manager.log_failures, 0)
             manager.update_summary({'best_mDice':1.})
             manager.finish(exit_code=1)
             self.assertTrue(list(Path(root).rglob('*.wandb')))

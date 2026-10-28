@@ -139,10 +139,14 @@ Metadata preprocessing và fingerprint khai báo trong config vẫn cần ngư�
 
 SDK history append-only. Manager log `global_step` như một metric và dùng `define_metric(..., step_metric='global_step')`; không ghi đè SDK history bằng training iteration. Train/val có thể là hai history row cùng `global_step`, không làm mất media vì cố ghi về một step cũ. `val/mDice` khai báo summary `max`; best/last được lưu riêng.
 
+`tools/fetch_wandb.py` ghép các history row cùng `global_step` để xuất loss và validation tại đúng iteration. Run cũ dùng `iter`, rồi mới fallback `_step` khi thiếu cả hai trục; không lấy loss từ iteration khác. Các metric đếm per-class được đăng ký `hidden=True` bằng tên cụ thể ngay trước lần log đầu tiên, vì W&B không hỗ trợ wildcard ở giữa tên metric.
+
 ### Identity và resume
 
 - Run ID được lưu trong `<fold_dir>/wandb_run.json` và checkpoint `wandb_run`.
+- Lần chạy mới kiểm tra checkpoint trước khi tạo W&B run hoặc ghi identity; tất cả rank kiểm tra trước khi bọc model bằng DDP. PICK kiểm tra thư mục của phase được yêu cầu, nên vẫn có thể bắt đầu self-training mới từ checkpoint pre-training.
 - Resume dùng lại ID này hoặc explicit `logging.wandb_id`; không tự tạo ID từ tên run rồi gọi đó là resume.
+- Nếu file identity và checkpoint có ID/project/entity mâu thuẫn, resume dừng trước khi gọi W&B để tránh ghi vào sai run.
 - Online resume dùng `resume='must'`. Mâu thuẫn ID/project/entity gây lỗi; không tự chuyển sang run mới khi run cũ bị xóa/xung đột.
 - Offline giữ ID nhưng mỗi lần chạy có thể tạo một segment offline riêng. Việc hợp nhất lịch sử khi sync cần kiểm tra; không cam kết offline resume là append vào cùng file cũ.
 

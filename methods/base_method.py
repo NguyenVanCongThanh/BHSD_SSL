@@ -86,6 +86,8 @@ class BaseMethod(abc.ABC):
         # Snapshot path
         exp_dir = getattr(self.cfg.experiment, 'exp_dir', '../experiments')
         self.snapshot_path = os.path.join(exp_dir, self.exp_name, f"fold_{self.fold}")
+        # All ranks reject an occupied output directory before DDP or logging starts.
+        WandbManager.check_fresh_run_directory(self.cfg, self.fold)
         if is_main_process():
             os.makedirs(self.snapshot_path, exist_ok=True)
 

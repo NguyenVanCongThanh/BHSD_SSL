@@ -35,7 +35,7 @@ def build_notebook_dict():
             "metadata": {},
             "outputs": [],
             "source": [
-                "%pip install -q medpy tensorboardX h5py SimpleITK nibabel wandb pyyaml"
+                "%pip install -q medpy tensorboardX h5py SimpleITK nibabel \"wandb>=0.19.10\" pyyaml"
             ]
         },
         {
@@ -262,6 +262,7 @@ def build_notebook_dict():
                 "    \"--val_interval\", str(VAL_INTERVAL),\n",
                 "    \"--save_interval\", str(SAVE_INTERVAL),\n",
                 "    \"--use_wandb\",\n",
+                "    \"--wandb_required\",\n",
                 "    \"--save_wandb_model\",\n",
                 "    \"--wandb_project\", str(WANDB_PROJECT)\n",
                 "]\n",

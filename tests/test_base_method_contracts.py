@@ -72,6 +72,18 @@ class TestBaseMethodContracts(unittest.TestCase):
         self.assertTrue(trainer.writer.close.called)
         trainer.wandb_manager.finish.assert_called_once_with(exit_code=1)
 
+    def test_existing_checkpoint_rejected_before_logging(self):
+        folder = self.root / 'contract_test/fold_0'
+        folder.mkdir(parents=True)
+        (folder / 'checkpoint_latest.pth').touch()
+        identity_path = folder / 'wandb_run.json'
+        identity_path.write_text('{"id": "original-run"}')
+        with patch.object(BaseMethod, 'setup_logging') as setup_logging:
+            with self.assertRaises(FileExistsError):
+                MinimalTrainer(DummyModel(), self.cfg)
+        setup_logging.assert_not_called()
+        self.assertEqual(identity_path.read_text(), '{"id": "original-run"}')
+
     def test_validation_and_checkpoint_dispatch_via_override(self):
         """Verify that subclass overrides of validate() and save_checkpoint() are respected by training loop."""
         class OverridingTrainer(MinimalTrainer):

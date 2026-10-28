@@ -4,7 +4,6 @@ except ImportError:
     from crawl_storage import clean_data, new_snapshot, write_json
 
 import json
-import wandb
 
 # API Key và cấu hình dự án
 
@@ -25,21 +24,28 @@ def extract_metrics(run):
     
     # Lấy history table
     target_cols = [
-        "_step", "iter", "val/mDice", "val/best_mDice", 
+        "_step", "global_step", "iter", "val/mDice", "val/best_mDice",
         "val/dice_Epidural", "val/dice_Intraparenchymal", 
         "val/dice_Intraventricular", "val/dice_Subarachnoid", "val/dice_Subdural",
         "train/total", "train/supervised", "train/consistency", "train/weight", "train/lr"
     ]
-    rows = []
+    history_by_iteration = {}
+    validation_iterations = {}
     try:
         for row in run.scan_history():
+            iteration = next((row.get(key) for key in ('global_step', 'iter', '_step')
+                              if row.get(key) is not None), None)
+            if iteration is None:
+                continue
+            merged = history_by_iteration.setdefault(iteration, {})
+            merged.update({c: clean_data(row[c]) for c in target_cols
+                           if row.get(c) is not None})
+            merged['iter'] = iteration
             if row.get("val/mDice") is not None:
-                if row.get("iter") is None:
-                    row["iter"] = row.get("_step")
-                cleaned_row = {c: clean_data(row.get(c)) for c in target_cols if c in row}
-                rows.append(cleaned_row)
+                validation_iterations[iteration] = None
     except Exception as e:
         print(f"       [!] Lỗi lấy scan_history cho {run.name}: {e}", flush=True)
+    rows = [history_by_iteration[iteration] for iteration in validation_iterations]
 
     artifacts_list = []
     try:
@@ -69,6 +75,8 @@ def extract_metrics(run):
     }
 
 def main():
+    import wandb
+
     print(f"[*] Đang kết nối W&B API lấy kết quả từ: {entity}/{project} ...", flush=True)
     try:
         api = wandb.Api()
