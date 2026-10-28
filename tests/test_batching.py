@@ -86,7 +86,7 @@ class TestBatchIntegration(unittest.TestCase):
                      patch.object(torch.nn.parallel, 'DistributedDataParallel', CpuDDP), \
                      patch.object(BaseMethod, 'setup_optimizer'), \
                      patch.object(BaseMethod, 'setup_logging'), \
-                     patch('methods.base_method.DATASETS.build', return_value=dataset), \
+                     patch('data.dataloader_factory.DATASETS.build', return_value=dataset), \
                      patch('torch.cuda.is_available', return_value=False):
                     trainer = trainer_type(torch.nn.Conv3d(1, 2, 1), cfg)
                 self.assertEqual((cfg.data.batch_size, cfg.data.labeled_bs), (4, 2))

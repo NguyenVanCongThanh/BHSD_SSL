@@ -4,7 +4,7 @@ Provides robust logging, cloud model checkpointing, auto-restore for preemptible
 and summary metric tracking for MedSSL-BHSD.
 """
 
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Sequence
 import os
 import logging
 import json
@@ -146,6 +146,47 @@ class WandbManager:
     def log_visual_predictions(self, images, step=None, key='val/predictions'):
         if images:
             self.log_metrics({key: images}, step)
+
+    def build_evaluation_table(self, details: Dict[str, Any], class_names: Sequence[str]) -> Optional[Any]:
+        """
+        Build a wandb.Table summarizing per-class validation metrics.
+        Returns Table instance or None if disabled, empty, or on failure. Does not send logs.
+        """
+        if not self.enabled or not details or not details.get('per_class'):
+            return None
+        try:
+            import wandb
+            columns = [
+                "class_id", "class_name", "positive_cases", "negative_cases",
+                "dice_case", "dice_positive", "hd95_mm", "asd_mm",
+                "surface_valid_pairs", "fp_case_rate", "fp_ml",
+                "precision_micro", "recall_micro", "tp_voxels", "fp_voxels", "fn_voxels"
+            ]
+            table_rows = []
+            for row in details['per_class']:
+                name = class_names[row['class_id']]
+                table_rows.append([
+                    row.get('class_id'),
+                    name,
+                    row.get('positive_cases'),
+                    row.get('negative_cases'),
+                    row.get('dice_case_mean'),
+                    row.get('dice_positive_mean'),
+                    row.get('hd95_mm_mean'),
+                    row.get('asd_mm_mean'),
+                    row.get('surface_valid_pairs'),
+                    row.get('negative_fp_case_rate'),
+                    row.get('negative_fp_ml_mean'),
+                    row.get('precision_micro'),
+                    row.get('recall_micro'),
+                    row.get('tp_voxels'),
+                    row.get('fp_voxels'),
+                    row.get('fn_voxels')
+                ])
+            return wandb.Table(columns=columns, data=table_rows)
+        except Exception as table_err:
+            logging.warning(f"[W&B] Failed to build evaluation summary table: {table_err}")
+            return None
 
     def log_artifact(
         self,
