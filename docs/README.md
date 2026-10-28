@@ -14,6 +14,7 @@ Các tài liệu này mô tả quy trình thực thi hiện hành, cấu hình v
 * **[WANDB_METRICS_AND_DASHBOARD_ORGANIZATION.md](WANDB_METRICS_AND_DASHBOARD_ORGANIZATION.md)**: Quy chuẩn namespace metrics và thiết kế dashboard Weights & Biases (Overview, Evaluation, Diagnostics).
 * **[EXPERIMENT_DATA.md](EXPERIMENT_DATA.md)**: Cấu trúc thư mục dữ liệu thực nghiệm ngoại tuyến và quy trình crawl/snapshot.
 * **[DDP_BATCH_SIZE.md](DDP_BATCH_SIZE.md)**: Quy ước batch size cục bộ (per-GPU) và toàn cục (global) khi chạy huấn luyện phân tán.
+* **[BENCHMARK_SCALING_AND_TRAINING_EFFICIENCY_GUIDE.md](BENCHMARK_SCALING_AND_TRAINING_EFFICIENCY_GUIDE.md)**: Hướng dẫn tối ưu hóa huấn luyện (VRAM 40%, scaling batch size) và quy chuẩn benchmark học thuật công bằng với nnU-Net.
 
 ---
 
