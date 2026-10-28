@@ -36,17 +36,37 @@ class WandbManager:
             raise ValueError('wandb_mode must be online, offline or disabled')
         self.identity_path = Path(getattr(cfg.experiment, 'exp_dir', '../experiments')) / getattr(cfg.experiment, 'name', 'exp') / f'fold_{self.fold}' / 'wandb_run.json'
         self.log_failures = 0
+        self._hidden_metrics = set()
 
         from core.distributed import is_main_process
         if self.enabled and self.mode != "disabled" and is_main_process():
+            self.check_fresh_run_directory(cfg, self.fold)
             self._init_wandb()
         else:
             self.enabled = False
 
+    @staticmethod
+    def check_fresh_run_directory(cfg, fold=None):
+        """Reject checkpoint collisions before creating a run or replacing its identity."""
+        if bool(getattr(cfg.experiment, 'resume', False)):
+            return
+        fold = fold if fold is not None else getattr(cfg.experiment, 'fold', 0)
+        root = (Path(getattr(cfg.experiment, 'exp_dir', '../experiments'))
+                / getattr(cfg.experiment, 'name', 'exp') / f'fold_{fold}')
+        directories = [root]
+        if getattr(cfg.method, 'name', '') == 'pick':
+            phase = str(getattr(cfg.experiment, 'phase', 'all')).lower()
+            directories.extend(root / name for name in ('pre_train', 'self_train')
+                               if phase in ('all', name))
+        for directory in directories:
+            for name in ('checkpoint_latest.pth', 'best_model.pth', 'VNet_best_model.pth'):
+                if (directory / name).exists():
+                    raise FileExistsError(
+                        f'Existing checkpoints in {directory}; use resume or a new experiment directory')
+
     def _init_wandb(self):
         try:
             import wandb
-            import re
 
             if not self.run_name:
                 exp_name = getattr(self.cfg.experiment, 'name', 'exp')
@@ -80,12 +100,6 @@ class WandbManager:
             self.run.define_metric('val/mDice', step_metric='global_step', summary='max')
             self.run.define_metric('val/macro_positive_dice', step_metric='global_step', summary='max')
             self.run.define_metric('train/total', step_metric='global_step', summary='min')
-            # Hide raw count metrics from auto-generated default panels to prevent chart clutter
-            for pattern in ('*_tp_voxels', '*_fp_voxels', '*_fn_voxels', '*_positive_cases', '*_negative_cases', '*_surface_valid_pairs'):
-                try:
-                    self.run.define_metric(f'val/{pattern}', step_metric='global_step', hidden=True)
-                except Exception:
-                    pass
             self.run_id = self.run.id
             self.entity = getattr(self.run, 'entity', None) or self.entity
             self.identity_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,19 +124,20 @@ class WandbManager:
         return {'id': self.run_id, 'project': self.project, 'entity': self.entity, 'mode': self.mode}
 
     def _resume_identity(self):
-        if self.identity_path.exists():
-            identity = json.loads(self.identity_path.read_text())
-        else:
-            import torch
-            phase = getattr(self.cfg.experiment, 'phase', 'all')
-            directories = ['self_train', '', 'pre_train'] if phase == 'all' else [phase, '']
-            identity = None
-            for directory in directories:
-                path = self.identity_path.parent / directory / 'checkpoint_latest.pth'
-                if path.is_file():
-                    identity = torch.load(path, map_location='cpu', weights_only=True).get('wandb_run')
-                    if identity:
-                        break
+        identity = json.loads(self.identity_path.read_text()) if self.identity_path.exists() else None
+        import torch
+        phase = getattr(self.cfg.experiment, 'phase', 'all')
+        directories = ['self_train', '', 'pre_train'] if phase == 'all' else [phase, '']
+        for directory in directories:
+            path = self.identity_path.parent / directory / 'checkpoint_latest.pth'
+            if path.is_file():
+                checkpoint_identity = torch.load(path, map_location='cpu', weights_only=True).get('wandb_run')
+                if checkpoint_identity:
+                    if identity and any(identity.get(key) != checkpoint_identity.get(key)
+                                        for key in ('id', 'project', 'entity')):
+                        raise ValueError(f'W&B saved identity conflicts with checkpoint {path}')
+                    identity = checkpoint_identity
+                    break
         if identity:
             if self.entity is None:
                 self.entity = identity.get('entity')
@@ -138,6 +153,13 @@ class WandbManager:
         if step is not None:
             payload['global_step'] = step
         try:
+            # W&B supports suffix globs only; register each actual per-class key.
+            hidden_suffixes = ('_tp_voxels', '_fp_voxels', '_fn_voxels',
+                               '_positive_cases', '_negative_cases', '_surface_valid_pairs')
+            for key in payload:
+                if key.startswith('val/') and key.endswith(hidden_suffixes) and key not in self._hidden_metrics:
+                    self.run.define_metric(key, step_metric='global_step', hidden=True)
+                    self._hidden_metrics.add(key)
             self.run.log(payload, commit=True)
         except Exception as exc:
             self.log_failures += 1
