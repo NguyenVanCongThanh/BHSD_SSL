@@ -1,0 +1,15 @@
+# MedSSL-BHSD Core Training & Evaluation Dependencies
+# Pin ranges validated against Python 3.10 runtime
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.23.0
+scipy>=1.9.0
+h5py>=3.8.0
+pyyaml>=6.0
+tensorboardX>=2.6
+Pillow>=9.0.0
+tqdm>=4.64.0
+medpy>=0.4.0
+SimpleITK>=2.2.0
+nibabel>=5.0.0
+

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Setup and standardize Weights & Biases (W&B) Workspace Views for MedSSL-BHSD.
 
@@ -57,6 +58,7 @@ def build_overview_workspace(
     step_metric: str = "global_step"
 ) -> ws.Workspace:
     """Build the clean 'Overview' workspace view (7-9 core panels)."""
+    check_dependencies()
     # Section 1: Core Validation Performance
     p_mdice = wr.LinePlot(
         x=step_metric,
@@ -123,6 +125,7 @@ def build_evaluation_workspace(
     step_metric: str = "global_step"
 ) -> ws.Workspace:
     """Build the 'Evaluation' workspace view (Geometric boundary & clinical metrics)."""
+    check_dependencies()
     # Section 1: Geometric Boundary Metrics
     p_hd95 = wr.LinePlot(
         x=step_metric,
@@ -195,6 +198,7 @@ def build_diagnostics_workspace(
     step_metric: str = "global_step"
 ) -> ws.Workspace:
     """Build the 'Diagnostics' workspace view (Support counts and raw voxel counts)."""
+    check_dependencies()
     # Section 1: Cohort Support Counts
     p_pos_cases = wr.LinePlot(
         x=step_metric,

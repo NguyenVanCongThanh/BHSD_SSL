@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tools.crawl_storage import new_snapshot, comparison_file
+from tools.crawl_storage import new_snapshot, comparison_file, clean_data
 
 
 class TestCrawlStorage(unittest.TestCase):
@@ -32,6 +32,24 @@ class TestCrawlStorage(unittest.TestCase):
                 self.assertEqual(comparison_file(), second / 'wandb_results.json')
             with patch('sys.argv', ['compare_runs.py', '--input', str(first / 'wandb_results.json')]):
                 self.assertEqual(comparison_file(), first / 'wandb_results.json')
+
+    def test_clean_data(self):
+        raw = {
+            '_private': 'hide',
+            '_step': 100,
+            'metric': 0.95,
+            'nested': {'_internal': 1, 'visible': 'ok'},
+            'list': [{'a': 1, '_b': 2}],
+            'none': None,
+        }
+        cleaned = clean_data(raw)
+        self.assertEqual(cleaned, {
+            '_step': 100,
+            'metric': 0.95,
+            'nested': {'visible': 'ok'},
+            'list': [{'a': 1}],
+            'none': None,
+        })
 
 
 if __name__ == '__main__':

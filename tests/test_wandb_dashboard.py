@@ -1,10 +1,15 @@
 """
 Unit tests for tools/setup_wandb_dashboard.py
 """
+import importlib.util
 import unittest
 import subprocess
 import sys
 from pathlib import Path
+
+HAS_WANDB_WORKSPACES = bool(
+    importlib.util.find_spec("wandb_workspaces") and importlib.util.find_spec("wandb")
+)
 
 from tools.setup_wandb_dashboard import (
     build_overview_workspace,
@@ -16,6 +21,7 @@ from tools.setup_wandb_dashboard import (
 )
 
 
+@unittest.skipUnless(HAS_WANDB_WORKSPACES, "wandb-workspaces not installed in test environment")
 class TestWandbDashboardSetup(unittest.TestCase):
     def test_overview_workspace_layout(self):
         ws = build_overview_workspace("entity", "PICK_BHSD", BHSD_FOREGROUND_CLASSES)

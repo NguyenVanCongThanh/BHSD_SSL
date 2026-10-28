@@ -18,12 +18,10 @@ Usage Examples:
 """
 
 import os
-import sys
 import argparse
 import logging
-import torch
 
-from core.registry import MODELS, METHODS, DATASETS
+from core.registry import METHODS
 from core.config_parser import load_config
 import data     # Trigger dataset registrations
 import models   # Trigger model registrations

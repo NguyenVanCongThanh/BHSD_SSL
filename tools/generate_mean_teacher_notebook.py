@@ -464,7 +464,6 @@ def build_mean_teacher_notebook():
 if __name__ == "__main__":
     nb = build_mean_teacher_notebook()
     targets = [
-        "kaggle_mean_teacher/kaggle_bhsd_mean_teacher_dual_gpu.ipynb",
         "scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
     ]
     for target in targets:
