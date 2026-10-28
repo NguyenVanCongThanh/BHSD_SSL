@@ -8,7 +8,6 @@ from typing import Dict, Any, Optional, Tuple
 import os
 import logging
 import sys
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +15,7 @@ import torch.nn.functional as F
 from core.registry import METHODS
 from core.distributed import is_main_process
 from methods.base_method import BaseMethod
-from methods.ssl_utils import split_ssl_batch, extract_logits, get_or_create_mim_mask
+from methods.ssl_utils import split_ssl_batch, get_or_create_mim_mask
 from losses import MaskDiceLoss, DiceCELoss
 from data.masking import context_mask
 

@@ -40,6 +40,17 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
 
 
+def clean_data(obj):
+    """Sanitize arbitrary objects for JSON serialization, preserving _step while filtering private keys."""
+    if isinstance(obj, (int, float, str, bool)) or obj is None:
+        return obj
+    if hasattr(obj, "items"):
+        return {str(k): clean_data(v) for k, v in obj.items() if not str(k).startswith("_") or k == "_step"}
+    if isinstance(obj, (list, tuple)):
+        return [clean_data(x) for x in obj]
+    return str(obj)
+
+
 def save_run_export(run, data):
     folder = new_snapshot('wandb', run.id, entity=run.entity, project=run.project,
                           run_id=run.id, run_created_at=str(run.created_at), url=run.url)
@@ -59,7 +70,10 @@ def comparison_file(path=None):
     args, _ = parser.parse_known_args()
     if args.input:
         return args.input
-    candidates = list(data_root().glob('wandb/_collections/*/wandb_results.json'))
+    all_candidates = list(data_root().glob('wandb/_collections/*/wandb_results.json'))
+    candidates = [p for p in all_candidates if p.parent.name != 'latest' and not p.parent.is_symlink()]
+    if not candidates:
+        candidates = all_candidates
     if not candidates:
         raise FileNotFoundError('No comparison snapshot; run tools/fetch_wandb.py or pass --input PATH')
     return max(candidates, key=lambda p: p.parent.name)

@@ -1,27 +1,15 @@
 try:
-    from .crawl_storage import new_snapshot, save_run_export, write_json
+    from .crawl_storage import clean_data, new_snapshot, write_json
 except ImportError:
-    from crawl_storage import new_snapshot, save_run_export, write_json
+    from crawl_storage import clean_data, new_snapshot, write_json
 
-import os
-import sys
 import json
 import wandb
-import pandas as pd
 
 # API Key và cấu hình dự án
 
 entity = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology"
 project = "BHSD_MeanTeacher"
-
-def clean_data(obj):
-    if isinstance(obj, (int, float, str, bool)) or obj is None:
-        return obj
-    if hasattr(obj, "items"):
-        return {str(k): clean_data(v) for k, v in obj.items() if not str(k).startswith("_") or k == "_step"}
-    if isinstance(obj, (list, tuple)):
-        return [clean_data(x) for x in obj]
-    return str(obj)
 
 def extract_metrics(run):
     print(f"       [*] Đang trích xuất dữ liệu cho {run.name} ({run.id})...", flush=True)

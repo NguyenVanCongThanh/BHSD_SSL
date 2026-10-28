@@ -1,0 +1,9 @@
+# Optional tooling dependencies for W&B dashboards, data caching, exports, and profiling
+-r requirements.txt
+wandb>=0.16.0
+pandas>=2.0.0
+blosc2>=2.0.0
+wandb-workspaces>=0.1.0
+thop>=0.1.1
+fvcore>=0.1.5
+

@@ -7,7 +7,7 @@ Adapted & Optimized for 3D Brain Hemorrhage Segmentation (Extreme class imbalanc
 Leverages centralized ConsistencyLoss, EMA utilities, and BaseMethod engine.
 """
 
-from typing import Dict, Tuple, List, Optional, Union, Any
+from typing import Dict, Tuple, List, Optional
 import math
 import copy
 import logging
@@ -18,11 +18,10 @@ import torch.nn.functional as F
 from core.registry import METHODS
 from methods.base_method import BaseMethod
 from methods.ssl_utils import update_ema_variables
-from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, ConsistencyLoss
+from losses import MaskDiceLoss, extract_multiscale_outputs, ConsistencyLoss
 from utils.ramps import sigmoid_rampup
 from losses.deep_supervision import resolve_ds_weights
 from utils.checkpoint import get_raw_model
-from evaluation.sliding_window import evaluate_dataset_sliding_window
 
 
 @METHODS.register("mean_teacher")

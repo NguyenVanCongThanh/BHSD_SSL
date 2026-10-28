@@ -18,7 +18,6 @@ from typing import Dict, Any, Optional, List
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NOTEBOOKS_CONFIG_FILE = PROJECT_ROOT / "configs" / "kaggle" / "notebooks.json"
 RUNS_BASE_DIR = PROJECT_ROOT / "kaggle_runs"
-WANDB_SECRET_FILE = PROJECT_ROOT / "configs" / "kaggle" / "secrets" / "wandb_api_key.txt"
 
 class NotebookBuilder:
     def __init__(self, config_path: Optional[Path] = None):
@@ -91,11 +90,6 @@ class NotebookBuilder:
         else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
 
-        # 1b. Bảo mật (SEC-02): Không tiêm plaintext key vào notebook bundle.
-        # Notebook sử dụng secret runtime Kaggle (UserSecretsClient) hoặc biến môi trường.
-        # self._inject_wandb_key_into_bundle(target_code_path)
-
-
         # 2. Xử lý dataset sources
         datasets = custom_datasets if custom_datasets is not None else spec.get("dataset_sources", [])
         resolved_datasets = []
@@ -129,10 +123,3 @@ class NotebookBuilder:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
         return bundle_dir
-
-    def _inject_wandb_key_into_bundle(self, notebook_path: Path) -> None:
-        """
-        Bảo mật (SEC-02): Vô hiệu hóa việc tiêm API key vào notebook bundle.
-        Kaggle notebook sẽ sử dụng Kaggle UserSecretsClient hoặc biến môi trường ở runtime.
-        """
-        return

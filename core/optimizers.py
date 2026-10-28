@@ -5,7 +5,6 @@ Supports SGD, Adam, AdamW and schedulers (Polynomial decay, Cosine Annealing, Wa
 
 import math
 import logging
-from typing import Dict, Any, Callable, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.optim as optim
