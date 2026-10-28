@@ -285,6 +285,20 @@ class TestPhase1Contracts(unittest.TestCase):
             load_config(cli_args=['--method.base_lr', 'inf'])
         self.assertIn('method.base_lr must be positive finite float', str(ctx3.exception))
 
+    def test_r10_ddp_cli_override_and_validation(self):
+        # DDP boolean flag from torchrun / train.py injection
+        cfg = load_config(dataset_config='bhsd_multiclass', cli_args=['--experiment.ddp', 'true'])
+        self.assertTrue(cfg.experiment.ddp)
+
+        # Flat --ddp mapping
+        cfg2 = load_config(dataset_config='bhsd_multiclass', cli_args=['--ddp'])
+        self.assertTrue(cfg2.experiment.ddp)
+
+        # Non-boolean ddp validation
+        with self.assertRaises(ValueError) as ctx:
+            validate_config({'experiment': {'ddp': 'not_a_bool'}})
+        self.assertIn('experiment.ddp must be boolean', str(ctx.exception))
+
 
 if __name__ == '__main__':
     unittest.main()

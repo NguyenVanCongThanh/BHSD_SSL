@@ -135,6 +135,7 @@ SECTION_MAPPING = {
     'amp': 'experiment',
     'phase': 'experiment',
     'pretrain_checkpoint': 'experiment',
+    'ddp': 'experiment',
 
     # Model section
     'model': 'model',
@@ -238,7 +239,7 @@ def _resolve_config_path(category: str, identifier: str) -> Optional[str]:
 KNOWN_SECTION_KEYS = {
     'experiment': {
         'name', 'task', 'num_classes', 'fold', 'seed', 'deterministic', 'exp_dir',
-        'resume', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode'
+        'resume', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode', 'ddp'
     },
     'data': {
         'name', 'root_path', 'patch_size', 'batch_size', 'labeled_bs', 'labelnum',
@@ -348,6 +349,9 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         s = exp['seed']
         if not _is_int(s) or s < 0:
             raise ValueError(f"experiment.seed must be non-negative integer, got {s}")
+    if 'ddp' in exp:
+        if not isinstance(exp['ddp'], bool):
+            raise ValueError(f"experiment.ddp must be boolean, got {exp['ddp']}")
 
     # 3. Method invariants
     if 'base_lr' in method:
