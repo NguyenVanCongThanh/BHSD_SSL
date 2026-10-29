@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Quy chuẩn Metric Logging và Kiến trúc Dashboard Weights & Biases (W&B)
 
 Tài liệu này xác lập quy chuẩn thu thập metric, phân định ý nghĩa thống kê và kiến trúc bảng điều khiển (Workspace Dashboard) trên W&B Cloud cho dự án **MedSSL-BHSD**. 
@@ -14,19 +16,19 @@ Tài liệu được xây dựng nhằm giải quyết tình trạng quá tải 
 - **Ý nghĩa của `hidden=True`:** Khi đăng ký qua `wandb.define_metric(key, hidden=True)`, W&B sẽ không tự động tạo biểu đồ cho key đó trong các workspace sinh tự động của các run mới. Thuộc tính này **không xóa hay dọn các panel đã tồn tại** trong các Workspace View đã được lưu từ trước.
 
 ### 1.2. Thống kê tải lượng Metric trong Codebase Hiện hành
-Trong các vòng lặp huấn luyện và đánh giá ([methods/base_method.py](../methods/base_method.py)), số lượng metric và media được phát sinh theo từng điều kiện:
+Trong các vòng lặp huấn luyện và đánh giá ([methods/base_method.py](../../../methods/base_method.py)), số lượng metric và media được phát sinh theo từng điều kiện:
 
 #### A. Training Phase (mỗi `log_interval` bước):
-Được gửi tại [methods/base_method.py](../methods/base_method.py#L766-L774):
+Được gửi tại [methods/base_method.py](../../../methods/base_method.py#L766-L774):
 - Mất mát: `train/total`, `train/supervised` (hoặc `train/supervised_main`), `train/deep_supervision`, `train/consistency`.
 - Tối ưu hóa: `train/weight` (ramp-up weight), `train/lr`.
 - Trục điều khiển: `global_step` (trục bước huấn luyện thống nhất), `phase`, `train/iter`.
 
 #### B. Validation Phase (mỗi `val_interval` bước):
-Được gửi tại [methods/base_method.py](../methods/base_method.py#L624-L649):
+Được gửi tại [methods/base_method.py](../../../methods/base_method.py#L624-L649):
 1. **Summary tổng quát:** `val/mDice`, `val/best_mDice`, `{phase}/val_mDice` (lưu ý: `{phase}/val_mDice` thuộc namespace của phase huấn luyện tương ứng).
 2. **Per-class basic Dice:** `val/dice_{class}` cho từng lớp foreground.
-3. **Per-class chi tiết từ [`aggregate_segmentation_stats`](../evaluation/metrics.py#L177):**
+3. **Per-class chi tiết từ [`aggregate_segmentation_stats`](../../../evaluation/metrics.py#L177):**
    Với mỗi lớp foreground, hệ thống tính toán:
    - `val/{class}_dice_case_mean` *(trùng lặp giá trị số với `val/dice_{class}`)*.
    - `val/{class}_dice_positive_mean` *(Dice chỉ tính trên các ca có tổn thương)*.
@@ -82,7 +84,7 @@ W&B Project Dashboard
 
 ## 3. Bản chất Thống kê: Phân định Last, Best và Selected Metrics
 
-Để tránh nhầm lẫn khi tổng hợp kết quả (đặc biệt trong các công cụ như [`tools/compare_runs.py`](../tools/compare_runs.py)), dự án quy định rạch ròi 3 khái niệm:
+Để tránh nhầm lẫn khi tổng hợp kết quả (đặc biệt trong các công cụ như [`tools/compare_runs.py`](../../../tools/compare_runs.py)), dự án quy định rạch ròi 3 khái niệm:
 
 ```mermaid
 flowchart LR
@@ -110,14 +112,14 @@ flowchart LR
    - Đây là bộ giá trị duy nhất có giá trị công bố học thuật và đánh giá lâm sàng.
 
 ### 3.1. Làm rõ hành vi W&B `run.summary` và `define_metric`
-- Hiện tại, [`utils/wandb_manager.py`](../utils/wandb_manager.py#L80) đã đăng ký:
+- Hiện tại, [`utils/wandb_manager.py`](../../../utils/wandb_manager.py#L80) đã đăng ký:
   ```python
   self.run.define_metric('val/mDice', step_metric='global_step', summary='max')
   ```
 - Do cấu hình `summary='max'`, thuộc tính `run.summary['val/mDice']` trên W&B API sẽ lưu **giá trị cực đại (best)** của `val/mDice`, chứ **không phải giá trị ở bước cuối cùng (last)**.
-- Các script đọc dữ liệu như [`tools/compare_runs.py`](../tools/compare_runs.py) cần phân biệt rõ khi in thông tin:
+- Các script đọc dữ liệu như [`tools/compare_runs.py`](../../../tools/compare_runs.py) cần phân biệt rõ khi in thông tin:
   - Trường in nhãn "Final mDice" thực chất đang nhận giá trị aggregate `summary='max'`. Cần đọc từ `history` nếu muốn lấy giá trị `last` thực sự.
-- **Phạm vi của `best_mDice`:** Trong [`methods/base_method.py`](../methods/base_method.py#L696), khi bắt đầu một phase huấn luyện mới (ví dụ từ `pre_train` sang `self_train`), biến `self.best_dice` được khởi tạo lại về `0.0`. Do đó `best_mDice` được ghi nhận theo **từng phase**, không tự động kế thừa kỷ lục từ phase trước.
+- **Phạm vi của `best_mDice`:** Trong [`methods/base_method.py`](../../../methods/base_method.py#L696), khi bắt đầu một phase huấn luyện mới (ví dụ từ `pre_train` sang `self_train`), biến `self.best_dice` được khởi tạo lại về `0.0`. Do đó `best_mDice` được ghi nhận theo **từng phase**, không tự động kế thừa kỷ lục từ phase trước.
 
 ---
 
@@ -130,7 +132,7 @@ flowchart LR
   - Các giá trị `None` phải được giữ nguyên dạng `None` trong JSON/W&B payload.
 
 ### 4.2. Mẫu số động của Macro Positive Dice
-- Chỉ số `macro_positive_dice` (tính trong [`evaluation/metrics.py#L216`](../evaluation/metrics.py#L216)) được tính bằng trung bình cộng positive Dice của các lớp thỏa mãn điều kiện có ca dương tính (`positive_cases > 0`).
+- Chỉ số `macro_positive_dice` (tính trong [`evaluation/metrics.py#L216`](../../../evaluation/metrics.py#L216)) được tính bằng trung bình cộng positive Dice của các lớp thỏa mãn điều kiện có ca dương tính (`positive_cases > 0`).
 - Mẫu số đánh giá **không cố định luôn bằng số lớp foreground** mà phụ thuộc vào `eligible_positive_classes`.
 - Bảng báo cáo trên W&B bắt buộc phải hiển thị kèm danh sách `eligible_positive_classes` và `positive_support` để bảo đảm tính minh bạch về kích thước mẫu.
 
@@ -180,7 +182,7 @@ Hệ thống hỗ trợ linh hoạt cả cấu hình **Binary** (1 lớp tổn t
 
 1. **Giữ nguyên toàn bộ Backend Logging:**
    - Tiếp tục ghi nhận các khóa: `val/mDice`, `val/best_mDice`, `val/dice_{class}` và `val/{class}_dice_case_mean`.
-   - Các công cụ như [`tools/compare_runs.py`](../tools/compare_runs.py), [`tools/fetch_latest_run.py`](../tools/fetch_latest_run.py), [`tools/fetch_wandb.py`](../tools/fetch_wandb.py), [`tools/analyze_run_9tvq8qld.py`](../tools/analyze_run_9tvq8qld.py) tiếp tục hoạt động bình thường trên cả run cũ lẫn run mới.
+   - Các công cụ như [`tools/compare_runs.py`](../../../tools/compare_runs.py), [`tools/fetch_latest_run.py`](../../../tools/fetch_latest_run.py), [`tools/fetch_wandb.py`](../../../tools/fetch_wandb.py), [`tools/analyze_run_9tvq8qld.py`](../../../tools/analyze_run_9tvq8qld.py) tiếp tục hoạt động bình thường trên cả run cũ lẫn run mới.
 2. **Không xóa dữ liệu trùng ở tầng log:**
    - Việc trùng lặp giữa `val/dice_{class}` và `val/{class}_dice_case_mean` được giải quyết ở tầng hiển thị: **chỉ đưa 1 đại diện vào Workspace View**, không tạo panel cho key còn lại.
    - Nếu thực hiện chuẩn hóa schema trong tương lai, phải tuân thủ quy trình 3 bước:
@@ -192,7 +194,7 @@ Hệ thống hỗ trợ linh hoạt cả cấu hình **Binary** (1 lớp tổn t
 
 ## 7. Quy tắc Quản lý Dashboard và Tự động hóa qua Code
 
-Nhằm duy trì dashboard ổn định lâu dài và dễ dàng tái tạo khi thay đổi môi trường hoặc tài khoản, dự án xây dựng script cấu hình bảng điều khiển: [`tools/setup_wandb_dashboard.py`](../tools/setup_wandb_dashboard.py).
+Nhằm duy trì dashboard ổn định lâu dài và dễ dàng tái tạo khi thay đổi môi trường hoặc tài khoản, dự án xây dựng script cấu hình bảng điều khiển: [`tools/setup_wandb_dashboard.py`](../../../tools/setup_wandb_dashboard.py).
 
 ### 7.1. Nguyên tắc thiết kế của Dashboard Automation Tool
 - **Template lưu trong mã nguồn:** Cấu trúc định nghĩa layout (danh sách panel, màu sắc, vị trí) được lưu trữ dạng mã nguồn Python/JSON trong thư mục `tools/` của repository, chịu sự quản lý phiên bản của Git.
@@ -221,14 +223,14 @@ flowchart TD
 
 ### Bước 2: Xây dựng Script Workspace trên các Key Hiện hành
 - Cài đặt và cố định phiên bản thư viện `wandb-workspaces` (hoặc sử dụng W&B Public API hiện hành).
-- Xây dựng [`tools/setup_wandb_dashboard.py`](../tools/setup_wandb_dashboard.py) tạo ra 3 views: `Overview`, `Evaluation`, `Diagnostics` trên tập metric hiện có.
+- Xây dựng [`tools/setup_wandb_dashboard.py`](../../../tools/setup_wandb_dashboard.py) tạo ra 3 views: `Overview`, `Evaluation`, `Diagnostics` trên tập metric hiện có.
 - **Kết quả:** Ngay lập tức giải quyết tình trạng lộn xộn trên W&B Cloud cho **cả các run cũ (như `9tvq8qld`)** mà không cần sửa đổi bất kỳ dòng code training nào.
 
 ### Bước 3: Bổ sung Metric Thiếu và Bảng Đánh giá
-- Trong [`methods/base_method.py`](../methods/base_method.py):
+- Trong [`methods/base_method.py`](../../../methods/base_method.py):
   - Bổ sung ghi nhận `val/macro_positive_dice = details.get('macro_positive_dice')`.
   - Tạo bảng `wandb.Table` tổng hợp per-class metrics và log vào `val/evaluation_table` mỗi kỳ validation.
-- Trong [`utils/wandb_manager.py`](../utils/wandb_manager.py):
+- Trong [`utils/wandb_manager.py`](../../../utils/wandb_manager.py):
   - Bổ sung `define_metric` cho `val/macro_positive_dice` với `summary="max"`.
   - Đăng ký `hidden=True` cho các chỉ số thống kê thô để ngăn tự sinh panel rác trên các view tự do.
 
@@ -237,5 +239,5 @@ Một giải pháp được nghiệm thu khi vượt qua đầy đủ các kiể
 1. **Run cũ xem được trọn vẹn:** Các run lịch sử mở trên view `Overview` hiển thị đúng 7–9 biểu đồ trọng yếu, không bị lỗi thiếu dữ liệu.
 2. **Không tự sinh panel tràn lan:** Chạy một thử nghiệm mới, view `Overview` không bị chèn thêm hàng chục panel lạ.
 3. **Tính Idempotent của Script:** Chạy `python tools/setup_wandb_dashboard.py` hai lần liên tiếp không làm nhân đôi số lượng biểu đồ hay làm vỡ layout.
-4. **Độ tương thích của Reader:** [`tools/compare_runs.py`](../tools/compare_runs.py) và [`tools/fetch_wandb.py`](../tools/fetch_wandb.py) đọc đúng các trường summary mà không gặp lỗi parse hay crash.
+4. **Độ tương thích của Reader:** [`tools/compare_runs.py`](../../../tools/compare_runs.py) và [`tools/fetch_wandb.py`](../../../tools/fetch_wandb.py) đọc đúng các trường summary mà không gặp lỗi parse hay crash.
 5. **Khả năng chịu lỗi môi trường:** Hệ thống hoạt động an toàn khi gặp giá trị `None`, khi chuyển phase huấn luyện, khi resume checkpoint, hoặc khi W&B chạy ở chế độ `offline` / `disabled`.

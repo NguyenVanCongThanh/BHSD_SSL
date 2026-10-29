@@ -1,4 +1,4 @@
-# Validation visualization, metrics, config và W&B
+# Hiển thị validation và cohort cố định
 
 Cập nhật: 27/10/2026. Tài liệu này mô tả hành vi đã triển khai, thay cho các giả định về màu sắc của bản phân tích ban đầu.
 
@@ -63,40 +63,9 @@ Các ảnh hiển thị không được dùng để tính metric: metric chạy 
 
 Cohort nằm trong `validation_latest.json`. Khi cần chọn cohort có phân tầng, hãy xác lập danh sách một lần trước khi so sánh run. Chưa triển khai tự động chọn worst cases, montage mọi lát cắt hoặc lesion matching; không dùng ảnh đẹp được chọn lại theo checkpoint làm bằng chứng tổng quát.
 
-## 5. Metric và ý nghĩa thống kê
+## 5. Metric trên ảnh
 
-Giữ nguyên công thức chọn best: trung bình foreground Dice qua các case. Khi prediction và GT cùng vắng class, Dice của class/case đó bằng `1`. Không đổi checkpoint selection ngầm khi thêm metric.
-
-Bổ sung cho từng class:
-
-| Trường | Ý nghĩa |
-|---|---|
-| `dice_case_mean` | Mean Dice trên toàn bộ case, gồm ca âm tính |
-| `dice_positive_mean` | Mean Dice chỉ trên case có GT của class |
-| `positive_cases`, `negative_cases` | Support để đọc đúng hai loại mean |
-| `negative_fp_case_rate` | Tỷ lệ case GT âm tính có ít nhất một voxel FP |
-| `negative_fp_voxels_mean` | Số voxel FP trung bình trên case âm tính |
-| `negative_fp_ml_mean` | FP volume trung bình trên case âm tính, chỉ có khi đủ spacing |
-| `precision_micro`, `recall_micro` | Precision/recall từ voxel counts gộp, không phải lesion detection sensitivity |
-| `tp_voxels`, `fp_voxels`, `fn_voxels` | Counts native grid phục vụ kiểm toán |
-| `hd95_mm_mean`, `asd_mm_mean` | Surface distances tùy chọn, chỉ mean trên cặp có cả hai mask nonempty |
-| `surface_valid_pairs` | Số cặp đủ điều kiện tính surface distance |
-
-Không có support hoặc denominator bằng 0 thì ghi `null`, không tự coi là score hoàn hảo hoặc lỗi 0. FP mL cần spacing Z/Y/X dương, đơn vị mm; voxel volume chia 1000 để thành mL.
-
-`val_surface_metrics: true` yêu cầu spacing; thiếu spacing gây lỗi rõ ràng. Surface distance dùng bề mặt voxel với connectivity mặc định của SciPy, khoảng cách Euclidean theo spacing; HD95 là percentile 95 của hai tập khoảng cách gộp, ASD là mean đối xứng gộp. Cặp mask rỗng ghi `null` và trạng thái `both_empty`/`one_empty`, không bịa penalty 100 mm. Khi so sánh với thư viện khác phải thống nhất định nghĩa HD95/ASD và empty-mask policy.
-
-Training validation, single evaluation và benchmark dùng chung hàm thống kê. Benchmark phân biệt unweighted mean qua fold với `oof_case_metrics` tính trên tất cả case đã đánh giá; nếu thiếu fold, kết quả vẫn là partial OOF, không được gọi là full 5-fold.
-
-Ví dụ export single checkpoint:
-
-```bash
-python evaluate.py --checkpoint /path/to/checkpoint.pth \
-  --dataset bhsd_multiclass --fold 0 \
-  --metrics_output /tmp/evaluation_metrics.json
-```
-
-Thêm `--surface_metrics` khi dataset có spacing; `--no_amp` tắt evaluation autocast. Các setting TTA/patch/stride phải thống nhất khi so sánh điểm.
+Caption phân biệt volume Dice 3D và slice Dice 2D. Xem [định nghĩa metrics](metrics-and-wandb.md) cho empty masks, support và surface distances; [benchmark](benchmark-protocol.md) cho protocol evaluation. Render/resize không tham gia tính metric.
 
 ## 6. Config thực sự có tác dụng
 
@@ -133,47 +102,11 @@ logging:
 
 Metadata preprocessing và fingerprint khai báo trong config vẫn cần người tạo dataset xác nhận. Không tự chuyển UI display settings thành model preprocessing.
 
-## 7. W&B: history, resume, trạng thái và secrets
+## 7. Logging và resume
 
-### Trục thời gian
+Xem [W&B và metric logging](metrics-and-wandb.md) cho global step, run identity, lifecycle và lỗi; [checkpoint/resume](checkpoint-resume.md) cho nguồn khôi phục local/cloud.
 
-SDK history append-only. Manager log `global_step` như một metric và dùng `define_metric(..., step_metric='global_step')`; không ghi đè SDK history bằng training iteration. Train/val có thể là hai history row cùng `global_step`, không làm mất media vì cố ghi về một step cũ. `val/mDice` khai báo summary `max`; best/last được lưu riêng.
-
-`tools/fetch_wandb.py` ghép các history row cùng `global_step` để xuất loss và validation tại đúng iteration. Run cũ dùng `iter`, rồi mới fallback `_step` khi thiếu cả hai trục; không lấy loss từ iteration khác. Các metric đếm per-class được đăng ký `hidden=True` bằng tên cụ thể ngay trước lần log đầu tiên, vì W&B không hỗ trợ wildcard ở giữa tên metric.
-
-### Identity và resume
-
-- Run ID được lưu trong `<fold_dir>/wandb_run.json` và checkpoint `wandb_run`.
-- Lần chạy mới kiểm tra checkpoint trước khi tạo W&B run hoặc ghi identity; tất cả rank kiểm tra trước khi bọc model bằng DDP. PICK kiểm tra thư mục của phase được yêu cầu, nên vẫn có thể bắt đầu self-training mới từ checkpoint pre-training.
-- Resume dùng lại ID này hoặc explicit `logging.wandb_id`; không tự tạo ID từ tên run rồi gọi đó là resume.
-- Nếu file identity và checkpoint có ID/project/entity mâu thuẫn, resume dừng trước khi gọi W&B để tránh ghi vào sai run.
-- Online resume dùng `resume='must'`. Mâu thuẫn ID/project/entity gây lỗi; không tự chuyển sang run mới khi run cũ bị xóa/xung đột.
-- Offline giữ ID nhưng mỗi lần chạy có thể tạo một segment offline riêng. Việc hợp nhất lịch sử khi sync cần kiểm tra; không cam kết offline resume là append vào cùng file cũ.
-
-### Lifecycle và lỗi
-
-- Manager dùng run handle riêng, không gọi global logging/summary để tránh ghi nhầm run.
-- Training exception đóng run với `exit_code=1`; run thành công đóng với code 0. Áp dụng cả BaseMethod và PICK.
-- Init/log thất bại có warning. Log lỗi lặp được giới hạn tần suất; `wandb_required: true` yêu cầu fail thay vì tiếp tục local-only.
-- Artifact upload là bất đồng bộ: log “queued” không phải bằng chứng upload đã hoàn thành.
-
-```yaml
-logging:
-  use_wandb: true
-  wandb_mode: offline  # online | offline | disabled; WANDB_MODE env có ưu tiên
-  wandb_required: true
-```
-
-Notebook/generator đã bỏ credential W&B literal; đọc `WANDB_API_KEY` từ environment hoặc Kaggle Secrets. Thiếu secret thì notebook báo rõ và chọn offline. Token đã có trong lịch sử Git trước đó **không bị xóa khỏi lịch sử bởi thay đổi này**; cần thu hồi/đổi token đó qua tài khoản sở hữu.
-
-Config được redaction trước khi ghi W&B/local snapshot/checkpoint đối với các key credential thông dụng. Đây không phải bộ phát hiện mọi dạng bí mật; không đưa credential vào tên run, comment hoặc arbitrary string trong config.
-
-### Tài liệu SDK
-
-- [W&B Run.log, define_metric và finish](https://docs.wandb.ai/ref/python/experiments/run/)
-- [Logging history và summary](https://docs.wandb.ai/models/support/difference_log_summary)
-
-## 8. Kiểm chứng và giới hạn
+## 8. Bằng chứng kiểm chứng ngày 27/10/2026 và giới hạn
 
 Kết quả kiểm tra đợt này: **71 test qua**, gồm test W&B SDK **0.31.0** offline thật và DDP CPU/Gloo. Kiểm tra cú pháp notebook, compileall và `git diff --check` cũng qua.
 

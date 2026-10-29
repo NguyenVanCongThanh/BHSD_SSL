@@ -1,3 +1,7 @@
+> Bản lưu trong đợt rà soát tài liệu 29/10, không suy đó là ngày tác giả tạo doc. Các ước lượng throughput/VRAM/hội tụ và checklist đã tick phía dưới chưa có đủ bằng chứng. Key đúng là `method.max_iteration`. Xem [training](../../guides/training.md) và [benchmark](../../guides/benchmark-protocol.md).
+
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Hướng Dẫn Tối Ưu Huấn Luyện và Quy Chuẩn Benchmark Học Thuật (MedSSL-BHSD)
 
 Tài liệu này tổng hợp toàn bộ các phân tích kỹ thuật chuyên sâu về quản lý tiến trình Weights & Biases (W&B), phân bổ tài nguyên phần cứng (VRAM / DDP), động lực học co giãn batch size (scaling dynamics) và chiến lược thiết lập benchmark chuẩn mực nhằm phục vụ công bố khoa học (Paper submission: MICCAI, IEEE TMI, MedIA).
@@ -8,11 +12,11 @@ Tài liệu này tổng hợp toàn bộ các phân tích kỹ thuật chuyên s
 
 ### 1.1. Bản chất của việc "Tách rời 70+ biểu đồ" trên W&B
 * **Cơ chế thu thập (Metric Logging):**
-  * Tại phiên bản nâng cấp đánh giá y tế ([`evaluation/metrics.py`](../evaluation/metrics.py)), hệ thống tính toán chi tiết ~15 chỉ số độc lập cho từng lớp trong 5 thể xuất huyết não (Epidural, Intraparenchymal, Intraventricular, Subarachnoid, Subdural).
+  * Tại phiên bản nâng cấp đánh giá y tế ([`evaluation/metrics.py`](../../../evaluation/metrics.py)), hệ thống tính toán chi tiết ~15 chỉ số độc lập cho từng lớp trong 5 thể xuất huyết não (Epidural, Intraparenchymal, Intraventricular, Subarachnoid, Subdural).
   * Việc ghi nhận $5 \times 15 \approx 75$ chỉ số này là **hoàn toàn có chủ đích (CỐ Ý)** nhằm bảo toàn dữ liệu phục vụ nghiên cứu lâm sàng.
 * **Cơ chế hiển thị trên W&B App:**
   * Mặc định trên **Default Workspace**, W&B tự động sinh mỗi khóa dữ liệu (scalar key) thành một đồ thị dạng đường (Line plot) riêng lẻ. Tiền tố phân cấp (`val/`) chỉ tạo section chứ **không tự động gộp các đường vào cùng một đồ thị**.
-  * Dự án đã cung cấp script [`tools/setup_wandb_dashboard.py`](../tools/setup_wandb_dashboard.py) để gom toàn bộ về **3 Workspace Views** khoa học:
+  * Dự án đã cung cấp script [`tools/setup_wandb_dashboard.py`](../../../tools/setup_wandb_dashboard.py) để gom toàn bộ về **3 Workspace Views** khoa học:
     * **`Overview`**: Rút gọn chỉ còn **7–9 panels trọng yếu** (gom Per-class Dice đa đường, Positive Dice đa đường, Training Losses đa đường).
     * **`Evaluation`**: Đo đạc bề mặt hình học (HD95, ASD), tỷ lệ báo động giả (False positive case rate/volume) và Bảng tổng hợp lâm sàng.
     * **`Diagnostics`**: Phân bố voxel TP, FP, FN và số lượng ca bệnh.

@@ -1,7 +1,6 @@
 # Lưu và crawl kết quả thí nghiệm
 
-> [!TIP]
-> Xem chi tiết báo cáo rà soát hiện trạng, dọn dẹp snapshot và hướng dẫn kiến trúc chuẩn tại [EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md](EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md).
+Đối chiếu công cụ ngày 29/10/2026. [Inventory và lịch sử dọn dữ liệu ngày 28/10](../archive/audits/experiment-data-2026-10-28.md) được giữ riêng; số file/dung lượng trong đó không phải inventory hiện hành.
 
 Code và báo cáo nằm trong Git. Dữ liệu crawl nằm ở `experiment_data/`, đã được
 `.gitignore` loại trừ. Không xóa thư mục này nếu còn cần so sánh offline; muốn dọn
@@ -75,6 +74,24 @@ và bản mã đã chạy để đối chiếu lịch sử. Các log trùng đư
 hash; system_events trùng được kiểm tra nội dung JSON. Bản readable log được giữ
 vì khác cách biểu diễn xuống dòng. Manifest migration có inventory SHA-256.
 
-Báo cáo sự cố: [RUN_TERMINATION_AUDIT.md](RUN_TERMINATION_AUDIT.md).
+Báo cáo sự cố: [RUN_TERMINATION_AUDIT.md](../analysis/run-s9i9nsui-termination-2026-10-26.md).
 Xóa snapshot nào sẽ mất bản so sánh local của snapshot đó; xóa dữ liệu local
 không xóa run, artifact hay checkpoint trên W&B/Kaggle.
+
+## Alias latest và export bảng
+
+`tools/crawl_storage.py` cập nhật symlink `latest` khi tạo snapshot. Dùng alias để xem nhanh; khi dẫn bằng chứng trong báo cáo, ghi thư mục snapshot bất biến và timestamp/manifest. Alias có thể trỏ sang snapshot khác sau lần crawl tiếp theo.
+
+```bash
+python tools/export_wandb_history.py --run_id ENTITY/PROJECT/RUN_ID
+```
+
+Exporter dùng `scan_history`, lọc giá trị dạng scalar rồi ghi `experiment_data/wandb_exports/<run_id>/metrics_history.csv` và `.json`. Nó có thể ghi đè export cùng run; khác với snapshot crawl bất biến. `--output /path/to/export` đổi đường dẫn export. Exporter có mặc định entity/project trong source; truyền đủ `ENTITY/PROJECT/RUN_ID` để chọn đúng run.
+
+Export bảng không chứa đầy đủ media/nested objects và không thay thế snapshot, source hay checkpoint. Không khẳng định CSV và JSON luôn tương đương về kiểu dữ liệu/null hoặc có thể tái tạo từ cloud mãi mãi.
+
+## Retention
+
+Giữ snapshot được trích trong báo cáo, config/manifest, log lỗi gốc, source đã chạy và checkpoint cần tái lập. `events.json` hữu ích khi điều tra tài nguyên; không xóa chỉ vì file lớn nếu còn phục vụ bằng chứng. Collection cũ có thể chứa tập run hoặc lịch sử khác collection mới nhất.
+
+Trước khi dọn, kiểm kê snapshot, đối chiếu nội dung/hash, kiểm tra báo cáo nào tham chiếu và backup phần không thể tái tạo. Xóa snapshot local không xóa dữ liệu cloud; dữ liệu cloud cũng không bảo đảm thay thế bản local đã xóa.

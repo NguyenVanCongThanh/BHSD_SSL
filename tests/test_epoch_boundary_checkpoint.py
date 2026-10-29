@@ -1,6 +1,6 @@
 """
 Unit tests for Epoch Boundary Checkpoints and Resume Policy.
-Verifies specifications from docs/CHECKPOINT_RESUME_EPOCH_AUDIT_2026_10_29.md.
+Verifies specifications from docs/archive/audits/checkpoint-resume-2026-10-29.md.
 """
 
 import json

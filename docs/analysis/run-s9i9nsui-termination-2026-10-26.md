@@ -51,7 +51,7 @@ Lần chạy tái hiện nên bật NCCL trace theo thông báo trong log (`TORC
 ## Dữ liệu lưu kèm
 
 Dữ liệu đã chuyển sang `experiment_data/` và không được commit. Xem
-[EXPERIMENT_DATA.md](EXPERIMENT_DATA.md) để tìm snapshot theo run ID, crawl lại
+[EXPERIMENT_DATA.md](../guides/experiment-data.md) để tìm snapshot theo run ID, crawl lại
 hoặc so sánh offline. Log lỗi nằm trong snapshot Kaggle tài khoản
 `thnhnguynvncng`, file `output.log.json` hoặc `output.readable.log`.
 Các events, summary và artifact metadata nằm trong snapshot W&B `s9i9nsui`.

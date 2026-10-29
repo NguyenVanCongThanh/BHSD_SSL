@@ -1,6 +1,8 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Rà soát triển khai kế hoạch refactor BHSD_SSL
 
-Ngày kiểm tra: 27/10/2026. HEAD: `b6d4e90` **cộng các thay đổi chưa commit/staged và file mới trong workspace**. Đối chiếu [kế hoạch audit](../CODEBASE_AUDIT_AND_REFACTOR_PLAN.md). Báo cáo này ghi trạng thái sau khi đã xuất hiện các chỉnh sửa mã nguồn; các mục 1–16 trong kế hoạch gốc phản ánh snapshot trước triển khai `8d750d7`.
+Ngày kiểm tra: 27/10/2026. HEAD: `b6d4e90` **cộng các thay đổi chưa commit/staged và file mới trong workspace**. Đối chiếu [kế hoạch audit](codebase-refactor-2026-10-27.md). Báo cáo này ghi trạng thái sau khi đã xuất hiện các chỉnh sửa mã nguồn; các mục 1–16 trong kế hoạch gốc phản ánh snapshot trước triển khai `8d750d7`.
 
 ## Kết luận
 

@@ -1,3 +1,7 @@
+> Epoch checkpoint/resume policy và canonical best đã có implementation sau bản audit này; xem [hướng dẫn hiện hành](../../guides/checkpoint-resume.md). Những yêu cầu còn lại trong đặc tả chưa mặc nhiên được nghiệm thu.
+
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Audit checkpoint, resume và ranh giới epoch
 
 Ngày audit: 2026-10-29. Phạm vi: code trong workspace, tập trung Mean Teacher + nnUNet3D và các thành phần checkpoint dùng chung. Tài liệu này tổng hợp, đính chính các trao đổi trước và đề xuất thay đổi; **chưa triển khai thay đổi training**.
@@ -17,19 +21,19 @@ Các liên kết dưới đây trỏ tới file nguồn; số dòng có thể đ
 
 | Nội dung | Nguồn |
 |---|---|
-| Ghép thư mục output, lưu/nạp checkpoint, training loop, lịch upload | [methods/base_method.py](../methods/base_method.py) |
-| Lưu và nạp EMA teacher, consistency schedule | [methods/mean_teacher.py](../methods/mean_teacher.py) |
-| Permutation, stream nhãn/không nhãn, DDP partition | [data/samplers.py](../data/samplers.py) |
-| Dựng DataLoader và augmentation | [data/dataloader_factory.py](../data/dataloader_factory.py) |
-| Serialization, RNG, ghi file tạm và manifest | [utils/checkpoint.py](../utils/checkpoint.py) |
-| Best/latest sau validation | [training/validation_coordinator.py](../training/validation_coordinator.py) |
-| Metadata checkpoint | [training/checkpoint_metadata.py](../training/checkpoint_metadata.py) |
-| W&B upload/download, nhận diện run | [utils/wandb_manager.py](../utils/wandb_manager.py) |
-| Tìm best checkpoint để evaluation | [utils/checkpoint_resolver.py](../utils/checkpoint_resolver.py) |
-| Global/local batch | [core/batching.py](../core/batching.py) |
-| Cấu hình method | [configs/methods/mean_teacher.yaml](../configs/methods/mean_teacher.yaml) |
-| Preset experiment khác | [configs/experiments/bhsd_mt_nnunet_fold0.yaml](../configs/experiments/bhsd_mt_nnunet_fold0.yaml) |
-| Notebook generator Kaggle Mean Teacher | [tools/generate_mean_teacher_notebook.py](../tools/generate_mean_teacher_notebook.py) |
+| Ghép thư mục output, lưu/nạp checkpoint, training loop, lịch upload | [methods/base_method.py](../../../methods/base_method.py) |
+| Lưu và nạp EMA teacher, consistency schedule | [methods/mean_teacher.py](../../../methods/mean_teacher.py) |
+| Permutation, stream nhãn/không nhãn, DDP partition | [data/samplers.py](../../../data/samplers.py) |
+| Dựng DataLoader và augmentation | [data/dataloader_factory.py](../../../data/dataloader_factory.py) |
+| Serialization, RNG, ghi file tạm và manifest | [utils/checkpoint.py](../../../utils/checkpoint.py) |
+| Best/latest sau validation | [training/validation_coordinator.py](../../../training/validation_coordinator.py) |
+| Metadata checkpoint | [training/checkpoint_metadata.py](../../../training/checkpoint_metadata.py) |
+| W&B upload/download, nhận diện run | [utils/wandb_manager.py](../../../utils/wandb_manager.py) |
+| Tìm best checkpoint để evaluation | [utils/checkpoint_resolver.py](../../../utils/checkpoint_resolver.py) |
+| Global/local batch | [core/batching.py](../../../core/batching.py) |
+| Cấu hình method | [configs/methods/mean_teacher.yaml](../../../configs/methods/mean_teacher.yaml) |
+| Preset experiment khác | [configs/experiments/bhsd_mt_nnunet_fold0.yaml](../../../configs/experiments/bhsd_mt_nnunet_fold0.yaml) |
+| Notebook generator Kaggle Mean Teacher | [tools/generate_mean_teacher_notebook.py](../../../tools/generate_mean_teacher_notebook.py) |
 
 Đây là audit tĩnh. Chưa kiểm tra phiên Kaggle đang chạy, resolved config của phiên đó hay artifact thực có trên tài khoản W&B.
 
