@@ -165,6 +165,8 @@ SECTION_MAPPING = {
     'val_visualize': 'logging',
     'num_vis_samples': 'logging',
     'visual_every_n_validations': 'logging',
+    'val_eval_space': 'logging',
+    'raw_gt_dir': 'logging',
 }
 
 
@@ -265,7 +267,7 @@ KNOWN_SECTION_KEYS = {
         'wandb_id', 'wandb_mode', 'wandb_required', 'val_interval', 'val_stride_xy',
         'val_stride_z', 'log_interval', 'save_interval', 'artifact_interval',
         'val_amp', 'val_gaussian', 'val_surface_metrics', 'val_tta', 'val_visualize',
-        'num_vis_samples', 'visual_every_n_validations', 'visualization'
+        'num_vis_samples', 'visual_every_n_validations', 'visualization', 'val_eval_space', 'raw_gt_dir'
     }
 }
 

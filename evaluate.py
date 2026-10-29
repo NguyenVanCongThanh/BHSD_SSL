@@ -68,6 +68,10 @@ def main():
     parser.add_argument('--metrics_output', help='Optional JSON path for single-checkpoint metrics and inference policy')
     parser.add_argument('--no_amp', action='store_true', help='Disable evaluation autocast')
     parser.add_argument('--surface_metrics', action='store_true', help='Compute physical HD95/ASD; spacing metadata required')
+    parser.add_argument('--eval_space', type=str, choices=['preprocessed', 'native'], default='preprocessed',
+                        help='Evaluation space: preprocessed (fast, on .h5 grid) or native (restored to original patient NIfTI space, nnUNet standard)')
+    parser.add_argument('--raw_gt_dir', type=str, default=None,
+                        help='Optional path to raw NIfTI ground truth directory (e.g. Dataset001_BHSD/labelsTr) for exact native space validation')
     args = parser.parse_args()
 
     if args.gpu not in ('auto', 'all', None):
@@ -110,6 +114,8 @@ def main():
             include_pretrain=args.include_pretrain,
             use_amp=not args.no_amp,
             compute_surface=args.surface_metrics,
+            eval_space=args.eval_space,
+            raw_gt_dir=args.raw_gt_dir,
             on_missing=args.on_missing
         )
     elif args.checkpoint:
@@ -147,7 +153,8 @@ def main():
             stride_xy=args.stride_xy,
             device=device,
             use_gaussian=not args.no_gaussian,
-            use_tta=args.use_tta, use_amp=not args.no_amp, details_sink=details, compute_surface=args.surface_metrics
+            use_tta=args.use_tta, use_amp=not args.no_amp, details_sink=details, compute_surface=args.surface_metrics,
+            eval_space=args.eval_space, raw_gt_dir=args.raw_gt_dir
         )
 
         fg_names = class_names[1:] if len(class_names) > 1 else class_names

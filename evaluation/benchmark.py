@@ -22,6 +22,7 @@ from evaluation.metrics import (
     case_segmentation_stats, aggregate_segmentation_stats, METRIC_POLICY,
 )
 from evaluation.sliding_window import sliding_window_inference_3d
+from evaluation.native_space import restore_case_to_native
 from utils.checkpoint_resolver import resolve_checkpoint
 from utils.evaluation_checkpoint import build_evaluation_model
 
@@ -48,6 +49,8 @@ def benchmark_5folds(
     include_pretrain=False,
     on_missing="error",
     compute_surface=False,
+    eval_space: str = 'preprocessed',
+    raw_gt_dir: Optional[str] = None,
     folds: Optional[List[int]] = None,
 ) -> Dict:
     """
@@ -203,8 +206,22 @@ def benchmark_5folds(
                 use_tta=use_tta
             )
 
-            fold_stats.append(case_segmentation_stats(pred, label, num_classes,
-                              spacing=sample.get('metadata', {}).get('spacing'), compute_surface=compute_surface))
+            case_name = sample.get('case', f'case_{idx}')
+            meta = sample.get('metadata', {})
+            if str(eval_space).lower() == 'native':
+                pred_eval, label_eval, spacing_eval = restore_case_to_native(
+                    pred=pred,
+                    label=label,
+                    metadata=meta,
+                    case_name=str(case_name),
+                    raw_gt_dir=raw_gt_dir
+                )
+            else:
+                pred_eval, label_eval = pred, label
+                spacing_eval = meta.get('spacing')
+
+            fold_stats.append(case_segmentation_stats(pred_eval, label_eval, num_classes,
+                              spacing=spacing_eval, compute_surface=compute_surface))
             case_dices.append([row['dice'] for row in fold_stats[-1]['classes']])
 
         fold_mean_per_class = np.mean(np.array(case_dices), axis=0).tolist()

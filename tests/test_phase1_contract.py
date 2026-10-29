@@ -140,20 +140,20 @@ class TestPhase1Contracts(unittest.TestCase):
         # Row 1: method_config='mean_teacher'
         c1 = load_config(method_config='mean_teacher')
         self.assertEqual(c1.method.name, 'mean_teacher')
-        self.assertEqual(list(c1.data.patch_size), [32, 192, 192])
+        self.assertEqual(list(c1.data.patch_size), [28, 256, 256])
         self.assertEqual(c1.data.labelnum, 154)
 
         # Row 2: method_config='mean_teacher' + dataset_config='bhsd_multiclass'
         # Dataset must NOT overwrite method-specific patch_size or labelnum
         c2 = load_config(method_config='mean_teacher', dataset_config='bhsd_multiclass')
         self.assertEqual(c2.method.name, 'mean_teacher')
-        self.assertEqual(list(c2.data.patch_size), [32, 192, 192])
+        self.assertEqual(list(c2.data.patch_size), [28, 256, 256])
         self.assertEqual(c2.data.labelnum, 154)
 
         # Row 3: config_path='configs/methods/mean_teacher.yaml' + dataset_config='bhsd_multiclass'
         c3 = load_config(config_path='configs/methods/mean_teacher.yaml', dataset_config='bhsd_multiclass')
         self.assertEqual(c3.method.name, 'mean_teacher')
-        self.assertEqual(list(c3.data.patch_size), [32, 192, 192])
+        self.assertEqual(list(c3.data.patch_size), [28, 256, 256])
         self.assertEqual(c3.data.labelnum, 154)
 
         # Row 4: Conflicting selectors fail early
