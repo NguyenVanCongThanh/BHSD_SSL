@@ -153,6 +153,10 @@ SECTION_MAPPING = {
     'wandb_mode': 'logging',
     'wandb_required': 'logging',
     'artifact_interval': 'logging',
+    'epoch_artifact_interval': 'logging',
+    'artifact_keep_versions': 'logging',
+    'artifact_cache_size': 'logging',
+    'artifact_cache_cleanup_interval': 'logging',
     'log_interval': 'logging',
     'val_interval': 'logging',
     'save_interval': 'logging',
@@ -266,6 +270,8 @@ KNOWN_SECTION_KEYS = {
         'use_wandb', 'save_wandb_model', 'wandb_project', 'wandb_entity', 'wandb_run_name',
         'wandb_id', 'wandb_mode', 'wandb_required', 'val_interval', 'val_stride_xy',
         'val_stride_z', 'log_interval', 'save_interval', 'artifact_interval',
+        'epoch_artifact_interval', 'artifact_keep_versions', 'artifact_cache_size',
+        'artifact_cache_cleanup_interval',
         'val_amp', 'val_gaussian', 'val_surface_metrics', 'val_tta', 'val_visualize',
         'num_vis_samples', 'visual_every_n_validations', 'visualization', 'val_eval_space', 'raw_gt_dir'
     }

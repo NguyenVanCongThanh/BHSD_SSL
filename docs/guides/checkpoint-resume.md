@@ -35,11 +35,16 @@ Chỉ main process ghi checkpoint. File được ghi tạm rồi replace; manife
 
 Upload cần W&B bật, `logging.save_wandb_model=true` và run hoạt động:
 
-- Latest dùng artifact `<prefix>_latest`; lịch xét qua `artifact_interval` tại các lần save/validation, cộng cuối phase.
-- Epoch dùng `<prefix>_epoch_latest`; `logging.epoch_artifact_interval` tính theo số epoch hoàn thành, mặc định đủ điều kiện mỗi epoch.
+- Chỉ upload loại resume được chọn bởi `experiment.resume_policy`; cả hai file local vẫn được lưu.
+- Latest dùng artifact `<prefix>_latest`; lịch xét qua `artifact_interval` (mặc định 5000) tại các lần save/validation, cộng cuối phase.
+- Epoch dùng `<prefix>_epoch_latest`; `logging.epoch_artifact_interval` tính theo số epoch hoàn thành, mặc định mỗi 10 epoch. Phase kết thúc giữa epoch không tạo/upload boundary giả.
 - Best dùng `<prefix>_best` khi validation cải thiện.
 
-Upload được queue bất đồng bộ. File đã ghi local hoặc log “queued” không chứng minh artifact đã tồn tại đầy đủ trên cloud. Kill/cancel không bảo đảm lưu khẩn cấp; cần giữ output hoặc artifact trước khi chuyển phiên Kaggle.
+Online: sau khi queue upload, manager chờ xác nhận tối đa 60 giây rồi mới dọn phiên bản cũ. Timeout/lỗi xác nhận giữ nguyên phiên bản cloud; offline chỉ queue, không chờ hoặc dọn. Vì vậy log “queued” không chứng minh artifact đã tồn tại đầy đủ trên cloud. Kill/cancel không bảo đảm lưu khẩn cấp.
+
+`logging.artifact_keep_versions: 2` giữ hai phiên bản mới nhất của run hiện tại trong mỗi collection (kể cả best); `0` tắt pruning. Không xóa phiên bản của run khác hoặc bản còn alias `latest`/`best`. Alias lịch sử `epoch_N` không ngăn pruning. Chỉ dọn collection vừa upload thành công; collection cũ không còn được upload sẽ không tự được dọn. Cleanup lỗi chỉ cảnh báo, không dừng train. Best vẫn chứa đầy đủ trạng thái để giữ tương thích với luồng resume hiện tại.
+
+Cache artifact local được dọn bằng CLI W&B về `logging.artifact_cache_size: "1GB"` mỗi `artifact_cache_cleanup_interval: 5` upload đã xác nhận và sau khi finish online. Đặt kích thước `null` để tắt. Không dọn thư mục checkpoint, log run hoặc file staging/temp upload. Đây là mục tiêu kích thước cache, không phải giới hạn tổng dung lượng ổ đĩa.
 
 ## Giới hạn còn lại
 
