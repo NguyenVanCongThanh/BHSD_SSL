@@ -18,7 +18,7 @@ model:
 
 method:
   name: "mean_teacher"
-  max_iteration: 30000
+  max_iteration: 12000
   base_lr: 0.01
   momentum: 0.9
   weight_decay: 0.0001
@@ -27,8 +27,8 @@ method:
   ema_decay: 0.999                    # Target EMA decay
   ema_schedule: "cosine"              # Cosine rampup of alpha (0.99 -> 0.999) to keep teacher agile early and stable late
   consistency: 0.05                   # Lowered consistency weight (0.05) so supervised signals dominate throughout
-  consistency_rampup: 8000.0          # Gentle step-based rampup over first 8000 iters to prevent early collapse
-  consistency_rampdown_start: 19500   # Begin smooth cosine rampdown after iter 19500 to prevent IVH pseudo-label drift
+  consistency_rampup: 4000.0          # Gentle step-based rampup over first 4000 iters to prevent early collapse
+  consistency_rampdown_start: 7800    # Begin smooth cosine rampdown after iter 7800 to prevent IVH pseudo-label drift
   consistency_min_factor: 0.25        # Rampdown floor (0.05 * 0.25 = ~0.0125) for late-stage supervised fine-tuning
   consistency_type: "hybrid"          # 50% Soft Dice on foreground lesions + 50% Class-balanced MSE
   bg_consistency_weight: 0.05         # Downweight background channel to prevent background dominance
@@ -41,16 +41,17 @@ method:
     consistency_multiscale: false         # Disabled on intermediate aux heads to avoid blurry lesion collapse
 
 data:
-  batch_size: 4                       # Global: 2 labeled + 2 unlabeled (DDP 2 GPU: 1 lab + 1 unlab/GPU)
-  labeled_bs: 2
+  batch_size: 8                       # Global: 4 labeled + 4 unlabeled (DDP 2 GPU: 2 lab + 2 unlab/GPU)
+  labeled_bs: 4
   labelnum: 154
-  patch_size: [32, 192, 192]          # +44% spatial context, full brain coverage on axial plane
+  patch_size: [28, 256, 256]          # Matches nnUNet v2 Option 1 CTClip exactly (Z=28, Y=256, X=256)
 
 logging:
-  val_interval: 250
+  val_interval: 200
   save_interval: 50
   val_stride_xy: 32
   val_stride_z: 8
+  val_eval_space: "preprocessed"       # Fast periodic validation on .h5; independent evaluate.py supports --eval_space native
   use_wandb: false
   val_visualize: true
   num_vis_samples: 4

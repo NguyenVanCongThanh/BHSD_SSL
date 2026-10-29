@@ -19,6 +19,11 @@ from evaluation.complexity import (
     profile_model_complexity,
     format_complexity_summary,
 )
+from evaluation.native_space import (
+    restore_volume_to_native_space,
+    load_raw_nifti_ground_truth,
+    restore_case_to_native,
+)
 
 __all__ = [
     "CLASS_NAMES_MULTICLASS",
@@ -31,4 +36,7 @@ __all__ = [
     "evaluate_dataset_sliding_window",
     "profile_model_complexity",
     "format_complexity_summary",
+    "restore_volume_to_native_space",
+    "load_raw_nifti_ground_truth",
+    "restore_case_to_native",
 ]

@@ -24,6 +24,7 @@ from evaluation.metrics import (
     format_dice_summary,
     case_segmentation_stats, aggregate_segmentation_stats,
 )
+from evaluation.native_space import restore_case_to_native
 from utils.model_utils import extract_logits
 
 
@@ -214,6 +215,8 @@ def evaluate_dataset_sliding_window(
     visual_case_ids=None,
     visual_settings=None,
     compute_surface=False,
+    eval_space: str = 'preprocessed',
+    raw_gt_dir: Optional[str] = None,
 ) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
@@ -328,8 +331,21 @@ def evaluate_dataset_sliding_window(
             use_tta=use_tta
         )
 
-        stats = case_segmentation_stats(pred, label, num_classes,
-            spacing=sample.get('metadata', {}).get('spacing'), compute_surface=compute_surface)
+        meta = sample.get('metadata', {})
+        if str(eval_space).lower() == 'native':
+            pred_eval, label_eval, spacing_eval = restore_case_to_native(
+                pred=pred,
+                label=label,
+                metadata=meta,
+                case_name=str(case_name),
+                raw_gt_dir=raw_gt_dir
+            )
+        else:
+            pred_eval, label_eval = pred, label
+            spacing_eval = meta.get('spacing')
+
+        stats = case_segmentation_stats(pred_eval, label_eval, num_classes,
+            spacing=spacing_eval, compute_surface=compute_surface)
         local_stats.append((case_idx, stats))
         case_dices = [row['dice'] for row in stats['classes']]
         local_case_records.append((case_idx, case_dices))
@@ -389,7 +405,8 @@ def evaluate_dataset_sliding_window(
     if details_sink is not None:
         details_sink.update(aggregate_segmentation_stats(stats))
         details_sink['inference'] = {'patch_size': list(patch_size), 'stride_xy': stride_xy,
-            'stride_z': stride_z, 'amp': use_amp, 'gaussian': use_gaussian, 'tta': use_tta, 'surface_metrics': compute_surface}
+            'stride_z': stride_z, 'amp': use_amp, 'gaussian': use_gaussian, 'tta': use_tta, 'surface_metrics': compute_surface,
+            'eval_space': eval_space}
         details_sink['visual_cohort'] = chosen
 
     empty_classes = [0.0] * (1 if is_binary else num_classes - 1)

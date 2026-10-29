@@ -162,8 +162,16 @@ class BHSDDataset(Dataset):
             label = h5f['label'][:]
             metadata = {}
             if self.split != 'train':
-                for source, key in [('target_spacing', 'spacing'), ('norm_params', 'norm_params'),
-                                    ('clip_range', 'clip_range')]:
+                for source, key in [
+                    ('target_spacing', 'spacing'),
+                    ('orig_spacing', 'orig_spacing'),
+                    ('orig_shape', 'orig_shape'),
+                    ('bbox_used', 'bbox_used'),
+                    ('cropped_shape', 'cropped_shape'),
+                    ('final_shape', 'final_shape'),
+                    ('norm_params', 'norm_params'),
+                    ('clip_range', 'clip_range')
+                ]:
                     value = h5f.attrs.get(source)
                     if isinstance(value, bytes):
                         value = value.decode('utf-8')
@@ -171,7 +179,8 @@ class BHSDDataset(Dataset):
                         try:
                             value = ast.literal_eval(value)
                         except (ValueError, SyntaxError):
-                            raise ValueError(f'{case_name}: invalid metadata {source}')
+                            if key in ('spacing', 'norm_params', 'clip_range'):
+                                raise ValueError(f'{case_name}: invalid metadata {source}')
                     if isinstance(value, np.ndarray):
                         value = value.tolist()
                     if value is not None:

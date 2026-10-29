@@ -206,6 +206,8 @@ class BaseMethod(abc.ABC):
             'use_gaussian': bool(getattr(self.cfg.logging, 'val_gaussian', True)),
             'use_tta': bool(getattr(self.cfg.logging, 'val_tta', False)),
             'compute_surface': bool(getattr(self.cfg.logging, 'val_surface_metrics', False)),
+            'eval_space': str(getattr(self.cfg.logging, 'val_eval_space', 'preprocessed')).lower(),
+            'raw_gt_dir': getattr(self.cfg.logging, 'raw_gt_dir', None),
         }
 
     def _record_resolved_config(self):
