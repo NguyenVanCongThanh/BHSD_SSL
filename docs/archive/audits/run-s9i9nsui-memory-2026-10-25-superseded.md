@@ -1,4 +1,8 @@
-> Cập nhật: kết luận nguyên nhân trong báo cáo này đã được kiểm tra lại bằng log Kaggle đầy đủ. Xem [RUN_TERMINATION_AUDIT.md](RUN_TERMINATION_AUDIT.md): lỗi trực tiếp là NCCL timeout; các kết luận SIGKILL/đầy đĩa chưa được chứng minh. Dữ liệu crawl hiện lưu theo [EXPERIMENT_DATA.md](EXPERIMENT_DATA.md).
+> **Đã bị thay thế:** không dùng kết luận đầy đĩa/SIGKILL hoặc mô tả garbage collection phía dưới như sự thật đã xác minh. Xem [điều tra có log Kaggle](../../analysis/run-s9i9nsui-termination-2026-10-26.md).
+
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
+> Cập nhật: kết luận nguyên nhân trong báo cáo này đã được kiểm tra lại bằng log Kaggle đầy đủ. Xem [RUN_TERMINATION_AUDIT.md](../../analysis/run-s9i9nsui-termination-2026-10-26.md): lỗi trực tiếp là NCCL timeout; các kết luận SIGKILL/đầy đĩa chưa được chứng minh. Dữ liệu crawl hiện lưu theo [EXPERIMENT_DATA.md](../../guides/experiment-data.md).
 
 # 📑 Báo Cáo Phân Tích Sự Cố Dừng Huấn Luyện (Run 20261023_102225), Cơ Chế Quản Lý Bộ Nhớ & Đề Xuất Tối Ưu Toàn Diện
 
@@ -110,18 +114,18 @@ Linux chỉ thu hồi RAM trong 2 trường hợp:
 
 | Script | Vị trí | Chức năng chính |
 |---|---|---|
-| [`fetch_latest_run.py`](file:///home/u001015/BHSD_SSL/tools/fetch_latest_run.py) | `tools/` | Kéo toàn bộ metrics, history, summary của run mới nhất từ W&B |
-| [`fetch_wandb_logs.py`](file:///home/u001015/BHSD_SSL/tools/fetch_wandb_logs.py) | `tools/` | Tải file `output.log` (104 KB console stdout) trực tiếp từ W&B Cloud |
-| [`list_runs_summary.py`](file:///home/u001015/BHSD_SSL/tools/list_runs_summary.py) | `tools/` | Quét và lập bảng thống kê toàn bộ 14 runs (runtime, state, best dice) |
-| [`compare_old_new_runs.py`](file:///home/u001015/BHSD_SSL/tools/compare_old_new_runs.py) | `tools/` | So sánh chi tiết diff cấu hình giữa run it 340 và run it 3996 |
-| [`kaggle_ctl.py`](file:///home/u001015/BHSD_SSL/tools/kaggle/kaggle_ctl.py) | `tools/kaggle/` | Quản lý đa tài khoản Kaggle, kiểm tra trạng thái và submit kernel tự động |
+| [`fetch_latest_run.py`](../../../tools/fetch_latest_run.py) | `tools/` | Kéo toàn bộ metrics, history, summary của run mới nhất từ W&B |
+| `fetch_wandb_logs.py` (`tools/fetch_wandb_logs.py`, đường dẫn lịch sử không có trong checkout) | `tools/` | Tải file `output.log` (104 KB console stdout) trực tiếp từ W&B Cloud |
+| [`list_runs_summary.py`](../../../tools/list_runs_summary.py) | `tools/` | Quét và lập bảng thống kê toàn bộ 14 runs (runtime, state, best dice) |
+| `compare_old_new_runs.py` (`tools/compare_old_new_runs.py`, đường dẫn lịch sử không có trong checkout) | `tools/` | So sánh chi tiết diff cấu hình giữa run it 340 và run it 3996 |
+| [`kaggle_ctl.py`](../../../tools/kaggle/kaggle_ctl.py) | `tools/kaggle/` | Quản lý đa tài khoản Kaggle, kiểm tra trạng thái và submit kernel tự động |
 
 ---
 
 ## 5. ĐỀ XUẤT CẢI TIẾN TOÀN DIỆN CHO CÁC LẦN CHẠY TIẾP THEO
 
 ### Đề xuất 1: Triệt tiêu nguy cơ tràn đĩa W&B Artifacts (Ưu tiên số 1)
-Trong file cấu hình [`configs/methods/mean_teacher.yaml`](file:///home/u001015/BHSD_SSL/configs/methods/mean_teacher.yaml):
+Trong file cấu hình [`configs/methods/mean_teacher.yaml`](../../../configs/methods/mean_teacher.yaml):
 - Đặt `save_wandb_model: false` trong quá trình train định kỳ.
 - Chỉ lưu checkpoint cục bộ ghi đè: `checkpoint_latest.pth` và `best_model.pth`.
 - Chỉ đẩy artifact lên W&B khi mô hình phá kỷ lục `best_mDice` hoặc ở bước kết thúc (tránh tạo 22 versions rác staging ngốn 10GB đĩa).
@@ -131,7 +135,7 @@ Trong file cấu hình [`configs/methods/mean_teacher.yaml`](file:///home/u00101
 - Giúp giảm 50% – 75% thời gian chạy lãng phí vào validation (tiết kiệm gần 2 giờ trên Kaggle), giảm số file checkpoint sinh ra và giúp mô hình hoàn thành đủ 30,000 steps trong hạn mức 12 giờ của Kaggle.
 
 ### Đề xuất 3: Chèn dọn rác chủ động sau Validation
-Tại [`methods/base_method.py`](file:///home/u001015/BHSD_SSL/methods/base_method.py#L481-L485):
+Tại [`methods/base_method.py`](../../../methods/base_method.py#L481-L485):
 Chèn khối lệnh giải phóng bộ nhớ ngay sau khi gom kết quả validation xong:
 ```python
 if is_main_process():

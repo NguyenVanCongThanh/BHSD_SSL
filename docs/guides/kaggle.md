@@ -1,16 +1,11 @@
-# 🚀 Hướng Dẫn Quản Lý Đa Tài Khoản & Tự Động Submit Kaggle (MedSSL-BHSD)
+# Submit Kaggle và quản lý tài khoản
 
-Hệ thống quản lý Kaggle Submission đã được tái cấu trúc toàn diện, module hóa và chuyên nghiệp hóa, giải quyết triệt để các hạn chế của script cũ:
-1. **Cô lập Credentials tuyệt đối**: Không bị nhầm lẫn token giữa các tài khoản, loại bỏ ảnh hưởng từ biến môi trường toàn cục (`~/.bashrc` hay `~/.kaggle/kaggle.json`).
-2. **Tự động tạo mới Kernel trên Kaggle**: Khi submit bằng tài khoản mới (như tài khoản của Khánh) chưa có notebook, hệ thống tự động sinh `kernel-metadata.json` theo đúng format `<username>/<slug>` để Kaggle API tự động khởi tạo notebook mới từ mã nguồn của dự án.
-3. **Mở rộng không giới hạn**: Dễ dàng thêm tài khoản mới (Acc 3, Acc 4, ...) hoặc thêm các notebook phương pháp mới (`mean_teacher`, `pick`, `nnunet3d`, ...).
-
----
+Đối chiếu công cụ ngày 29/10/2026. Controller dựng bundle theo notebook và username, dùng profile tài khoản riêng. Trạng thái và tài nguyên được cấp thực tế cần kiểm tra trên phiên Kaggle.
 
 ## 1. Cấu Trúc Hệ Thống Mới
 
-Notebook Mean Teacher chuẩn nằm ở [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](../scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb).
-Metadata được tạo từ [`configs/kaggle/notebooks.json`](../configs/kaggle/notebooks.json) trong bundle `kaggle_runs/<notebook>/<username>/`; bundle tĩnh cũ `kaggle_mean_teacher/` đã được loại bỏ.
+Notebook Mean Teacher chuẩn nằm ở [`scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb`](../../scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb).
+Metadata được tạo từ [`configs/kaggle/notebooks.json`](../../configs/kaggle/notebooks.json) trong bundle `kaggle_runs/<notebook>/<username>/`; `kaggle_mean_teacher/` không còn là nguồn notebook chuẩn; thư mục generated/legacy vẫn có thể tồn tại local, không suy việc xóa local từ trạng thái Git.
 Để tạo và kiểm tra bundle cục bộ trước khi submit:
 
 ```bash
@@ -49,10 +44,7 @@ python3 tools/kaggle/kaggle_ctl.py account list
 bash scripts/submit_mean_teacher_kaggle.sh --list-accounts
 ```
 
-| ID | Slug | Username | Tên Hiển Thị | Vai trò |
-|---|---|---|---|---|
-| **1** | `thanh` | `thnhnguynvncng` | Tài khoản 1 - Thành (Mặc định) | Tài khoản chính, sở hữu dataset gốc `bhsd-fold0` |
-| **2** | `khanh` | `bokhnhl` | Tài khoản 2 - Bảo Khánh Lê | Chạy song song để nhân đôi hạn mức GPU Kaggle (30h + 30h) |
+Danh sách tài khoản thực tế thuộc cấu hình local, không được đóng băng trong tài liệu. Dùng lệnh trên để tra ID/slug/username trước khi submit. Các ID 1/2 và username trong ví dụ phía dưới chỉ minh họa cấu hình dự án trước đây; thay bằng registry của bạn.
 
 ---
 
@@ -153,7 +145,11 @@ python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook my_new_method
    `kaggle_runs/mean_teacher/bokhnhl/`
 2. Bundle bao gồm file notebook nguồn mới nhất và `kernel-metadata.json` với trường:
    `"id": "bokhnhl/kaggle-bhsd-mean-teacher-dual-gpu"`
-3. Kaggle API nhận request với đúng username của phiên xác thực. Nếu notebook chưa có trên tài khoản của Khánh, Kaggle server sẽ **tự động khởi tạo mới (Create)** và phân bổ 2x GPU T4 cho notebook chạy.
+3. Kaggle API nhận request với đúng username của phiên xác thực. Nếu notebook chưa có trên tài khoản của Khánh, Kaggle server sẽ **tự động khởi tạo mới (Create)** và yêu cầu cấu hình GPU theo metadata. Việc tạo/chạy, loại GPU và quota thực tế cần xác minh từ phản hồi nền tảng; không bảo đảm luôn nhận 2x T4.
 4. Đường link trực tiếp sau khi submit:
    - Tài khoản 1: `https://www.kaggle.com/code/thnhnguynvncng/kaggle-bhsd-mean-teacher-dual-gpu`
    - Tài khoản 2: `https://www.kaggle.com/code/bokhnhl/kaggle-bhsd-mean-teacher-dual-gpu`
+
+## Tài liệu liên quan
+
+Xem [troubleshooting](kaggle-troubleshooting.md), [batch DDP](training.md) và [khôi phục checkpoint](checkpoint-resume.md).

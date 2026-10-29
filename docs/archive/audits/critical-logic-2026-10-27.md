@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Audit logic train / resume / validation / evaluation
 
 Ngày: 27/10/2026. Đối chiếu source gốc tại `1bdeb62` và các thay đổi checkpoint đang có trong workspace. Các bản sửa được chia thành các commit theo nhóm loss, core/data, training, evaluation, kiểm thử và tài liệu.
@@ -35,7 +37,7 @@ Có nhiều lỗi ảnh hưởng trực tiếp đến tính đúng đắn; khôn
 | Medium | Chỉ số `final_mDice` thực chất là best lịch sử | Ghi riêng `best_mDice` và `last_validation_mDice` |
 | Medium | Metrics có thể broadcast prediction/label sai shape; label bị cast uint8 trước kiểm tra | Chặn shape/class-range không hợp lệ trước khi âm thầm tính điểm/cast |
 
-Lỗi tìm checkpoint và các thay đổi schema summary được mô tả riêng trong [BENCHMARK_CHECKPOINT_POLICY.md](BENCHMARK_CHECKPOINT_POLICY.md).
+Lỗi tìm checkpoint và các thay đổi schema summary được mô tả riêng trong [BENCHMARK_CHECKPOINT_POLICY.md](../../guides/checkpoint-evaluation.md).
 
 ## Các thành phần dùng lại
 

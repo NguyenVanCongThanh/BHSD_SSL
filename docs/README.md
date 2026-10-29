@@ -1,52 +1,37 @@
-# Tài liệu MedSSL-BHSD — Danh mục và Chỉ mục Phân loại
+# Tài liệu MedSSL-BHSD
 
-Tài liệu trong thư mục này được phân loại thành **Tài liệu Vận hành (Operational Guides)**, **Kiến trúc & Thiết kế (Architecture Specs)**, và **Hồ sơ Kiểm toán & Phân tích Thực nghiệm (Historical Audits & Empirical Analyses)** để hỗ trợ cả người dùng mới và việc lưu vết nghiên cứu (provenance).
+Bộ hướng dẫn được đối chiếu với source ngày 29/10/2026. Bắt đầu từ [README dự án](../README.md); dùng hướng dẫn theo chủ đề bên dưới. Các báo cáo có ngày là bằng chứng tại snapshot tương ứng, không tự mô tả checkout mới.
 
----
+## Hướng dẫn hiện hành
 
-## 1. Tài liệu Vận hành & Hướng dẫn sử dụng (Operational Guides)
+| Nhu cầu | Nguồn chuẩn |
+|---|---|
+| Cấu hình, batch, DDP và ngân sách | [Training](guides/training.md) |
+| Lưu checkpoint, local/cloud và policy phục hồi | [Checkpoint/resume](guides/checkpoint-resume.md) |
+| Chọn best/latest, strict load và checkpoint legacy | [Checkpoint evaluation](guides/checkpoint-evaluation.md) |
+| Điều kiện so sánh SSL, supervised và nnU-Net | [Benchmark protocol](guides/benchmark-protocol.md) |
+| Định nghĩa metrics, support, summary và W&B | [Metrics và W&B](guides/metrics-and-wandb.md) |
+| Intensity, cohort, panel và error map | [Validation visualization](guides/validation-visualization.md) |
+| Crawl, export, snapshot và retention | [Experiment data](guides/experiment-data.md) |
+| Bundle, tài khoản và submit | [Kaggle](guides/kaggle.md) |
+| Log trống, NCCL và điều tra tài nguyên | [Kaggle troubleshooting](guides/kaggle-troubleshooting.md) |
 
-Các tài liệu này mô tả quy trình thực thi hiện hành, cấu hình và khắc phục sự cố:
+## Kiến trúc
 
-* **[KAGGLE_MULTI_ACCOUNT_GUIDE.md](KAGGLE_MULTI_ACCOUNT_GUIDE.md)**: Hướng dẫn tích hợp và điều phối submit notebook tự động trên nhiều tài khoản Kaggle.
-* **[KAGGLE_DUAL_GPU_TROUBLESHOOTING.md](KAGGLE_DUAL_GPU_TROUBLESHOOTING.md)**: Sổ tay chẩn đoán và khắc phục lỗi vận hành Dual GPU 2x T4 (DDP, memory, NCCL).
-* **[BENCHMARK_CHECKPOINT_POLICY.md](BENCHMARK_CHECKPOINT_POLICY.md)**: Chính sách chuẩn hóa việc lựa chọn checkpoint (`best` vs `latest`) trong đánh giá benchmark.
-* **[WANDB_METRICS_AND_DASHBOARD_ORGANIZATION.md](WANDB_METRICS_AND_DASHBOARD_ORGANIZATION.md)**: Quy chuẩn namespace metrics và thiết kế dashboard Weights & Biases (Overview, Evaluation, Diagnostics).
-* **[EXPERIMENT_DATA.md](EXPERIMENT_DATA.md)**: Cấu trúc thư mục dữ liệu thực nghiệm ngoại tuyến và quy trình crawl/snapshot.
-* **[DDP_BATCH_SIZE.md](DDP_BATCH_SIZE.md)**: Quy ước batch size cục bộ (per-GPU) và toàn cục (global) khi chạy huấn luyện phân tán.
-* **[BENCHMARK_SCALING_AND_TRAINING_EFFICIENCY_GUIDE.md](BENCHMARK_SCALING_AND_TRAINING_EFFICIENCY_GUIDE.md)**: Hướng dẫn tối ưu hóa huấn luyện (VRAM 40%, scaling batch size) và quy chuẩn benchmark học thuật công bằng với nnU-Net.
+- [Training và ownership các module](architecture/training.md).
+- [Dataset preprocessing và phạm vi bằng chứng đối chiếu](architecture/dataset-preprocessing.md).
+- [Việc còn cần kiểm chứng](backlog.md): tách khỏi kết luận lịch sử trong audit.
 
----
+## Phân tích run
 
-## 2. Đặc tả Thiết kế & Kiến trúc (Architecture Specs)
+- [Run 9tvq8qld tới 16.250 iterations — 28/10](analysis/run-9tvq8qld-16250-2026-10-28.md): train 16.250, validation mới nhất 16.000.
+- [Snapshot sớm 3.500 iterations — 27/10](analysis/run-9tvq8qld-3500-2026-10-27.md): giữ để theo dõi diễn biến, không thay thế snapshot sau.
+- [Run s9i9nsui: điều tra termination — 26/10](analysis/run-s9i9nsui-termination-2026-10-26.md): NCCL timeout có bằng chứng; nguyên nhân rank ngừng tiến triển còn chưa xác định đầy đủ.
 
-Mô tả chi tiết cấu trúc các module và sự đồng bộ với baseline:
+`analysis/` còn chứa CSV/JSON/HTML tái tạo bởi `python tools/analyze_run_9tvq8qld.py`. Script đọc snapshot cố định và ghi các artifact `run_9tvq8qld_*`; không sinh hay ghi đè báo cáo Markdown đã đổi tên. Snapshot thô trong `experiment_data/` là dữ liệu local bị Git ignore.
 
-* **[BASE_METHOD_MODULARIZATION_AND_REFACTORING_PLAN.md](BASE_METHOD_MODULARIZATION_AND_REFACTORING_PLAN.md)**: Thiết kế phân tách trách nhiệm trong `BaseMethod` (TrainingLoop, ValidationCoordinator, CheckpointManager, AMP, DDP).
-* **[EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md](EXPERIMENT_DATA_ARCHITECTURE_AND_AUDIT.md)**: Chi tiết cấu trúc lưu trữ và phiên bản hóa metadata crawler.
-* **[BENCHMARK_ALIGNMENT_MEAN_TEACHER_VS_NNUNET.md](BENCHMARK_ALIGNMENT_MEAN_TEACHER_VS_NNUNET.md)**: Phân tích đồng bộ giữa pipeline huấn luyện Mean Teacher và nnU-Net baseline.
-* **[DATASET_COMPARISON_BHSD_FOLD0_VS_NNUNET.md](DATASET_COMPARISON_BHSD_FOLD0_VS_NNUNET.md)**: So sánh phân chia tập dữ liệu Fold 0 và tiền xử lý.
+## Hồ sơ lịch sử
 
----
+Xem [archive và bảng chuyển đường dẫn](archive/README.md). Audit, kế hoạch và thiết kế cũ được giữ để truy vết; không xuất hiện như hướng dẫn hiện hành. Không lấy test count, inventory, credential setup hoặc checklist trong archive làm trạng thái hiện tại.
 
-## 3. Hồ sơ Kiểm toán & Phân tích Thực nghiệm (Historical Audits & Empirical Analyses)
-
-Hồ sơ lưu trữ các đợt rà soát chất lượng mã nguồn, chẩn đoán lỗi run cụ thể và lịch sử thiết kế:
-
-### Rà soát Mã nguồn & Tinh gọn
-
-* **[AUDIT_TINH_GON_CODEBASE_2026_10_28.md](../AUDIT_TINH_GON_CODEBASE_2026_10_28.md)**: Báo cáo audit tinh gọn codebase ngày 28/10/2026 (trạng thái hiện tại).
-* **[IMPLEMENTATION_REVIEW_2026_10_27.md](IMPLEMENTATION_REVIEW_2026_10_27.md)**: Đánh giá chi tiết việc triển khai refactor các phase.
-* **[CRITICAL_LOGIC_AUDIT_2026_10_27.md](CRITICAL_LOGIC_AUDIT_2026_10_27.md)**: Kiểm toán các điểm logic then chốt (gradient unscaling, sync DDP).
-* **[BENCHMARK_CHECKPOINT_RESOLUTION_AUDIT.md](BENCHMARK_CHECKPOINT_RESOLUTION_AUDIT.md)**: Kiểm toán quy tắc tìm checkpoint benchmark trên 5 fold.
-* **[CODEBASE_AUDIT_AND_REFACTOR_PLAN.md](../CODEBASE_AUDIT_AND_REFACTOR_PLAN.md)**: Kế hoạch audit và tái cấu trúc ban đầu.
-* **[REFACTORING_PLAN.md](../REFACTORING_PLAN.md)**: Tài liệu lịch sử tái cấu trúc giai đoạn đầu.
-
-### Phân tích Run & Thực nghiệm Cụ thể
-
-* **[RUN_TERMINATION_AUDIT.md](RUN_TERMINATION_AUDIT.md)**: Điều tra nguyên nhân run dừng trước hạn trên Kaggle.
-* **[RUN_TERMINATION_AND_MEMORY_ANALYSIS.md](RUN_TERMINATION_AND_MEMORY_ANALYSIS.md)**: Phân tích hiện tượng tràn bộ nhớ GPU và cơ chế giải phóng.
-* **[VAL_PREDICTIONS_VISUALIZATION_ANALYSIS.md](VAL_PREDICTIONS_VISUALIZATION_ANALYSIS.md)**: Phân tích ảnh trích xuất validation và mặt cắt dự đoán.
-* **[RUN_9TVQ8QLD_INTERIM_ANALYSIS_2026_10_27.md](RUN_9TVQ8QLD_INTERIM_ANALYSIS_2026_10_27.md)**: Báo cáo phân tích run 9tvq8qld từ snapshot offline.
-* **[docs/analysis/](analysis)**: Thư mục chứa các artifact báo cáo phân tích tĩnh (bảng dữ liệu, biểu đồ, HTML).
-
+Khi cập nhật tài liệu, giữ một nguồn chuẩn cho mỗi contract, dẫn liên kết thay vì lặp định nghĩa. Ghi rõ ngày/revision, phạm vi bằng chứng và phần chưa được kiểm chứng; báo cáo run phải dẫn snapshot bất biến thay vì chỉ alias `latest`.

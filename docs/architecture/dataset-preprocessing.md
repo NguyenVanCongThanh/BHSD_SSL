@@ -1,4 +1,6 @@
-# So Sánh Chi Tiết: Dataset BHSD_fold_0 (.h5) vs Dataset Trong nnUNet Option 1
+# Dataset BHSD: preprocessing và đối chiếu nnU-Net
+
+> **Phạm vi bằng chứng:** các số liệu dưới đây là ghi nhận từ môi trường/dataset đã kiểm tra trước đây, gồm một ca mẫu. Chưa phải xác minh toàn dataset ở checkout hiện tại. Nguồn preprocessing nằm ngoài repo; cần bổ sung commit/hash script, plans/fingerprint, manifest dữ liệu và split hash trước khi tuyên bố tương đương toàn bộ.
 
 Tài liệu này ghi lại chi tiết các điểm tương đồng, điểm khác biệt và nguyên nhân kỹ thuật giữa tập dữ liệu tiền xử lý **BHSD_fold0** (lưu dưới dạng `.h5` tại `/home/u001015/dataset/BHSD_fold0`) và tập dữ liệu trong **nnUNet Option 1** (`nnUNetPlans_Option1_CTClip` tại `/home/u001015/nnUNet_data/nnUNet_preprocessed/Dataset001_BHSD/`).
 
@@ -25,13 +27,13 @@ Tài liệu này ghi lại chi tiết các điểm tương đồng, điểm khá
 
 | Tiêu chí | nnUNet Option 1 (nnUNet v2) | Dataset BHSD_fold_0 (.h5) | Mức độ tương đồng |
 | :--- | :--- | :--- | :--- |
-| **Thuật toán cốt lõi** | Option 1 (Clip HU -> Mask sọ -> Crop BBox) | Option 1 (Tái hiện chính xác theo nnUNet) | **Khớp 100%** |
-| **Dải cắt HU (HU Clipping)** | [11.0, 88.0] HU (phân vị 0.5% - 99.5%) | [11.0, 88.0] HU | **Khớp 100%** |
-| **Tách sọ não (Skull Masking)** | Ngưỡng voxel > 11.0 HU + lấp lỗ hổng | Ngưỡng voxel > 11.0 HU + lấp lỗ hổng theo lát | **Khớp 100%** |
-| **Cắt khung bao (Bounding Box)** | Crop theo tọa độ hộp bao quanh sọ não | Crop theo tọa độ hộp bao quanh sọ não | **Khớp 100% từng voxel** |
-| **Chuẩn hóa (Z-Score)** | Mean = 47.6804, Std = 18.4999 | Mean = 47.6804, Std = 18.4999 | **Khớp 100%** |
-| **Phân chia tập (Splits)** | 5-Fold Multilabel Stratified Split | Đồng bộ 100% từ splits_multilabel.json | **Khớp 100%** |
-| **Hệ thống nhãn (Classes)** | 6 lớp (0: BG, 1: EDH, 2: IPH, 3: IVH, 4: SAH, 5: SDH) | 6 lớp y hệt | **Khớp 100%** |
+| **Thuật toán cốt lõi** | Option 1 (Clip HU -> Mask sọ -> Crop BBox) | Option 1 (Tái hiện chính xác theo nnUNet) | **Theo cấu hình/báo cáo đã đối chiếu** |
+| **Dải cắt HU (HU Clipping)** | [11.0, 88.0] HU (phân vị 0.5% - 99.5%) | [11.0, 88.0] HU | **Theo cấu hình/báo cáo đã đối chiếu** |
+| **Tách sọ não (Skull Masking)** | Ngưỡng voxel > 11.0 HU + lấp lỗ hổng | Ngưỡng voxel > 11.0 HU + lấp lỗ hổng theo lát | **Theo cấu hình/báo cáo đã đối chiếu** |
+| **Cắt khung bao (Bounding Box)** | Crop theo tọa độ hộp bao quanh sọ não | Crop theo tọa độ hộp bao quanh sọ não | **Ca mẫu đã kiểm tra trùng bbox** |
+| **Chuẩn hóa (Z-Score)** | Mean = 47.6804, Std = 18.4999 | Mean = 47.6804, Std = 18.4999 | **Theo cấu hình/báo cáo đã đối chiếu** |
+| **Phân chia tập (Splits)** | 5-Fold Multilabel Stratified Split | Đồng bộ 100% từ splits_multilabel.json | **Theo cấu hình/báo cáo đã đối chiếu** |
+| **Hệ thống nhãn (Classes)** | 6 lớp (0: BG, 1: EDH, 2: IPH, 3: IVH, 4: SAH, 5: SDH) | 6 lớp y hệt | **Theo cấu hình/báo cáo đã đối chiếu** |
 | **Độ phân giải (Target Spacing)**| **[2.715, 0.488, 0.488] mm** | **[5.0, 0.5, 0.5] mm** | **Khác biệt cốt lõi** |
 | **Số lát cắt theo trục Z** | Khoảng 50 - 65 lát (do nội suy dày lát Z) | Khoảng 28 - 35 lát (giữ đúng độ dày gốc ~5mm) | Hệ quả của Spacing |
 | **Định dạng file lưu trữ** | Binary .b2nd + metadata .pkl | HDF5 .h5 (nén gzip) | Khác biệt định dạng |
@@ -68,11 +70,11 @@ Trong file `custom_experiment_planners.py`:
 class Option1CTClipPlanner(ExperimentPlanner):
     def __init__(self, dataset_name_or_id,
                  gpu_memory_target_in_gb=8,
-                 preprocessor_name='Option1CTClipFirstPreprocessor', 
+                 preprocessor_name='Option1CTClipFirstPreprocessor',
                  plans_name='nnUNetPlans_Option1_CTClip',
                  overwrite_target_spacing=None,
                  suppress_transpose=False):
-        super().__init__(dataset_name_or_id, gpu_memory_target_in_gb, preprocessor_name, 
+        super().__init__(dataset_name_or_id, gpu_memory_target_in_gb, preprocessor_name,
                          plans_name, overwrite_target_spacing, suppress_transpose)
 ```
 Do `overwrite_target_spacing` được để mặc định là `None`, nnUNet v2 tự động kích hoạt thuật toán tính spacing mục tiêu:
@@ -111,6 +113,6 @@ python3 /home/u001015/notebook/preprocess_bhsd_for_pick.py \
 
 ## 6. Kết Luận
 
-* Dataset `BHSD_fold0` (.h5) **đã được xử lý hoàn toàn theo đúng thuật toán Option 1 của nnUNet**.
-* Sự khác biệt duy nhất là **độ phân giải trục Z được chủ động giữ ở 5.0 mm** thay vì để nnUNet tự động nội suy dày về 2.71 mm.
-* Toàn bộ 154 ca có nhãn của Fold 0 và 38 ca kiểm định val hoàn toàn trùng khớp với phân chia Fold 0 của nnUNet, sẵn sàng cho việc so sánh hiệu năng công bằng (fair benchmark) giữa nnUNet và các phương pháp SSL.
+* Dataset `BHSD_fold0` (.h5) **được mô tả là tái hiện pipeline Option 1; mức tương đương toàn bộ cần kiểm chứng bằng source và dữ liệu**.
+* Spacing được báo cáo khác cả Z và XY: `[5.0, 0.5, 0.5]` so với khoảng `[2.715, 0.488, 0.488]` mm. Không gọi đây là chỉ khác trục Z.
+* Toàn bộ 154 ca có nhãn của Fold 0 và 38 ca kiểm định val hoàn toàn trùng khớp với phân chia Fold 0 của nnUNet, là điều kiện cần được xác minh bằng danh sách ID/hash; việc so sánh còn phụ thuộc không gian metric, inference và ngân sách như [benchmark protocol](../guides/benchmark-protocol.md).

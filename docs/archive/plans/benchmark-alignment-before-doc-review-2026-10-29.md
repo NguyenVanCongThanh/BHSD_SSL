@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Hướng Dẫn Chuẩn Hóa Benchmark: Mean Teacher vs nnUNet (MedSSL-BHSD)
 
 Tài liệu này tổng hợp toàn diện các điểm tương đồng, điểm khác biệt và lộ trình kỹ thuật cần thực hiện nhằm đưa mô hình **Mean Teacher** (trong codebase `BHSD_SSL`) về cùng một mặt bằng so sánh (fair benchmark) với **nnUNet v2** (đặc biệt là lần chạy Option 1 và Spacing 0.5).

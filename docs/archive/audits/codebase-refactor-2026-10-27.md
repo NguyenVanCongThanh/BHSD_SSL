@@ -1,10 +1,12 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # BÁO CÁO RÀ SOÁT MÃ NGUỒN VÀ KẾ HOẠCH REFACTOR BHSD_SSL
 
 **Snapshot audit ban đầu:** 27/10/2026, source `8d750d7`; 71 tests, 70 passed và 1 skipped. Các mục 1–16 bên dưới giữ phân tích/kế hoạch của snapshot này.
 
 **Rà soát triển khai mới nhất:** HEAD `b6d4e90` cộng staged/unstaged changes và file mới trong workspace; **89 tests, 88 passed, 1 skipped**, 6.268 giây với Gloo loopback.
 
-**Kết luận hiện tại:** triển khai mới đạt một phần, **chưa đủ điều kiện nghiệm thu**. Xem [báo cáo kiểm tra triển khai và các lỗi tái hiện](docs/IMPLEMENTATION_REVIEW_2026_10_27.md) để biết trạng thái hiện hành; không dùng các mô tả “hiện tại” trong snapshot cũ như trạng thái mã nguồn sau refactor.
+**Kết luận hiện tại:** triển khai mới đạt một phần, **chưa đủ điều kiện nghiệm thu**. Xem [báo cáo kiểm tra triển khai và các lỗi tái hiện](implementation-review-2026-10-27.md) để biết trạng thái hiện hành; không dùng các mô tả “hiện tại” trong snapshot cũ như trạng thái mã nguồn sau refactor.
 
 ## Mục lục
 
@@ -219,7 +221,7 @@ NIfTI loader tổng quát và `BaseVolumetricDataset` là tùy chọn sau khi c�
 
 ### 7.3. Baseline nghiên cứu
 
-Theo [audit logic trước](docs/CRITICAL_LOGIC_AUDIT_2026_10_27.md), một số run cũ dùng nhãn unlabeled trong foreground crop. Những run đó không thể coi là SSL hoàn toàn ẩn nhãn; sửa evaluation không xóa leakage đã xảy ra khi train. Giữ artifact để truy vết, nhưng phải gắn source/policy và train lại khi so sánh công bằng.
+Theo [audit logic trước](critical-logic-2026-10-27.md), một số run cũ dùng nhãn unlabeled trong foreground crop. Những run đó không thể coi là SSL hoàn toàn ẩn nhãn; sửa evaluation không xóa leakage đã xảy ra khi train. Giữ artifact để truy vết, nhưng phải gắn source/policy và train lại khi so sánh công bằng.
 
 Label budget cần báo cáo số **case/bệnh nhân**, cách chọn pool và danh sách thực tế. Hiện `labeled_idxs=range(labelnum)` phụ thuộc thứ tự split; cần lưu danh sách này, không chỉ giá trị `labelnum`. So sánh supervised/SSL phải cùng pool, seed, preprocessing, augmentation và inference policy hoặc công khai khác biệt.
 
@@ -299,7 +301,7 @@ Kiểm thử lỗi đọc H5, ghi checkpoint/JSON, validation exception và lỗ
 
 `METRIC_POLICY` giữ `empty_prediction_and_target_dice=1.0` và chọn foreground case-mean Dice. Policy này hợp lệ nếu được khai báo; không tự gọi là bug công thức. Nó nhạy với tần suất class vắng mặt và phạt bất kỳ FP nào trên ca âm tính từ 1 xuống 0 cho class đó.
 
-Trong [phân tích run 9tvq8qld](docs/RUN_9TVQ8QLD_INTERIM_ANALYSIS_2026_10_27.md), baseline all-background **được tính giải tích** trên 38 case fold 0: `(32+15+16+18+25)/(38×5)=0.55789`, so với best ghi nhận `0.46258`. Chưa phải kết quả chạy inference baseline, không phải thuộc tính của mọi fold/BHSD. Không suy ra all-background phát hiện bệnh tốt hơn, hoặc chắc chắn checkpoint hiện tại “sai”. Đây là lý do cần nhiều metric và selection policy đã định trước.
+Trong [phân tích run 9tvq8qld](../../analysis/run-9tvq8qld-3500-2026-10-27.md), baseline all-background **được tính giải tích** trên 38 case fold 0: `(32+15+16+18+25)/(38×5)=0.55789`, so với best ghi nhận `0.46258`. Chưa phải kết quả chạy inference baseline, không phải thuộc tính của mọi fold/BHSD. Không suy ra all-background phát hiện bệnh tốt hơn, hoặc chắc chắn checkpoint hiện tại “sai”. Đây là lý do cần nhiều metric và selection policy đã định trước.
 
 ### 10.2. Những metric đã có và phần cần bổ sung
 
@@ -317,7 +319,7 @@ Giữ legacy `best_model.pth` theo policy cũ để so sánh lịch sử; nếu 
 
 ### 10.3. Checkpoint và OOF
 
-Giữ strict context và các fallback được mô tả ở [checkpoint policy](docs/BENCHMARK_CHECKPOINT_POLICY.md). Checkpoint legacy thiếu metadata chỉ có thể coi context chưa xác minh; không thể kiểm tra một field chưa tồn tại. CPS checkpoint chỉ có model1 có thể eval nhưng không resume đầy đủ. EMA/student weights source phải được báo rõ.
+Giữ strict context và các fallback được mô tả ở [checkpoint policy](../../guides/checkpoint-evaluation.md). Checkpoint legacy thiếu metadata chỉ có thể coi context chưa xác minh; không thể kiểm tra một field chưa tồn tại. CPS checkpoint chỉ có model1 có thể eval nhưng không resume đầy đủ. EMA/student weights source phải được báo rõ.
 
 `torch.save` và manifest hiện replace atomic **từng file**, không phải transaction chung hai file. Cần test gián đoạn giữa hai bước và quy định recovery, checksum/schema version nếu cần. Cloud `log_artifact()` trả queued/success ở SDK chưa bảo đảm upload đã durable trước khi session bị ngắt.
 

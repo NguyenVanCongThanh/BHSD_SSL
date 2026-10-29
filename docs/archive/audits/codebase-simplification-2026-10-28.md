@@ -1,3 +1,7 @@
+> Sau snapshot này repo đã có requirements và các sửa đổi công cụ. Kết quả test/finding dưới đây chỉ đúng với revision được ghi, không phải backlog hiện hành.
+
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Audit tinh gọn codebase BHSD_SSL — 28/10/2026
 
 ## Tổng quan và phạm vi

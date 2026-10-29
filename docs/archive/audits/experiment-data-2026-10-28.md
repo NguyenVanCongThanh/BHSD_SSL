@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Báo cáo rà soát và Kiến trúc chuẩn hóa thư mục Experiment Data
 
 *Tài liệu thẩm định, dọn dẹp và chuẩn hóa kiến trúc lưu trữ dữ liệu thí nghiệm (`experiment_data/`)*  
@@ -42,7 +44,7 @@ Qua rà soát chi tiết, cấu trúc hiện tại xuất hiện cảm giác "r�
 1. **Xóa snapshot rác trùng lặp**:
    - Đã loại bỏ thư mục `wandb/9tvq8qld/20261028T051006_176623Z_97791eef/` (chỉ chứa 4 file nhỏ trùng lặp sinh ra ngoài ý muốn khi chạy `fetch_wandb.py`), giữ lại duy nhất bản snapshot gốc 21.5 MB đầy đủ.
 2. **Triển khai cơ chế Symlink `latest` tự động**:
-   - Nâng cấp module trung tâm [`tools/crawl_storage.py`](file:///home/u001015/BHSD_SSL/tools/crawl_storage.py): Mỗi khi tạo snapshot mới, hệ thống tự động cập nhật liên kết biểu tượng `latest` trong thư mục cha.
+   - Nâng cấp module trung tâm [`tools/crawl_storage.py`](../../../tools/crawl_storage.py): Mỗi khi tạo snapshot mới, hệ thống tự động cập nhật liên kết biểu tượng `latest` trong thư mục cha.
    - Giờ đây bạn có thể mở nhanh bất kỳ file nào mà không cần nhớ timestamp:
      - `cat experiment_data/wandb/9tvq8qld/latest/summary.json`
      - `cat experiment_data/wandb/9tvq8qld/latest/config.json`

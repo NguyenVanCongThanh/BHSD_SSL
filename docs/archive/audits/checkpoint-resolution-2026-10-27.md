@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Audit: Benchmark 5-Fold không tìm đúng checkpoint
 
 **Ngày audit:** 2026-10-27
@@ -10,7 +12,7 @@
 > **Cập nhật triển khai 27/10/2026:** Phần audit bên dưới ghi lại trạng thái tại
 > commit `1bdeb62`; các ví dụ API/manifest ở đó là đề xuất lịch sử.
 > Quy ước đã triển khai và kết quả kiểm tra nằm trong
-> [BENCHMARK_CHECKPOINT_POLICY.md](BENCHMARK_CHECKPOINT_POLICY.md).
+> [BENCHMARK_CHECKPOINT_POLICY.md](../../guides/checkpoint-evaluation.md).
 > Resolver, strict loading, config-based model building, manifest khi lưu và test
 > đã được bổ sung. Chưa chạy lại suy luận benchmark trên dataset.
 > **Đính chính:** config trong checkpoint Mean Teacher fold 0–1 là `unet3d`;
@@ -748,10 +750,10 @@ fold 4: Best mDice: 0.5368 | last val: 0.4309
 
 ### C. Tài liệu liên quan
 
-- `docs/BENCHMARK_ALIGNMENT_MEAN_TEACHER_VS_NNUNET.md`
-- `docs/DDP_BATCH_SIZE.md`
-- `docs/EXPERIMENT_DATA.md`
-- `docs/RUN_TERMINATION_AUDIT.md`
+- [Benchmark protocol](../../guides/benchmark-protocol.md)
+- [Training và batch](../../guides/training.md)
+- [Experiment data](../../guides/experiment-data.md)
+- [Termination audit](../../analysis/run-s9i9nsui-termination-2026-10-26.md)
 
 ---
 

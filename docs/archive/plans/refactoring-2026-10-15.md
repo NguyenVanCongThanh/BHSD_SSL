@@ -1,3 +1,5 @@
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # TÀI LIỆU QUY HOẠCH VÀ THIẾT KẾ TÁI CẤU TRÚC TOÀN DIỆN MÃ NGUỒN
 ## ĐỊNH HƯỚNG MỞ RỘNG FRAMEWORK SEMI-SUPERVISED MEDICAL IMAGE SEGMENTATION (BHSD)
 

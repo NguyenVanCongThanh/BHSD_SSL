@@ -1,10 +1,14 @@
+> Data factory, metadata helper và validation coordinator hiện đã tồn tại. Xem [kiến trúc hiện hành](../../architecture/training.md); kế hoạch dưới đây được giữ ở trạng thái trước triển khai.
+
+> **Hồ sơ lịch sử:** giữ nguyên phát hiện, số liệu và kết quả kiểm tra tại thời điểm báo cáo; không dùng các mô tả “hiện tại” dưới đây làm trạng thái checkout mới. Xem [chỉ mục tài liệu](../../README.md) để tìm hướng dẫn hiện hành.
+
 # Kế hoạch module hóa và refactor `BaseMethod`
 
 Trạng thái: đặc tả triển khai, chưa thực hiện refactor. Đối chiếu mã nguồn ngày 2026-10-28.
 
 ## 1. Mục tiêu và phạm vi
 
-[`methods/base_method.py`](../methods/base_method.py) hiện có 907 dòng và 26 phương thức. Lớp vừa điều phối training, vừa dựng data pipeline, cấu hình runtime, đóng gói checkpoint, xử lý validation và xuất log. Những phần có lý do thay đổi khác nhau nên được tách ra để dễ kiểm thử và bảo trì.
+[`methods/base_method.py`](../../../methods/base_method.py) hiện có 907 dòng và 26 phương thức. Lớp vừa điều phối training, vừa dựng data pipeline, cấu hình runtime, đóng gói checkpoint, xử lý validation và xuất log. Những phần có lý do thay đổi khác nhau nên được tách ra để dễ kiểm thử và bảo trì.
 
 Mục tiêu của đợt này là **giảm phụ thuộc và làm rõ luồng điều phối trong khi bảo toàn hành vi hiện tại**. Số dòng chỉ là chỉ số tham khảo; không đặt yêu cầu rút xuống 250–280 dòng hoặc ép loop còn 60–80 dòng.
 
