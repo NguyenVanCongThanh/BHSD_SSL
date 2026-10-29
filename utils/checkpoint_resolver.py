@@ -11,8 +11,8 @@ def resolve_checkpoint(exp_dir, fold, model_name=None, prefer='best',
     older root/pretrain best from replacing a self-training latest checkpoint.
     Legacy names are accepted, but their validation provenance is unverified.
     """
-    if prefer not in ('best', 'latest'):
-        raise ValueError('prefer must be best or latest')
+    if prefer not in ('best', 'latest', 'epoch_latest'):
+        raise ValueError("prefer must be 'best', 'latest', or 'epoch_latest'")
     best_names = list(dict.fromkeys(['best_model.pth', 'VNet_best_model.pth'] +
                                   ([f'{model_name}_best_model.pth'] if model_name else [])))
     searched = []
@@ -24,11 +24,20 @@ def resolve_checkpoint(exp_dir, fold, model_name=None, prefer='best',
         for directory in directories:
             best = [directory / name for name in best_names]
             latest = directory / 'checkpoint_latest.pth'
-            searched.extend(str(p) for p in best + [latest])
-            if not any(p.is_file() for p in best + [latest]):
+            epoch_latest = directory / 'checkpoint_epoch_latest.pth'
+            all_ckpts = best + [latest, epoch_latest]
+            searched.extend(str(p) for p in all_ckpts)
+            if not any(p.is_file() for p in all_ckpts):
                 continue
             if prefer == 'latest':
                 if latest.is_file():
+                    return str(latest), 'latest'
+                break
+            if prefer == 'epoch_latest':
+                if epoch_latest.is_file():
+                    return str(epoch_latest), 'epoch_latest'
+                if allow_latest and latest.is_file():
+                    logging.warning('[Fold %s] Epoch latest missing in %s; falling back to latest', fold, directory)
                     return str(latest), 'latest'
                 break
             for path in best:

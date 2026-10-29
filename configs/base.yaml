@@ -8,6 +8,7 @@ experiment:
   deterministic: true
   exp_dir: "/home/u001015/experiments"
   resume: false
+  resume_policy: "latest"   # "latest" (nearest save_interval) or "epoch_boundary" (completed labeled epoch)
   phase: "all"              # "all", "pre_train", or "self_train"
 
 data:
