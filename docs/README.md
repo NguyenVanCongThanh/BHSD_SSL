@@ -22,6 +22,16 @@ Bộ hướng dẫn được đối chiếu với source ngày 29/10/2026. Bắt
 - [Dataset preprocessing và phạm vi bằng chứng đối chiếu](architecture/dataset-preprocessing.md).
 - [Việc còn cần kiểm chứng](backlog.md): tách khỏi kết luận lịch sử trong audit.
 
+## Research Management Portal (Thiết kế & Kế hoạch)
+
+- [Tổng hợp yêu cầu & Danh mục chức năng](research-portal/requirements.md)
+- [Khảo sát giải pháp & Bảng phân định trách nhiệm](research-portal/solution-landscape.md)
+- [Kiến trúc hệ thống, Luồng dữ liệu & Bảo mật](research-portal/architecture.md)
+- [Mô hình dữ liệu, Lược đồ ER & JSON Schema](research-portal/data-model.md)
+- [Thiết kế UI/UX & Interactive Medical Slice Viewer](research-portal/ui-ux.md)
+- [Lộ trình triển khai theo giai đoạn (Roadmap)](research-portal/roadmap.md)
+- [Ma trận rủi ro & 10 Quyết định kiến trúc (ADRs)](research-portal/risks-and-decisions.md)
+
 ## Phân tích run
 
 - [Run 9tvq8qld tới 16.250 iterations — 28/10](analysis/run-9tvq8qld-16250-2026-10-28.md): train 16.250, validation mới nhất 16.000.
