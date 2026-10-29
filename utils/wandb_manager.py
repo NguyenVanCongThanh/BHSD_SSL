@@ -8,6 +8,8 @@ from typing import Dict, Any, Optional, List, Union, Sequence
 import os
 import logging
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -37,6 +39,11 @@ class WandbManager:
         self.identity_path = Path(getattr(cfg.experiment, 'exp_dir', '../experiments')) / getattr(cfg.experiment, 'name', 'exp') / f'fold_{self.fold}' / 'wandb_run.json'
         self.log_failures = 0
         self._hidden_metrics = set()
+        self._confirmed_uploads = 0
+        self.artifact_keep_versions = int(getattr(cfg.logging, 'artifact_keep_versions', 2))
+        self.cache_cleanup_interval = int(getattr(cfg.logging, 'artifact_cache_cleanup_interval', 5))
+        if self.artifact_keep_versions < 0 or self.cache_cleanup_interval < 1:
+            raise ValueError('artifact_keep_versions must be nonnegative and artifact_cache_cleanup_interval positive')
 
         from core.distributed import is_main_process
         if self.enabled and self.mode != "disabled" and is_main_process():
@@ -243,10 +250,56 @@ class WandbManager:
             aliases = aliases or ["latest"]
             self.run.log_artifact(artifact, aliases=aliases)
             logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
+            if self.mode == 'online':
+                # Never prune using an upload that has merely been queued.
+                try:
+                    artifact.wait(timeout=60)
+                except Exception as exc:
+                    logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
+                else:
+                    self._maintain_artifact_storage(artifact, name, artifact_type)
             return True
         except Exception as e:
             logging.warning(f"[W&B ARTIFACT] Failed to log artifact '{name}': {e}")
             return False
+
+    def _maintain_artifact_storage(self, artifact, name, artifact_type):
+        """Prune this run's old versions only after a replacement is committed."""
+        try:
+            if self.artifact_keep_versions:
+                import wandb
+                collection = f'{self.entity}/{self.project}/{name}'
+                versions = list(wandb.Api().artifacts(artifact_type, collection))
+                owned = []
+                for version in versions:
+                    owner = version.logged_by()
+                    if owner is not None and owner.id == self.run_id:
+                        owned.append(version)
+                owned.sort(key=lambda v: int(v.version.lstrip('v')), reverse=True)
+                # Eventual API consistency must not cause the prior latest to be deleted.
+                if any(v.id == artifact.id for v in owned):
+                    for old in owned[self.artifact_keep_versions:]:
+                        if old.id == artifact.id or {'latest', 'best'} & set(old.aliases):
+                            continue
+                        old.delete(delete_aliases=True)
+        except Exception as exc:
+            logging.warning('[W&B] Could not prune artifact versions: %s', exc)
+        self._confirmed_uploads += 1
+        if self._confirmed_uploads % self.cache_cleanup_interval == 0:
+            self._cleanup_artifact_cache()
+
+    def _cleanup_artifact_cache(self):
+        target = getattr(self.cfg.logging, 'artifact_cache_size', '1GB')
+        if not target:
+            return
+        try:
+            # Public CLI; leave upload staging/temp files untouched.
+            result = subprocess.run(
+                [sys.executable, '-m', 'wandb', 'artifact', 'cache', 'cleanup', str(target)],
+                capture_output=True, text=True, timeout=30, check=True)
+            logging.info('[W&B CACHE] %s', result.stdout.strip())
+        except Exception as exc:
+            logging.warning('[W&B CACHE] Cleanup failed: %s', exc)
 
     def restore_artifact(
         self,
@@ -305,6 +358,8 @@ class WandbManager:
             return
         try:
             self.run.finish(exit_code=exit_code)
+            if self.mode == 'online':
+                self._cleanup_artifact_cache()
             logging.info(f"[W&B CLOUD] Finalized run '{self.run_name}'.")
         except Exception as e:
             logging.warning(f"[W&B] Error finalizing run: {e}")

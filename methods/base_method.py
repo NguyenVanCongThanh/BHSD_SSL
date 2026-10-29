@@ -224,7 +224,9 @@ class BaseMethod(abc.ABC):
         )
 
     def cloud_latest_due(self, iteration):
-        interval = getattr(self.cfg.logging, 'artifact_interval', None) or getattr(self.cfg.logging, 'val_interval', 500)
+        if getattr(self.cfg.experiment, 'resume_policy', 'latest') != 'latest':
+            return False
+        interval = getattr(self.cfg.logging, 'artifact_interval', None) or 5000
         interval = int(interval)
         if interval < 1:
             raise ValueError('artifact_interval must be positive')
@@ -232,13 +234,13 @@ class BaseMethod(abc.ABC):
 
     def cloud_epoch_due(self, completed_epochs: int) -> bool:
         """Determine whether current epoch boundary checkpoint should be uploaded to W&B."""
+        if getattr(self.cfg.experiment, 'resume_policy', 'latest') != 'epoch_boundary':
+            return False
         epoch_art_int = getattr(self.cfg.logging, 'epoch_artifact_interval', None)
-        if epoch_art_int is not None:
-            interval = int(epoch_art_int)
-            if interval < 1:
-                raise ValueError('epoch_artifact_interval must be positive')
-            return completed_epochs % interval == 0
-        return True
+        interval = 10 if epoch_art_int is None else int(epoch_art_int)
+        if interval < 1:
+            raise ValueError('epoch_artifact_interval must be positive')
+        return completed_epochs % interval == 0
 
     def save_checkpoint(
         self,

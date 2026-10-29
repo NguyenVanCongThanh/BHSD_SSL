@@ -41,7 +41,11 @@ logging:
   val_stride_z: 8
   wandb_mode: "online"     # online | offline | disabled; WANDB_MODE env overrides
   wandb_required: false    # Fail rather than degrade on initialization/log failures
-  artifact_interval: null  # Defaults to val_interval; checked at local saves/validation, plus phase end
+  artifact_interval: 5000  # Resume-policy latest: checked at local saves/validation, plus phase end
+  epoch_artifact_interval: 10  # Resume-policy epoch_boundary: upload every N completed epochs
+  artifact_keep_versions: 2  # Per collection, current run only; 0 disables cloud pruning
+  artifact_cache_size: "1GB"  # null disables local W&B artifact cache cleanup
+  artifact_cache_cleanup_interval: 5  # Every N confirmed uploads, plus run finish
   log_interval: 10
   val_amp: true
   val_gaussian: true

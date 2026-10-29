@@ -108,7 +108,7 @@ SDK history append-only. Manager log `global_step` như một metric và dùng `
 - Manager dùng run handle riêng, không gọi global logging/summary để tránh ghi nhầm run.
 - Training exception đóng run với `exit_code=1`; run thành công đóng với code 0. Áp dụng cả BaseMethod và PICK.
 - Init/log thất bại có warning. Log lỗi lặp được giới hạn tần suất; `wandb_required: true` yêu cầu fail thay vì tiếp tục local-only.
-- Artifact upload là bất đồng bộ: log “queued” không phải bằng chứng upload đã hoàn thành.
+- Artifact online chờ xác nhận tối đa 60 giây trước khi dọn phiên bản cũ; log “queued” không phải bằng chứng upload đã hoàn thành. Xem [chính sách lưu trữ checkpoint](checkpoint-resume.md#local-và-cloud).
 
 ```yaml
 logging:
