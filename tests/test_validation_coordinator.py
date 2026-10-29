@@ -22,7 +22,7 @@ class TestValidationCoordinator(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
-    def _build_request_and_runtime(self, best_dice=float('-inf'), is_ddp=False, rank=0):
+    def _build_request_and_runtime(self, best_dice=float('-inf'), is_ddp=False, rank=0, legacy_best_model_name=None):
         req = ValidationRequest(
             snap_dir=str(self.root),
             phase='train',
@@ -30,7 +30,7 @@ class TestValidationCoordinator(unittest.TestCase):
             global_step=500,
             best_dice=best_dice,
             best_model_name='best_model.pth',
-            legacy_best_model_name='VNet_best_model.pth',
+            legacy_best_model_name=legacy_best_model_name,
             art_prefix='test_exp',
             latest_pth=str(self.root / 'checkpoint_latest.pth'),
             should_vis=False,
@@ -82,7 +82,37 @@ class TestValidationCoordinator(unittest.TestCase):
         self.assertTrue(callbacks.resume_training_mode.called)
         wandb_mgr.log_metrics.assert_called_once()
 
-        # Ensure both best, legacy best, and latest checkpoints were saved
+        # Ensure only canonical best and latest checkpoints were saved by default
+        paths = [kw['path'] for kw in saved_checkpoints]
+        self.assertEqual(paths, [str(self.root / name) for name in
+                                 ('best_model.pth', 'checkpoint_latest.pth')])
+
+    def test_validation_saves_legacy_when_explicitly_configured(self):
+        req, rt = self._build_request_and_runtime(best_dice=0.5, legacy_best_model_name='VNet_best_model.pth')
+        saved_checkpoints = []
+        callbacks = ValidationCallbacks(
+            validate=MagicMock(return_value=(0.85, np.array([0.85]))),
+            save_checkpoint=lambda **kw: saved_checkpoints.append(kw),
+            cloud_latest_due=lambda it: False,
+            build_visual_payload=lambda r: {},
+            get_validation_details=lambda: {},
+            resume_training_mode=MagicMock(),
+            publish_validation_state=MagicMock(),
+        )
+        wandb_mgr = SimpleNamespace(
+            enabled=False,
+            update_summary=MagicMock(),
+            log_metrics=MagicMock(),
+            build_evaluation_table=MagicMock(return_value=None),
+        )
+        coordinator = ValidationCoordinator()
+        coordinator.handle(
+            request=req,
+            runtime=rt,
+            callbacks=callbacks,
+            writer=MagicMock(),
+            wandb_manager=wandb_mgr,
+        )
         paths = [kw['path'] for kw in saved_checkpoints]
         self.assertEqual(paths, [str(self.root / name) for name in
                                  ('best_model.pth', 'VNet_best_model.pth', 'checkpoint_latest.pth')])

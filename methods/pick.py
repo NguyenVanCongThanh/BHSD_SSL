@@ -224,7 +224,7 @@ class PICKMethod(BaseMethod):
             snapshot_dir=self.pre_snapshot_path,
             artifact_prefix=f"{self.exp_name}_pretrain",
             best_model_name="best_model.pth",
-            legacy_best_model_name="VNet_best_model.pth",
+            legacy_best_model_name=None,
             close_wandb_on_finish=False
         )
 
@@ -248,7 +248,7 @@ class PICKMethod(BaseMethod):
             artifact_prefix=f"{self.exp_name}_self",
             start_step_offset=self.pre_max_iteration,
             best_model_name="best_model.pth",
-            legacy_best_model_name="VNet_best_model.pth",
+            legacy_best_model_name=None,
             close_wandb_on_finish=False,
             allow_new_phase=True
         )

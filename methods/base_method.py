@@ -228,6 +228,16 @@ class BaseMethod(abc.ABC):
             raise ValueError('artifact_interval must be positive')
         return iteration % interval == 0 or iteration == getattr(self, '_phase_max_iters', None)
 
+    def cloud_epoch_due(self, completed_epochs: int) -> bool:
+        """Determine whether current epoch boundary checkpoint should be uploaded to W&B."""
+        epoch_art_int = getattr(self.cfg.logging, 'epoch_artifact_interval', None)
+        if epoch_art_int is not None:
+            interval = int(epoch_art_int)
+            if interval < 1:
+                raise ValueError('epoch_artifact_interval must be positive')
+            return completed_epochs % interval == 0
+        return True
+
     def save_checkpoint(
         self,
         path: str,
@@ -298,6 +308,12 @@ class BaseMethod(abc.ABC):
             self.successful_updates = ckpt_data['successful_updates']
         elif 'successful_updates' in ckpt_data.get('extra_state', {}):
             self.successful_updates = ckpt_data['extra_state']['successful_updates']
+
+        # Extract completed_epochs if recorded
+        self.loaded_completed_epochs = ckpt_data.get('completed_epochs')
+        if self.loaded_completed_epochs is None and 'extra_state' in ckpt_data and isinstance(ckpt_data['extra_state'], dict):
+            self.loaded_completed_epochs = ckpt_data['extra_state'].get('completed_epochs')
+
         return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
 
     def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
@@ -494,7 +510,7 @@ class BaseMethod(abc.ABC):
         artifact_prefix: Optional[str] = None,
         start_step_offset: int = 0,
         best_model_name: str = "best_model.pth",
-        legacy_best_model_name: Optional[str] = "VNet_best_model.pth",
+        legacy_best_model_name: Optional[str] = None,
         close_wandb_on_finish: bool = True,
         allow_new_phase: bool = False
     ) -> Tuple[int, float]:
@@ -517,19 +533,27 @@ class BaseMethod(abc.ABC):
         step_callback = step_fn or self.train_step
         art_prefix = f'{artifact_prefix or self.exp_name}_fold{self.fold}'
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
+        resume_policy = str(getattr(self.cfg.experiment, 'resume_policy', 'latest')).lower()
+        if resume_policy not in ('latest', 'epoch_boundary'):
+            raise ValueError(f"Invalid resume_policy: '{resume_policy}'. Expected 'latest' or 'epoch_boundary'")
 
         self.model.train()
         self.validation_details = {}
         iter_num = 0
         best_dice = float("-inf")
 
+        epoch_len = max(len(self.trainloader), 1)
         latest_pth = os.path.join(snap_dir, "checkpoint_latest.pth")
+        epoch_pth = os.path.join(snap_dir, "checkpoint_epoch_latest.pth")
+
+        target_resume_pth = epoch_pth if resume_policy == "epoch_boundary" else latest_pth
+        target_art_name = f"{art_prefix}_epoch_latest" if resume_policy == "epoch_boundary" else f"{art_prefix}_latest"
 
         # Cloud auto-restore if local checkpoint is missing
-        if resume and not os.path.exists(latest_pth) and self.wandb_manager.enabled and is_main_process():
-            logging.info(f"[RESUME] Local checkpoint not found in {snap_dir}. Attempting auto-restore from W&B Cloud Storage...")
+        if resume and not os.path.exists(target_resume_pth) and self.wandb_manager.enabled and is_main_process():
+            logging.info(f"[RESUME] Local checkpoint not found at {target_resume_pth}. Attempting auto-restore '{target_art_name}' from W&B...")
             self.wandb_manager.restore_artifact(
-                artifact_name=f"{art_prefix}_latest",
+                artifact_name=target_art_name,
                 dest_dir=snap_dir,
                 tag="latest"
             )
@@ -537,19 +561,30 @@ class BaseMethod(abc.ABC):
         if self.is_ddp:
             torch.distributed.barrier()
 
-        if not resume and any(os.path.exists(os.path.join(snap_dir, name)) for name in
-                              ('checkpoint_latest.pth', best_model_name, legacy_best_model_name or best_model_name)):
+        checkpoint_candidates = ['checkpoint_latest.pth', 'checkpoint_epoch_latest.pth', best_model_name]
+        if legacy_best_model_name:
+            checkpoint_candidates.append(legacy_best_model_name)
+        else:
+            checkpoint_candidates.append('VNet_best_model.pth')
+
+        if not resume and any(os.path.exists(os.path.join(snap_dir, name)) for name in checkpoint_candidates):
             raise FileExistsError(f'Existing checkpoints in {snap_dir}; use resume or a new experiment directory')
 
-        if resume and not os.path.exists(latest_pth):
+        if resume and not os.path.exists(target_resume_pth):
+            if resume_policy == "epoch_boundary":
+                raise FileNotFoundError(f"Cannot resume with resume_policy='epoch_boundary': epoch boundary checkpoint missing in {snap_dir} ({epoch_pth})")
             has_best = any(os.path.isfile(os.path.join(snap_dir, name)) for name in
                            (best_model_name, legacy_best_model_name or best_model_name))
             if has_best or not allow_new_phase:
                 raise FileNotFoundError(f'Cannot resume {phase}: latest checkpoint missing in {snap_dir}')
 
-        if resume and os.path.exists(latest_pth):
-            iter_num, best_dice = self.load_checkpoint(latest_pth)
-            logging.info(f"[RESUME] Resumed phase '{phase}' from iter {iter_num} | best_mDice: {best_dice:.4f}")
+        completed_epochs = 0
+        if resume and os.path.exists(target_resume_pth):
+            iter_num, best_dice = self.load_checkpoint(target_resume_pth)
+            completed_epochs = getattr(self, 'loaded_completed_epochs', None)
+            if completed_epochs is None:
+                completed_epochs = iter_num // epoch_len
+            logging.info(f"[RESUME] Resumed phase '{phase}' from iter {iter_num} | completed_epochs: {completed_epochs} (policy: '{resume_policy}') | best_mDice: {best_dice:.4f}")
 
         if iter_num >= max_iters:
             logging.info(f"Phase '{phase}' already completed ({iter_num}/{max_iters}). Skipping.")
@@ -558,16 +593,18 @@ class BaseMethod(abc.ABC):
             return iter_num, best_dice
 
         remaining_iters = max(max_iters - iter_num, 0)
-        max_epoch = remaining_iters // max(len(self.trainloader), 1) + 2
+        max_epoch = remaining_iters // epoch_len + 2
         iter_t0 = time.time()
 
-        for epoch in range(max_epoch):
+        start_epoch = completed_epochs
+        for epoch_idx in range(max_epoch):
+            current_epoch = start_epoch + epoch_idx
             if self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
-                self.train_sampler.set_epoch(epoch)
+                self.train_sampler.set_epoch(current_epoch)
             elif self.is_ddp and hasattr(self, 'batch_sampler') and hasattr(self.batch_sampler, 'set_epoch'):
-                self.batch_sampler.set_epoch(epoch)
+                self.batch_sampler.set_epoch(current_epoch)
 
-            for _, batch_data in enumerate(self.trainloader):
+            for batch_idx, batch_data in enumerate(self.trainloader):
                 cur_lr = self.update_learning_rate(iter_num, max_iters)
                 if isinstance(batch_data, (tuple, list)):
                     sampled_batch = batch_data[0]
@@ -612,7 +649,12 @@ class BaseMethod(abc.ABC):
                             best_dice=best_dice,
                             phase=phase,
                             artifact_name=f"{art_prefix}_latest" if self.cloud_latest_due(iter_num) else None,
-                            artifact_type="checkpoint"
+                            artifact_type="checkpoint",
+                            extra_state={
+                                'completed_epochs': current_epoch,
+                                'epoch_length': epoch_len,
+                                'at_epoch_boundary': False,
+                            }
                         )
 
                 # Periodic Validation (All DDP Ranks evaluate in parallel)
@@ -635,6 +677,30 @@ class BaseMethod(abc.ABC):
                         should_vis=should_vis
                     )
                     iter_t0 = time.time()
+
+                # Epoch boundary checkpoint: only triggered when completing the full epoch
+                is_epoch_boundary = (batch_idx == epoch_len - 1)
+                if is_epoch_boundary:
+                    completed_epochs = current_epoch + 1
+                    if is_main_process():
+                        self.save_checkpoint(
+                            path=epoch_pth,
+                            iter_num=iter_num,
+                            best_dice=best_dice,
+                            phase=phase,
+                            artifact_name=f"{art_prefix}_epoch_latest" if self.cloud_epoch_due(completed_epochs) else None,
+                            artifact_type="checkpoint",
+                            aliases=["latest", f"epoch_{completed_epochs}"],
+                            extra_state={
+                                'schema_version': 2,
+                                'completed_epochs': completed_epochs,
+                                'epoch_length': epoch_len,
+                                'at_epoch_boundary': True,
+                                'checkpoint_kind': 'epoch_latest',
+                                'split_fingerprints': getattr(self, 'split_fingerprints', None),
+                                'batch_layout': getattr(self, 'batch_layout', None).to_dict() if hasattr(getattr(self, 'batch_layout', None), 'to_dict') else None,
+                            }
+                        )
 
                 if iter_num >= max_iters:
                     break

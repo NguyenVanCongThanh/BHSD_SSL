@@ -110,13 +110,16 @@ def save_checkpoint(
     raw_model = get_raw_model(model)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
+    default_kind = 'latest' if Path(path).name == 'checkpoint_latest.pth' else (
+        'epoch_latest' if Path(path).name == 'checkpoint_epoch_latest.pth' else 'unverified'
+    )
     state = {
         'net': raw_model.state_dict(),
         'opt': optimizer.state_dict() if optimizer is not None else None,
         'iter_num': iter_num,
         'best_dice': best_dice,
         'phase': phase,
-        'checkpoint_kind': 'latest' if Path(path).name == 'checkpoint_latest.pth' else 'unverified',
+        'checkpoint_kind': default_kind,
         'rng_state': capture_rng_state(),
     }
     if scaler is not None and hasattr(scaler, 'state_dict'):
@@ -132,12 +135,14 @@ def save_checkpoint(
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {'schema_version': 1, 'checkpoints': {}}
     manifest['checkpoints'][Path(path).name] = {
         'path': Path(path).name,
-        'kind': state['checkpoint_kind'],
+        'kind': state.get('checkpoint_kind', default_kind),
         'phase': phase,
         'iter_num': iter_num,
         'best_dice': best_dice if math.isfinite(best_dice) else None,
         'selection_metric': state.get('selection_metric'),
         'selected_iter': state.get('selected_iter'),
+        'completed_epochs': state.get('completed_epochs'),
+        'at_epoch_boundary': state.get('at_epoch_boundary', Path(path).name == 'checkpoint_epoch_latest.pth'),
     }
     manifest_tmp = str(manifest_path) + '.tmp'
     with open(manifest_tmp, 'w') as stream:

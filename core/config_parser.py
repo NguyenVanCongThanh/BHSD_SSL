@@ -132,6 +132,8 @@ SECTION_MAPPING = {
     'deterministic': 'experiment',
     'exp_dir': 'experiment',
     'resume': 'experiment',
+    'resume_policy': 'experiment',
+    'resume-policy': 'experiment',
     'amp': 'experiment',
     'phase': 'experiment',
     'pretrain_checkpoint': 'experiment',
@@ -239,7 +241,7 @@ def _resolve_config_path(category: str, identifier: str) -> Optional[str]:
 KNOWN_SECTION_KEYS = {
     'experiment': {
         'name', 'task', 'num_classes', 'fold', 'seed', 'deterministic', 'exp_dir',
-        'resume', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode', 'ddp'
+        'resume', 'resume_policy', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode', 'ddp'
     },
     'data': {
         'name', 'root_path', 'patch_size', 'batch_size', 'labeled_bs', 'labelnum',
@@ -352,6 +354,10 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
     if 'ddp' in exp:
         if not isinstance(exp['ddp'], bool):
             raise ValueError(f"experiment.ddp must be boolean, got {exp['ddp']}")
+    if 'resume_policy' in exp:
+        rp = exp['resume_policy']
+        if rp not in ('latest', 'epoch_boundary'):
+            raise ValueError(f"experiment.resume_policy must be 'latest' or 'epoch_boundary', got {rp!r}")
 
     # 3. Method invariants
     if 'base_lr' in method:
