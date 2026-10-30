@@ -65,7 +65,9 @@ class NotebookBuilder:
             raise ValueError('Invalid resume mode')
         spec = self.get_notebook_spec(notebook_type)
         slug = custom_slug or spec.get("slug", f"bhsd-{notebook_type}")
-        title = custom_title or spec.get("title", slug.replace("-", "_"))
+        # A new Kaggle notebook derives its slug from its title. Keeping the
+        # template title with a custom slug can collide with the original notebook.
+        title = custom_title or (slug if custom_slug else spec.get("title", slug.replace("-", "_")))
         code_file_name = spec.get("code_file", f"{slug}.ipynb")
 
         # Thư mục bundle cô lập cho tài khoản và notebook này
