@@ -81,12 +81,16 @@ class WandbManager:
                 self.run_name = f"{exp_name}_{method_name}_fold{self.fold}"
 
             is_resume = bool(getattr(self.cfg.experiment, 'resume', False))
-            identity = self._resume_identity() if is_resume else None
+            new_segment = bool(getattr(self.cfg.logging, 'wandb_resume_new_run', False))
+            if new_segment and not is_resume:
+                raise ValueError('wandb_resume_new_run requires training resume')
+            # Training state resumes, but a new tracking segment must not inherit the source ID.
+            identity = self._resume_identity() if is_resume and not new_segment else None
             custom_id = getattr(self.cfg.logging, 'wandb_id', None)
             if identity and custom_id and identity['id'] != custom_id:
                 raise ValueError('wandb_id conflicts with saved run identity')
             run_id = custom_id or (identity['id'] if identity else None)
-            if is_resume and not run_id:
+            if is_resume and not new_segment and not run_id:
                 raise ValueError('W&B resume needs persisted run identity or explicit logging.wandb_id')
             config_dict = self.cfg.to_dict() if hasattr(self.cfg, 'to_dict') else dict(self.cfg)
             init_kwargs = {
@@ -97,7 +101,7 @@ class WandbManager:
             if run_id:
                 init_kwargs['id'] = str(run_id)
             if self.mode == 'online':
-                init_kwargs['resume'] = 'must' if is_resume else 'never'
+                init_kwargs['resume'] = 'must' if is_resume and not new_segment else 'never'
             elif is_resume:
                 logging.warning('W&B offline resume preserves run ID; remote history must be reconciled on sync')
             self.run = wandb.init(**init_kwargs)

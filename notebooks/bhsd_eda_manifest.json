@@ -1,0 +1,16 @@
+{
+  "dataset": "/home/u001015/dataset/BHSD_fold0",
+  "raw_root": "/home/u001015/dataset/BHSD/label_192/label_192",
+  "module_sha256": "6da0ac836b128b75cf8f9b997065f56c38fc825389997b98838b956b2c537626",
+  "cases": 2170,
+  "labeled": 192,
+  "unlabeled": 1978,
+  "split_sha256": {
+    "train": "fd55717bd966171ec871027412b08fd485d5792926cc0f86b17efce31360dd8e",
+    "val": "9fd64c1d051c29a92cc6db8276d782ba90fd6d44a8a7444a468cb69a24f33707",
+    "test": "9fd64c1d051c29a92cc6db8276d782ba90fd6d44a8a7444a468cb69a24f33707",
+    "train_labeled": "6ca262472a39e31c9a3ff129acb7ec21a08230b5b11ead20b378fe8afeef4581",
+    "train_unlabeled": "92f9fda273bdfda6fd91d44e750ccbe20e1a6c70d5f043c3c02efac9a9bc8fa9"
+  },
+  "scope": "All H5 volumes; raw GT and morphology for labeled cases only"
+}

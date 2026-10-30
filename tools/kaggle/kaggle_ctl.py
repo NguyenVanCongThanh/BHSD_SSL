@@ -116,7 +116,10 @@ def cmd_push(args):
         custom_title=args.title,
         custom_datasets=custom_datasets,
         enable_gpu=not args.no_gpu,
-        wandb_key=wandb_key
+        wandb_key=wandb_key,
+        resume_run=getattr(args, "resume_run", None),
+        resume_checkpoint=getattr(args, "resume_checkpoint", None),
+        resume_mode=getattr(args, "resume_mode", None)
     )
 
     print(f"[*] Thư mục bundle đã chuẩn bị: {bundle_dir}")
@@ -243,7 +246,10 @@ def cmd_build(args):
         custom_title=args.title,
         custom_datasets=[args.dataset] if args.dataset else None,
         enable_gpu=not args.no_gpu,
-        wandb_key=wandb_key
+        wandb_key=wandb_key,
+        resume_run=getattr(args, "resume_run", None),
+        resume_checkpoint=getattr(args, "resume_checkpoint", None),
+        resume_mode=getattr(args, "resume_mode", None)
     )
 
     metadata_file = bundle_dir / "kernel-metadata.json"
@@ -349,6 +355,13 @@ def main():
     parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0)")
     parser_push.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để đồng bộ online")
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
+
+    for command_parser in (parser_build, parser_push):
+        command_parser.add_argument("--resume-run", help="Resume Mean Teacher run: ID hoặc entity/project/id")
+        command_parser.add_argument("--resume-mode", choices=["same-run", "new-run"],
+                                    help="W&B tracking mode (default same-run); requires --resume-run")
+        command_parser.add_argument("--resume-checkpoint", choices=["latest", "best"],
+                                    help="Checkpoint cloud để resume (mặc định latest); cần --resume-run")
 
     # Subcommand: status
     parser_status = subparsers.add_parser("status", help="Kiểm tra trạng thái notebook đang chạy")

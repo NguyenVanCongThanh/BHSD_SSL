@@ -17,3 +17,5 @@ kaggle_mean_teacher/accounts.json
 kaggle_runs/
 experiment_data/
 
+# Regenerable per-case EDA fingerprints and profiles
+/notebooks/eda_cache/

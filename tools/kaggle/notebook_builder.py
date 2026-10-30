@@ -47,11 +47,22 @@ class NotebookBuilder:
                      custom_title: Optional[str] = None,
                      custom_datasets: Optional[List[str]] = None,
                      enable_gpu: Optional[bool] = None,
-                     wandb_key: Optional[str] = None) -> Path:
+                     wandb_key: Optional[str] = None,
+                     resume_run: Optional[str] = None,
+                     resume_checkpoint: Optional[str] = None,
+                     resume_mode: Optional[str] = None) -> Path:
         """
         Chuẩn bị thư mục bundle hoàn chỉnh gồm file .ipynb và file kernel-metadata.json
         cho tài khoản target_username.
         """
+        if (resume_checkpoint or resume_mode) and not resume_run:
+            raise ValueError("--resume-checkpoint/--resume-mode requires --resume-run")
+        if resume_run and notebook_type != "mean_teacher":
+            raise ValueError("--resume-run currently supports mean_teacher only")
+        if resume_checkpoint not in (None, "latest", "best"):
+            raise ValueError("Invalid resume checkpoint kind")
+        if resume_mode not in (None, 'same-run', 'new-run'):
+            raise ValueError('Invalid resume mode')
         spec = self.get_notebook_spec(notebook_type)
         slug = custom_slug or spec.get("slug", f"bhsd-{notebook_type}")
         title = custom_title or spec.get("title", slug.replace("-", "_"))
@@ -112,6 +123,13 @@ class NotebookBuilder:
                     print(f"[!] Cảnh báo: Không thể inject W&B key vào notebook: {e}", flush=True)
         else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
+
+        if resume_run:
+            from tools.kaggle.resume import inject_resume
+            with target_code_path.open(encoding="utf-8") as stream:
+                notebook = json.load(stream)
+            inject_resume(notebook, resume_run, resume_checkpoint or "latest", resume_mode or "same-run")
+            target_code_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
 
         # 2. Xử lý dataset sources
         datasets = custom_datasets if custom_datasets is not None else spec.get("dataset_sources", [])

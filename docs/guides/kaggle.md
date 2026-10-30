@@ -153,3 +153,45 @@ python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook my_new_method
 ## Tài liệu liên quan
 
 Xem [troubleshooting](kaggle-troubleshooting.md), [batch DDP](training.md) và [khôi phục checkpoint](checkpoint-resume.md).
+
+### Resume Mean Teacher trên tài khoản Kaggle khác
+
+```bash
+python3 tools/kaggle/kaggle_ctl.py push --account 2 --notebook mean_teacher \
+  --task binary --resume-run klbm4ebr --resume-checkpoint best
+```
+
+`--resume-run` nhận ID trong project BHSD_MeanTeacher mặc định hoặc
+`entity/project/id`. `--resume-checkpoint` nhận `latest` (mặc định) hoặc `best`;
+không tự chuyển sang best khi thiếu latest. Chỉ hỗ trợ Mean Teacher.
+Không truyền `--resume-run` giữ nguyên cách tạo run mới.
+
+Bundle nhúng bước chuẩn bị resume, thực hiện trên Kaggle sau khi đăng nhập W&B:
+đọc config gốc, kiểm tra run đã dừng và số GPU giống run gốc, chọn phiên bản
+checkpoint mới nhất do chính run đó upload, tải vào thư mục experiment gốc,
+rồi chạy với config gốc và cùng W&B ID. Root dữ liệu đổi sang DATA_ROOT của
+notebook; tổng max_iteration giữ nguyên. Không ghi đè checkpoint local có sẵn.
+`build` cũng nhận hai flag này để kiểm tra bundle cục bộ; không tải checkpoint
+hay xác minh quyền cloud cho tới khi notebook thực thi. Tài khoản đích phải
+truy cập được dataset và W&B project. Dataset/fold khác 0 cần cấu hình nguồn
+và DATA_ROOT tương ứng; CLI không tự cấp quyền hay chọn dataset theo fold.
+
+Latest trên cloud có thể cũ hơn local vì `artifact_interval` độc lập với
+`save_interval`. Ví dụ run klbm4ebr có latest 5000 và best 7000. Resume giữ
+history cũ và append history mới với global_step của checkpoint; không xóa hay
+thay thế điểm cũ. Nếu chạy lại một khoảng iteration, biểu đồ theo global_step
+có thể chứa nhiều giá trị tại cùng tọa độ X. Chưa triển khai rewind/fork.
+
+Để tiếp tục training nhưng tạo **W&B run mới**, thêm `--resume-mode new-run`:
+
+```bash
+python3 tools/kaggle/kaggle_ctl.py push --account 2 --notebook mean_teacher \
+  --task binary --resume-run klbm4ebr --resume-checkpoint best --resume-mode new-run
+```
+
+Chế độ này dùng thư mục experiment mới, giữ checkpoint đầy đủ và iteration gốc,
+nhưng không kế thừa W&B identity cũ. Config `logging.resume_source` ghi run,
+artifact và metadata nguồn. Chọn cả hai run trong cùng project để xem hai đường
+trên một biểu đồ theo global_step. Không tự sao chép history vào run mới.
+`--resume-mode same-run` là mặc định để giữ tương thích các lệnh resume đã có.
+Không có `--resume-run` vẫn tạo thí nghiệm mới từ đầu như trước.

@@ -1,0 +1,13 @@
+{
+  "numpy": "1.23.5",
+  "scipy": "1.9.3",
+  "pandas": "2.3.3",
+  "h5py": "3.14.0",
+  "nibabel": "5.3.3",
+  "scikit-image": "0.24.0",
+  "torch": "2.8.0+cpu",
+  "matplotlib": "3.9.4",
+  "seaborn": "0.13.2",
+  "nbformat": "5.10.4",
+  "nbclient": "0.10.2"
+}
