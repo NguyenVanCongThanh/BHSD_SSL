@@ -1,6 +1,8 @@
 import json
+import os
+import sys
 
-def build_mean_teacher_notebook():
+def build_mean_teacher_notebook(task: str = "multiclass"):
     cells = [
         # Cell 0: Header
         {
@@ -283,7 +285,7 @@ def build_mean_teacher_notebook():
                 "\n",
                 "# --- THÔNG SỐ THÍ NGHIỆM ---\n",
                 "FOLD_ID = 0                                                  # Chọn fold (0..4)\n",
-                "TASK = \"multiclass\"                                          # \"multiclass\" (6 lớp) hoặc \"binary\" (2 lớp)\n",
+                f"TASK = \"{task}\"                                          # \"multiclass\" (6 lớp) hoặc \"binary\" (2 lớp)\n",
                 "MODEL_NAME = \"nnunet3d\"                                      # SOTA nnU-Net 3D\n",
                 "METHOD_NAME = \"mean_teacher\"\n",
                 "RUN_TIMESTAMP = datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n",
@@ -491,11 +493,21 @@ def build_mean_teacher_notebook():
     return notebook
 
 if __name__ == "__main__":
-    nb = build_mean_teacher_notebook()
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate Mean Teacher Kaggle Notebook")
+    parser.add_argument(
+        "--task",
+        default=os.environ.get("BHSD_TASK", os.environ.get("TASK", "multiclass")),
+        choices=["multiclass", "binary"],
+        help="Task type: 'multiclass' or 'binary'"
+    )
+    args = parser.parse_args()
+
+    nb = build_mean_teacher_notebook(task=args.task)
     targets = [
         "scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
     ]
     for target in targets:
         with open(target, "w", encoding="utf-8") as f:
             json.dump(nb, f, indent=1, ensure_ascii=False)
-        print(f"Generated {target} successfully.")
+        print(f"Generated {target} successfully (task={args.task}).")
