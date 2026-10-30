@@ -35,6 +35,8 @@ logging:
   wandb_project: "PICK_BHSD"
   wandb_entity: null        # W&B team/username (leave null for default account)
   wandb_run_name: null      # Custom run name (defaults to {exp_name}_{method}_fold{fold})
+  wandb_resume_new_run: false # Resume training state into a new tracking run
+  resume_source: null      # Source run/artifact provenance for continued training
   wandb_id: null            # Specific Run ID to attach to (optional, defaults to auto-resolved)
   val_interval: 500
   val_stride_xy: 32

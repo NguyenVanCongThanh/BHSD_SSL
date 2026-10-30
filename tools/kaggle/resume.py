@@ -62,6 +62,9 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     cfg.pop('resolved', None)
     config_path = destination / 'resume_config.yaml'
     config_path.write_text(yaml.safe_dump(cfg), encoding='utf-8')
+    # Fail before launching any GPU workers if the staged config is incompatible.
+    from core.config_parser import load_config
+    load_config(config_path=str(config_path))
     (destination / 'resume_source.json').write_text(json.dumps({
         'run': run_path, 'artifact': artifact.name, 'metadata': artifact.metadata,
     }, indent=2), encoding='utf-8')
@@ -80,13 +83,14 @@ def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
                and 'base_args = [' in ''.join(c['source']) and marker in ''.join(c['source'])]
     if len(matches) != 1:
         raise ValueError('Cannot identify the Mean Teacher training cell')
-    code = ''
-    if resume_mode == 'new-run':
-        # Bundle the tracking implementation used by this CLI, since Kaggle clones GitHub.
-        from pathlib import Path
-        manager_source = (Path(__file__).resolve().parents[2] / 'utils/wandb_manager.py').read_text(encoding='utf-8')
-        code += ('from pathlib import Path\n'
-                 f'Path("utils/wandb_manager.py").write_text({manager_source!r}, encoding="utf-8")\n')
+    # Kaggle clones GitHub: ship both schema and manager from this CLI revision.
+    # Both modes use resume_source, so both need the updated schema.
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[2]
+    code = 'from pathlib import Path\n'
+    for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py'):
+        source = (repo_root / relative_path).read_text(encoding='utf-8')
+        code += f'Path({relative_path!r}).write_text({source!r}, encoding="utf-8")\n'
     code += inspect.getsource(prepare_resume) + '\n'
     code += (f'base_args, resume_cfg = prepare_resume({run_path!r}, {checkpoint_kind!r}, '
              f'DATA_ROOT, EXP_DIR, num_gpus, resume_mode={resume_mode!r})\n'

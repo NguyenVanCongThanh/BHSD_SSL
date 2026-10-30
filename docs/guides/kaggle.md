@@ -195,3 +195,9 @@ artifact và metadata nguồn. Chọn cả hai run trong cùng project để xem
 trên một biểu đồ theo global_step. Không tự sao chép history vào run mới.
 `--resume-mode same-run` là mặc định để giữ tương thích các lệnh resume đã có.
 Không có `--resume-run` vẫn tạo thí nghiệm mới từ đầu như trước.
+
+Resume bundles include the config parser and W&B manager from the local CLI
+revision for both modes, so an older GitHub clone cannot reject the resume
+logging fields. The generated resume YAML is loaded and validated before
+launching torchrun. After updating the CLI, rebuild/push the notebook; an
+already submitted notebook does not receive these fixes automatically.
