@@ -268,7 +268,8 @@ KNOWN_SECTION_KEYS = {
     },
     'logging': {
         'use_wandb', 'save_wandb_model', 'wandb_project', 'wandb_entity', 'wandb_run_name',
-        'wandb_id', 'wandb_mode', 'wandb_required', 'val_interval', 'val_stride_xy',
+        'wandb_id', 'wandb_mode', 'wandb_required', 'wandb_resume_new_run', 'resume_source',
+        'val_interval', 'val_stride_xy',
         'val_stride_z', 'log_interval', 'save_interval', 'artifact_interval',
         'epoch_artifact_interval', 'artifact_keep_versions', 'artifact_cache_size',
         'artifact_cache_cleanup_interval',
@@ -305,6 +306,18 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
             unknown = set(cfg_dict[sec].keys()) - allowed
             if unknown:
                 raise ValueError(f"Unknown parameter(s) in '{sec}': {sorted(list(unknown))}")
+
+    logging_cfg = cfg_dict.get('logging') or {}
+    if 'wandb_resume_new_run' in logging_cfg:
+        new_segment = logging_cfg['wandb_resume_new_run']
+        if not isinstance(new_segment, bool):
+            raise ValueError('logging.wandb_resume_new_run must be boolean')
+        if new_segment and not exp.get('resume', False):
+            raise ValueError('logging.wandb_resume_new_run requires experiment.resume=true')
+        if new_segment and logging_cfg.get('wandb_id'):
+            raise ValueError('A new W&B resume segment must not specify logging.wandb_id')
+    if logging_cfg.get('resume_source') is not None and not isinstance(logging_cfg['resume_source'], dict):
+        raise ValueError('logging.resume_source must be a mapping or null')
 
     # 1. Data invariants
     if 'batch_size' in data:

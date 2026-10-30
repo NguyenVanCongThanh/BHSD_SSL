@@ -27,9 +27,10 @@ def check_inject_resume_only_changes_training_cell():
 
 
 def check_prepare_resume_restores_source_config_and_owned_checkpoint(tmp_path):
-    config = {'experiment': {'name': 'original', 'fold': 0, 'task': 'binary'},
+    config = {'experiment': {'name': 'original', 'fold': 0, 'task': 'binary', 'num_classes': 2},
               'method': {'name': 'mean_teacher', 'max_iteration': 12000},
-              'data': {'root_path': 'old', 'batch_size': 8}, 'logging': {},
+              'data': {'name': 'bhsd', 'task': 'binary', 'num_classes': 2,
+                       'class_names': ['Background', 'Hemorrhage'], 'root_path': 'old', 'batch_size': 8}, 'logging': {},
               'resolved': {'batch_layout': {'world_size': 2}}}
     class Artifact:
         name = 'original_fold0_best:v27'
@@ -46,10 +47,16 @@ def check_prepare_resume_restores_source_config_and_owned_checkpoint(tmp_path):
     assert cfg['logging']['wandb_id'] == 'klbm4ebr'
     assert cfg['data']['root_path'] == '/input/data'
     assert config['data']['root_path'] == 'old'
+    from core.config_parser import load_config
+    loaded = load_config(config_path=args[1])
+    assert loaded.logging.wandb_resume_new_run is False
+    assert loaded.logging.resume_source.run.endswith('/klbm4ebr')
     assert (tmp_path / 'original/fold_0/checkpoint_latest.pth').read_bytes() == b'checkpoint'
     _, branch = prepare_resume('klbm4ebr', 'best', '/input/data', tmp_path, 2, 'new-run')
     assert branch['experiment']['name'].startswith('original_resume_')
     assert branch['experiment']['resume'] is True
+    loaded_branch = load_config(config_path=str(tmp_path / branch['experiment']['name'] / 'fold_0/resume_config.yaml'))
+    assert loaded_branch.logging.wandb_resume_new_run is True
     assert branch['logging']['wandb_id'] is None
     assert branch['logging']['wandb_resume_new_run'] is True
     assert branch['logging']['resume_source']['metadata']['iter_num'] == 7000
@@ -90,7 +97,7 @@ class ResumeTests(unittest.TestCase):
                                if 'def prepare_resume' in ''.join(c.get('source', [])))
             ast.parse(branch_cell)
             self.assertIn('resume_mode=\'new-run\'', branch_cell)
-            self.assertIn('Path("utils/wandb_manager.py").write_text', branch_cell)
+            self.assertIn("Path('utils/wandb_manager.py').write_text", branch_cell)
             builder.build_bundle('mean_teacher', 'test_user')
             self.assertEqual(code.read_bytes(), fresh)
             with self.assertRaises(ValueError):
@@ -124,3 +131,39 @@ class ResumeTests(unittest.TestCase):
             self.assertEqual(sdk.init.call_args.kwargs['resume'], 'never')
             self.assertNotIn('id', sdk.init.call_args.kwargs)
             self.assertEqual(json.loads(manager.identity_path.read_text())['id'], 'new-id')
+
+    def test_bundle_replaces_stale_schema_before_resume_preparation(self):
+        import os
+        from core.config_parser import validate_config
+        for mode in ('same-run', 'new-run'):
+            notebook = build_mean_teacher_notebook('binary')
+            inject_resume(notebook, 'klbm4ebr', 'best', mode)
+            cell = next(''.join(c['source']) for c in notebook['cells']
+                        if 'def prepare_resume' in ''.join(c.get('source', [])))
+            preamble = cell.split('def prepare_resume', 1)[0]
+            # Only execute staging lines, not training-cell setup or network calls.
+            preamble = preamble[preamble.index('from pathlib import Path\n'):]
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'core').mkdir()
+                (root / 'utils').mkdir()
+                (root / 'core/config_parser.py').write_text('# stale GitHub schema')
+                previous = Path.cwd()
+                try:
+                    os.chdir(root)
+                    exec(compile(preamble, '<bundle-preamble>', 'exec'), {})
+                finally:
+                    os.chdir(previous)
+                import importlib.util
+                spec = importlib.util.spec_from_file_location('staged_schema', root / 'core/config_parser.py')
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                module.validate_config({'experiment': {'resume': True}, 'logging': {
+                    'wandb_resume_new_run': mode == 'new-run', 'resume_source': {'run': 'source'}}})
+                self.assertIn('wandb_resume_new_run', (root / 'utils/wandb_manager.py').read_text())
+        with self.assertRaisesRegex(ValueError, 'Unknown parameter'):
+            validate_config({'logging': {'misspelled_parameter': True}})
+        with self.assertRaisesRegex(ValueError, 'must be boolean'):
+            validate_config({'logging': {'wandb_resume_new_run': 'true'}})
+        with self.assertRaisesRegex(ValueError, 'requires experiment.resume'):
+            validate_config({'logging': {'wandb_resume_new_run': True}})
