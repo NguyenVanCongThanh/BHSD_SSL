@@ -89,9 +89,16 @@ def cmd_push(args):
     executor = KaggleExecutor(profile_dir)
 
     notebook_type = args.notebook or "mean_teacher"
+    task = getattr(args, 'task', None)
+    if task:
+        import os
+        os.environ["BHSD_TASK"] = task
+
     print("\n" + "=" * 80)
     print(f"SUBMIT NOTEBOOK '{notebook_type.upper()}' LÊN KAGGLE")
     print(f"Tài khoản đích: {acc.get('name')} (Username: {username})")
+    if task:
+        print(f"Task:          [✓ {task.upper()}]")
     print("=" * 80)
 
     # Đóng gói notebook và kernel-metadata.json tự động tạo mới theo username
@@ -210,9 +217,16 @@ def cmd_build(args):
     builder = NotebookBuilder()
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
+    task = getattr(args, 'task', None)
+    if task:
+        import os
+        os.environ["BHSD_TASK"] = task
+
     print("\n" + "=" * 80)
     print(f"BUILD & VALIDATE NOTEBOOK '{notebook_type.upper()}' CỤC BỘ (DRY-RUN)")
     print(f"Target Username: {username}")
+    if task:
+        print(f"Task:            [✓ {task.upper()}]")
     print("=" * 80)
 
     acc = mgr.get_account(username)
@@ -317,6 +331,7 @@ def main():
     # Subcommand: build
     parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")
     parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_build.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_build.add_argument("--username", "-u", default="dry_run_user", help="Username giả định để build metadata")
     parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
     parser_build.add_argument("--title", help="Ghi đè title của notebook")
@@ -328,6 +343,7 @@ def main():
     parser_push = subparsers.add_parser("push", help="Đẩy notebook lên Kaggle")
     parser_push.add_argument("--account", "-a", default="1", help="Tài khoản để submit (ID '1', '2' hoặc slug 'thanh', 'khanh')")
     parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_push.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
     parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0)")

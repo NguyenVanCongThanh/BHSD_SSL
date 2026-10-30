@@ -12,6 +12,7 @@ PROJECT_ROOT="$(dirname "$DIR")"
 KAGGLE_CTL="$PROJECT_ROOT/tools/kaggle/kaggle_ctl.py"
 
 ACCOUNT="1"
+CLI_TASK=""
 CLI_USERNAME=""
 CLI_KEY=""
 CLI_DATASET=""
@@ -23,6 +24,7 @@ show_help() {
     echo "SỬ DỤNG: bash scripts/submit_mean_teacher_kaggle.sh [TÙY CHỌN]"
     echo "=========================================================================="
     echo "  --account, -a <1|2|slug>  Chọn tài khoản để submit (Mặc định: 1 hoặc thanh)"
+    echo "  --task, -t <type>         Chọn task: 'multiclass' (6 lớp) hoặc 'binary' (2 lớp)"
     echo "  --username, -u <name>     Cập nhật username cho tài khoản"
     echo "  --key, -k <key>           Cập nhật Kaggle API Key (KGAT_...)"
     echo "  --wandb-key, -w <key>     W&B API Key (wandb_v1_...) để đồng bộ Cloud"
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --account|-a)
             ACCOUNT="$2"
+            shift 2
+            ;;
+        --task|-t)
+            CLI_TASK="$2"
             shift 2
             ;;
         --username|-u)
@@ -115,6 +121,10 @@ fi
 
 # Chuẩn bị tham số gọi kaggle_ctl push
 CMD=(python3 "$KAGGLE_CTL" push --account "$ACCOUNT" --notebook mean_teacher)
+
+if [ -n "$CLI_TASK" ]; then
+    CMD+=(--task "$CLI_TASK")
+fi
 
 if [ -n "$CLI_DATASET" ]; then
     CMD+=(--dataset "$CLI_DATASET")
