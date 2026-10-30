@@ -167,3 +167,22 @@ class ResumeTests(unittest.TestCase):
             validate_config({'logging': {'wandb_resume_new_run': 'true'}})
         with self.assertRaisesRegex(ValueError, 'requires experiment.resume'):
             validate_config({'logging': {'wandb_resume_new_run': True}})
+
+
+    def test_custom_slug_uses_matching_title_without_changing_default(self):
+        from tools.kaggle import notebook_builder
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(notebook_builder, 'RUNS_BASE_DIR', Path(directory)), \
+                patch.object(notebook_builder.subprocess, 'run'):
+            builder = notebook_builder.NotebookBuilder()
+            folder = builder.build_bundle('mean_teacher', 'test_user',
+                                          custom_slug='bhsd-resume-same-run')
+            metadata = json.loads((folder / 'kernel-metadata.json').read_text())
+            self.assertEqual(metadata['id'], 'test_user/bhsd-resume-same-run')
+            self.assertEqual(metadata['title'], 'bhsd-resume-same-run')
+            builder.build_bundle('mean_teacher', 'test_user',
+                                 custom_slug='custom', custom_title='Explicit title')
+            self.assertEqual(json.loads((folder / 'kernel-metadata.json').read_text())['title'], 'Explicit title')
+            builder.build_bundle('mean_teacher', 'test_user')
+            self.assertEqual(json.loads((folder / 'kernel-metadata.json').read_text())['title'],
+                             builder.get_notebook_spec('mean_teacher')['title'])
