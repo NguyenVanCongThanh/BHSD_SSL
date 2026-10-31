@@ -1,5 +1,7 @@
 # Phân tích Rủi ro và Các Quyết định Kỹ thuật (Risks, Trade-offs & Decisions)
 
+> Cập nhật 31/10/2026: đây là thiết kế ban đầu tập trung BHSD, chưa phải chức năng đã triển khai. Đọc [review mở rộng](platform-review-2026-10-31.md) trước; review điều chỉnh repo boundary, multi-account, worker, schema và phạm vi MVP khi có khác biệt.
+
 Tài liệu này ghi nhận toàn bộ các rủi ro kỹ thuật, phân tích trade-off, các giả định cốt lõi và 10 Quyết định Thiết kế Kiến trúc (Architecture Decision Records - ADR) then chốt định hình nên **Research Management Portal**.
 
 ---
