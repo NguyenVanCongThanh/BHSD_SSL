@@ -1,5 +1,7 @@
 # Yêu cầu Hệ thống Research Management Portal (MedSSL-BHSD)
 
+> Cập nhật 31/10/2026: đây là thiết kế ban đầu tập trung BHSD, chưa phải chức năng đã triển khai. Đọc [review mở rộng](platform-review-2026-10-31.md) trước; review điều chỉnh repo boundary, multi-account, worker, schema và phạm vi MVP khi có khác biệt.
+
 Tài liệu này xác định toàn bộ yêu cầu chức năng, phi chức năng và luồng công việc (user workflows) cho **Research Management Portal** phục vụ dự án nghiên cứu **Semi-Supervised Learning (SSL) cho phân đoạn ảnh cắt lớp vi tính (CT) sọ não trên bộ dữ liệu BHSD (Brain Hemorrhage Segmentation Dataset)**.
 
 Cơ sở phân tích được đối chiếu trực tiếp từ hiện trạng mã nguồn, cấu trúc dữ liệu, các công cụ điều khiển và báo cáo thực nghiệm trong repository `MedSSL-BHSD` tính đến ngày 29/10/2026.

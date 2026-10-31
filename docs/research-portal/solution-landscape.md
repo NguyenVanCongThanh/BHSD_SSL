@@ -1,5 +1,7 @@
 # Khảo sát và Phân tích Các Giải pháp Hiện có (Solution Landscape)
 
+> Cập nhật 31/10/2026: đây là thiết kế ban đầu tập trung BHSD, chưa phải chức năng đã triển khai. Đọc [review mở rộng](platform-review-2026-10-31.md) trước; review điều chỉnh repo boundary, multi-account, worker, schema và phạm vi MVP khi có khác biệt.
+
 Tài liệu này đánh giá toàn diện các công cụ, thư viện, nền tảng mã nguồn mở và thương mại có liên quan đến việc quản lý nghiên cứu học máy y tế, theo dõi thí nghiệm, trực quan hóa ảnh 3D và điều phối thực thi.
 
 Mục tiêu là xác định rõ:

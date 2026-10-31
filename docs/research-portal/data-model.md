@@ -1,5 +1,7 @@
 # Mô hình Dữ liệu và Thiết kế Cơ sở Dữ liệu (Data Model)
 
+> Cập nhật 31/10/2026: đây là thiết kế ban đầu tập trung BHSD, chưa phải chức năng đã triển khai. Đọc [review mở rộng](platform-review-2026-10-31.md) trước; review điều chỉnh repo boundary, multi-account, worker, schema và phạm vi MVP khi có khác biệt.
+
 Tài liệu này xác định mô hình thực thể (Entity-Relationship Model), lược đồ cơ sở dữ liệu quan hệ (Relational Schema), định nghĩa JSON Schema cho cấu hình thực nghiệm và chiến lược lưu trữ dữ liệu cho **Research Management Portal**.
 
 ---

@@ -1,5 +1,7 @@
 # Thiết kế Trải nghiệm Người dùng và Giao diện (UI/UX Design)
 
+> Cập nhật 31/10/2026: đây là thiết kế ban đầu tập trung BHSD, chưa phải chức năng đã triển khai. Đọc [review mở rộng](platform-review-2026-10-31.md) trước; review điều chỉnh repo boundary, multi-account, worker, schema và phạm vi MVP khi có khác biệt.
+
 Tài liệu này xác định kiến trúc thông tin (Sitemap), thiết kế chi tiết từng trang màn hình, quy ước trạng thái giao diện và đặc tả kỹ thuật cho **Interactive Medical Slice Viewer** trong **Research Management Portal**.
 
 ---
