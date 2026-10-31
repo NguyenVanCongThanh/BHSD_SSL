@@ -4,6 +4,8 @@
 
 Đọc [đánh giá mở rộng và quyết định đề xuất](platform-review-2026-10-31.md) trước. Tài liệu này điều chỉnh những giả định trong bộ thiết kế trước: vị trí repo, dependency isolation, đa tài khoản W&B, worker bền vững, lineage và phạm vi MVP. Đây là đề xuất triển khai, chưa phải tính năng đã làm hoặc quyết định đã được người dùng phê duyệt.
 
+**Ưu tiên hiện tại:** [Kaggle Operations MVP](kaggle-operations-spec.md) đặc tả Account CRUD UI, notebook status/heartbeat và Submit form ánh xạ flags CLI. Phạm vi này là bản usable đầu tiên theo nhu cầu người dùng, trước viewer/research registry đầy đủ.
+
 Các tài liệu còn lại là nguồn phân tích nghiệp vụ BHSD hữu ích, nhưng không phải đặc tả sẵn sàng triển khai nguyên trạng:
 
 - [Requirements](requirements.md): danh mục nhu cầu nghiên cứu.

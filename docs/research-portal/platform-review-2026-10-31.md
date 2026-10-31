@@ -1,5 +1,7 @@
 # Đánh giá mở rộng Research Portal — 31/10/2026
 
+> Ưu tiên được người dùng làm rõ sau review: triển khai [Kaggle Operations MVP](kaggle-operations-spec.md) gồm account UI, monitor và submit trước. Các mốc M0–M4 bên dưới là lộ trình nền tảng tổng thể; không yêu cầu hoàn thiện research registry trước các thao tác Kaggle này.
+
 ## 1. Kết luận và phạm vi bằng chứng
 
 Nên xây **platform ở repo riêng**, dạng một ứng dụng có module rõ ràng, phục vụ nhiều project; BHSD là project và adapter đầu tiên. Repo BHSD giữ training/evaluation/config, exporter và contract tích hợp. Platform cung cấp giao diện, quản lý kết nối, tra cứu runs/models/artifacts, đồng bộ và ghi chú. Giữ W&B cho experiment tracking; không cần thay toàn bộ W&B bằng hệ thống tự xây.
