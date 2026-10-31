@@ -24,6 +24,7 @@ Bộ hướng dẫn được đối chiếu với source ngày 29/10/2026. Bắt
 
 ## Research Management Portal (Thiết kế & Kế hoạch)
 
+- [Kaggle Operations MVP: account UI, heartbeat và submit options](research-portal/kaggle-operations-spec.md)
 - [Bắt đầu: trạng thái thiết kế và hướng đọc](research-portal/README.md)
 - [Đánh giá mở rộng 31/10: repo riêng, multi-account và MVP](research-portal/platform-review-2026-10-31.md)
 
