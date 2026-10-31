@@ -1,5 +1,7 @@
 # Tài liệu MedSSL-BHSD
 
+- [Kaggle/W&B capability audit](research-portal/provider-capabilities.md): dữ liệu live/final và mức hỗ trợ tool.
+
 Bộ hướng dẫn được đối chiếu với source ngày 29/10/2026. Bắt đầu từ [README dự án](../README.md); dùng hướng dẫn theo chủ đề bên dưới. Các báo cáo có ngày là bằng chứng tại snapshot tương ứng, không tự mô tả checkout mới.
 
 ## Hướng dẫn hiện hành
@@ -23,6 +25,12 @@ Bộ hướng dẫn được đối chiếu với source ngày 29/10/2026. Bắt
 - [Việc còn cần kiểm chứng](backlog.md): tách khỏi kết luận lịch sử trong audit.
 
 ## Research Management Portal (Thiết kế & Kế hoạch)
+
+- **[Bắt đầu build: PoC-first với Streamlit và Python adapters](research-portal/poc-first.md)**
+
+- [Nền tảng miễn phí và managed services](research-portal/free-managed-options.md)
+
+- [Chuyển repo và host khi làm việc trên HPC](research-portal/migration-and-hosting.md)
 
 - [Kaggle Operations MVP: account UI, heartbeat và submit options](research-portal/kaggle-operations-spec.md)
 - [Bắt đầu: trạng thái thiết kế và hướng đọc](research-portal/README.md)

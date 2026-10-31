@@ -1,5 +1,7 @@
 # Đánh giá mở rộng Research Portal — 31/10/2026
 
+> Điểm bắt đầu hiện hành: [PoC-first](poc-first.md) quy định stack/phạm vi mặc định. Full stack, hosting và REST API trong tài liệu này là hướng mở rộng; không yêu cầu triển khai trước PoC.
+
 > Ưu tiên được người dùng làm rõ sau review: triển khai [Kaggle Operations MVP](kaggle-operations-spec.md) gồm account UI, monitor và submit trước. Các mốc M0–M4 bên dưới là lộ trình nền tảng tổng thể; không yêu cầu hoàn thiện research registry trước các thao tác Kaggle này.
 
 ## 1. Kết luận và phạm vi bằng chứng
