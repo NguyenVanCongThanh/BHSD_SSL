@@ -1,5 +1,7 @@
 # Đặc tả Kaggle Operations MVP
 
+> Điểm bắt đầu hiện hành: [PoC-first](poc-first.md) quy định stack/phạm vi mặc định. Full stack, hosting và REST API trong tài liệu này là hướng mở rộng; không yêu cầu triển khai trước PoC.
+
 Đối chiếu `tools/kaggle/kaggle_ctl.py`, `accounts_manager.py`, `notebook_builder.py` và `kaggle_executor.py` ngày **31/10/2026**. Đây là yêu cầu triển khai và nghiệm thu, chưa phải tính năng đã có. Bổ sung [platform review](platform-review-2026-10-31.md). Với ưu tiên người dùng vừa xác định, **Account UI + notebook monitor + submit form là phạm vi bản usable đầu tiên**, không cần chờ hoàn thiện toàn bộ research registry/viewer.
 
 ## 1. Luồng và màn hình bắt buộc
@@ -138,3 +140,7 @@ Error có mã máy đọc được, message đã sanitized và retryability. Kh�
 - Submit thành công tự xuất hiện trong monitor, có URL và lineage; version không xác minh được ghi unknown. Provider status, progress, sync health và kết quả training hiển thị riêng.
 
 Các adapter cần chỉnh trước khi bọc API: manager lưu profile/secret và fallback, CLI in prefix W&B key và thay env toàn cục, builder dùng output path chung, executor status trả chuỗi trộn lỗi/trạng thái. Không coi các hàm này đã an toàn cho web concurrency chỉ vì CLI dùng được.
+
+## 7. Dữ liệu provider và capability theo phiên bản
+
+Xem [capability audit](provider-capabilities.md) cho source/output/download, W&B files/media/artifact lineage, quota và final reconciliation. CLI Kaggle mới có thể hỗ trợ logs-follow/quota nhưng môi trường audit chưa có; bật UI theo capabilities đã kiểm chứng.

@@ -137,3 +137,7 @@ graph LR
 | **Khảo sát trực quan lát cắt CT tổn thương** | W&B chỉ có ảnh tĩnh | **Portal xây dựng riêng**: Interactive Slice Viewer với HU Windowing (Não/Xương/Subdural) và Colormaps. |
 | **So sánh nhiều phương pháp SSL** | W&B cho phép overlay run | **Portal xây dựng riêng**: Bảng so sánh khoa học cố định theo fold, tính Mean ± Std và xuất bảng LaTeX cho bài báo. |
 
+
+## Cập nhật capability 31/10/2026
+
+[Audit mới](provider-capabilities.md) điều chỉnh bảng giới hạn phía trên: official CLI hiện có output chọn lọc/version, logs-follow và quota theo phiên bản. Không dùng khẳng định cũ rằng luôn phải tải toàn bộ output hoặc quota chỉ có thể ước tính. Repo controller và CLI installed chưa bọc/hỗ trợ hết các khả năng này.
