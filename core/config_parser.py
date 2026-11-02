@@ -100,6 +100,8 @@ SECTION_MAPPING = {
     'batch_size': 'data',
     'labeled_bs': 'data',
     'labelnum': 'data',
+    'labeled_sampling': 'data',
+    'labeled_indices': 'data',
     'max_samples': 'data',
     'intensity_units': 'data',
     'normalization': 'data',
@@ -251,9 +253,9 @@ KNOWN_SECTION_KEYS = {
     },
     'data': {
         'name', 'root_path', 'patch_size', 'batch_size', 'labeled_bs', 'labelnum',
-        'max_samples', 'intensity_units', 'normalization', 'num_classes', 'task',
-        'class_names', 'num_workers', 'pin_memory', 'drop_last', 'train_split',
-        'val_split', 'test_split'
+        'labeled_sampling', 'labeled_indices', 'max_samples', 'intensity_units',
+        'normalization', 'num_classes', 'task', 'class_names', 'num_workers',
+        'pin_memory', 'drop_last', 'train_split', 'val_split', 'test_split'
     },
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
@@ -334,6 +336,18 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         ln = data['labelnum']
         if not _is_int(ln) or ln < 1:
             raise ValueError(f"data.labelnum must be positive integer, got {ln}")
+    if 'labeled_sampling' in data and data['labeled_sampling'] is not None:
+        ls = str(data['labeled_sampling']).lower()
+        if ls not in ('first', 'stratified', 'explicit'):
+            raise ValueError(
+                f"data.labeled_sampling must be 'first', 'stratified', or 'explicit', got {data['labeled_sampling']!r}"
+            )
+    if 'labeled_indices' in data and data['labeled_indices'] is not None:
+        li = data['labeled_indices']
+        if not isinstance(li, (list, tuple)) or not all(_is_int(x) and x >= 0 for x in li):
+            raise ValueError(f"data.labeled_indices must be a list of non-negative integers, got {li!r}")
+        if len(set(li)) != len(li):
+            raise ValueError(f"data.labeled_indices must not contain duplicates, got {li!r}")
     if 'max_samples' in data:
         ms = data['max_samples']
         if not _is_int(ms) or ms < 1:

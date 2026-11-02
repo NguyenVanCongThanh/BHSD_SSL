@@ -90,9 +90,19 @@ def cmd_push(args):
 
     notebook_type = args.notebook or "mean_teacher"
     task = getattr(args, 'task', None)
+    import os
     if task:
-        import os
         os.environ["BHSD_TASK"] = task
+    for env_key, attr_name in [
+        ("BHSD_LABELNUM", "labelnum"),
+        ("BHSD_MAX_SAMPLES", "max_samples"),
+        ("BHSD_LABELED_SAMPLING", "labeled_sampling"),
+    ]:
+        val = getattr(args, attr_name, None)
+        if val is not None:
+            os.environ[env_key] = str(val)
+        else:
+            os.environ.pop(env_key, None)
 
     print("\n" + "=" * 80)
     print(f"SUBMIT NOTEBOOK '{notebook_type.upper()}' LÊN KAGGLE")
@@ -221,9 +231,19 @@ def cmd_build(args):
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
     task = getattr(args, 'task', None)
+    import os
     if task:
-        import os
         os.environ["BHSD_TASK"] = task
+    for env_key, attr_name in [
+        ("BHSD_LABELNUM", "labelnum"),
+        ("BHSD_MAX_SAMPLES", "max_samples"),
+        ("BHSD_LABELED_SAMPLING", "labeled_sampling"),
+    ]:
+        val = getattr(args, attr_name, None)
+        if val is not None:
+            os.environ[env_key] = str(val)
+        else:
+            os.environ.pop(env_key, None)
 
     print("\n" + "=" * 80)
     print(f"BUILD & VALIDATE NOTEBOOK '{notebook_type.upper()}' CỤC BỘ (DRY-RUN)")
@@ -357,6 +377,12 @@ def main():
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):
+        command_parser.add_argument("--labelnum", type=int, default=None,
+                                    help="Số mẫu có nhãn (ví dụ: 8 cho 5%% của 154 mẫu; mặc định: 154)")
+        command_parser.add_argument("--max-samples", type=int, default=None,
+                                    help="Giới hạn tổng pool huấn luyện (ví dụ: 154 để bỏ 1,978 ca unlabeled; mặc định: 2200)")
+        command_parser.add_argument("--labeled-sampling", choices=["first", "stratified"], default=None,
+                                    help="Chiến lược chọn mẫu có nhãn: 'first' (mặc định) hoặc 'stratified' (cân bằng đủ 5 class)")
         command_parser.add_argument("--resume-run", help="Resume Mean Teacher run: ID hoặc entity/project/id")
         command_parser.add_argument("--resume-mode", choices=["same-run", "new-run"],
                                     help="W&B tracking mode (default same-run); requires --resume-run")

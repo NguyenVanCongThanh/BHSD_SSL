@@ -5,7 +5,11 @@ and supervised / semi-supervised data loaders with single-GPU and DDP samplers.
 """
 
 from dataclasses import dataclass
-from typing import Tuple, Sequence, Optional
+from typing import Tuple, Sequence, Optional, List
+import logging
+import os
+import h5py
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset, Dataset, Sampler
 from torchvision import transforms
@@ -53,6 +57,126 @@ def build_bhsd_transforms(
         ToTensor()
     ])
     return transforms.Compose(aug_list)
+
+
+def select_stratified_labeled_indices(
+    db_train: Dataset,
+    labelnum: int,
+    max_samples: int,
+    num_fg_classes: int = 5,
+    strong_voxel_thresh: int = 1000,
+) -> List[int]:
+    """
+    Deterministically select `labelnum` cases out of `0..max_samples-1` using
+    multi-label greedy stratification so that all foreground hemorrhage classes (1..5)
+    are represented evenly in both case count and voxel volume.
+
+    Important: Always scans raw HDF5 labels on Classes 1..5 regardless of whether
+    the training task is 'multiclass' or 'binary', ensuring identical 5% labeled
+    cohorts across both tasks for fair benchmarking.
+    """
+    if labelnum >= max_samples:
+        return list(range(max_samples))
+
+    base_dir = getattr(db_train, 'base_dir', '')
+    image_list = getattr(db_train, 'image_list', [])
+    pool_size = min(max_samples, len(image_list))
+    if pool_size <= 0 or not base_dir:
+        return list(range(labelnum))
+
+    vox_mat = np.zeros((pool_size, num_fg_classes), dtype=np.float64)
+    valid_scan = False
+    for idx in range(pool_size):
+        case_name = image_list[idx]
+        h5_path = os.path.join(base_dir, 'data', f'{case_name}.h5')
+        if not os.path.isfile(h5_path):
+            continue
+        with h5py.File(h5_path, 'r') as h5f:
+            if 'label' not in h5f:
+                continue
+            lbl = h5f['label'][:]
+            vals, counts = np.unique(lbl, return_counts=True)
+            for v, c in zip(vals.tolist(), counts.tolist()):
+                if 1 <= int(v) <= num_fg_classes:
+                    vox_mat[idx, int(v) - 1] = float(c)
+                    valid_scan = True
+
+    if not valid_scan:
+        logging.warning('[StratifiedSplit] No multi-class foreground annotations found; falling back to first %d indices.', labelnum)
+        return list(range(labelnum))
+
+    strong_mat = (vox_mat >= strong_voxel_thresh).astype(np.int64)
+    target_cases_per_class = max(1, labelnum // 2)
+
+    selected: List[int] = []
+    remaining = set(range(pool_size))
+
+    for _ in range(labelnum):
+        cur_strong = strong_mat[selected].sum(axis=0) if selected else np.zeros(num_fg_classes, dtype=np.int64)
+        cur_vox = vox_mat[selected].sum(axis=0) if selected else np.zeros(num_fg_classes, dtype=np.float64)
+
+        best_idx = None
+        best_score = -1e18
+        for idx in sorted(remaining):
+            new_strong = cur_strong + strong_mat[idx]
+            new_vox = cur_vox + vox_mat[idx]
+            min_cases = float(new_strong.min())
+            sum_covered = float(np.minimum(new_strong, target_cases_per_class).sum())
+            log_vox = np.log1p(new_vox)
+            vox_balance = float(log_vox.sum() - 0.5 * np.std(log_vox))
+            score = min_cases * 1000.0 + sum_covered * 100.0 + vox_balance
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+
+        selected.append(int(best_idx))
+        remaining.remove(int(best_idx))
+
+    selected_sorted = sorted(selected)
+    sel_has = (vox_mat[selected_sorted] > 0).sum(axis=0)
+    sel_vox = vox_mat[selected_sorted].sum(axis=0).astype(np.int64)
+    summary_parts = [f"C{c+1}:{int(sel_has[c])}/{labelnum}({int(sel_vox[c])}v)" for c in range(num_fg_classes)]
+    logging.info(
+        "[StratifiedSplit] Selected %d/%d labeled indices: %s | Class coverage: %s",
+        labelnum, pool_size, selected_sorted, ", ".join(summary_parts)
+    )
+    return selected_sorted
+
+
+def resolve_labeled_unlabeled_indices(
+    db_train: Dataset,
+    cfg: Config,
+    labelnum: int,
+    max_samples: int,
+) -> Tuple[List[int], List[int]]:
+    """
+    Resolve labeled and unlabeled index partitions within `[0, max_samples)`.
+    Supports:
+    - `labeled_sampling='first'` (default): `[0..labelnum-1]` vs `[labelnum..max_samples-1]`
+    - `labeled_sampling='stratified'`: Multi-label class-balanced selection of `labelnum` cases
+    - `labeled_indices=[...]`: Explicit user-specified list of indices
+    """
+    explicit_indices = getattr(cfg.data, 'labeled_indices', None)
+    sampling_mode = str(getattr(cfg.data, 'labeled_sampling', 'first') or 'first').lower()
+
+    if explicit_indices is not None and len(explicit_indices) > 0:
+        labeled_idxs = sorted(int(i) for i in explicit_indices)
+        if any(i < 0 or i >= max_samples for i in labeled_idxs):
+            raise ValueError(
+                f"data.labeled_indices contains index outside [0, max_samples={max_samples}): {labeled_idxs}"
+            )
+    elif sampling_mode == 'stratified':
+        labeled_idxs = select_stratified_labeled_indices(
+            db_train=db_train,
+            labelnum=labelnum,
+            max_samples=max_samples,
+        )
+    else:
+        labeled_idxs = list(range(labelnum))
+
+    labeled_set = set(labeled_idxs)
+    unlabeled_idxs = [i for i in range(max_samples) if i not in labeled_set]
+    return labeled_idxs, unlabeled_idxs
 
 
 def build_bhsd_dataloaders(
@@ -117,10 +241,15 @@ def build_bhsd_dataloaders(
 
     if labelnum > max_samples:
         raise ValueError('labelnum cannot exceed max_samples')
-    labeled_idxs = list(range(labelnum))
+    labeled_idxs, unlabeled_idxs = resolve_labeled_unlabeled_indices(
+        db_train=db_train,
+        cfg=cfg,
+        labelnum=labelnum,
+        max_samples=max_samples,
+    )
+    labelnum = len(labeled_idxs)
     # Hide unlabeled annotations before any label-dependent augmentation.
     db_train.labeled_indices = set(labeled_idxs)
-    unlabeled_idxs = list(range(labelnum, max_samples))
     db_train.unlabeled_indices = set(unlabeled_idxs)
     db_train.max_samples = max_samples
 

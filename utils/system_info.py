@@ -60,6 +60,8 @@ def build_resolved_config_dict(
         'intensity_units': getattr(data_cfg, 'intensity_units', None),
         'normalization': getattr(data_cfg, 'normalization', None),
         'actual_labeled_cases': len(getattr(db_train, 'labeled_indices', []) or []),
+        'labeled_indices': sorted(getattr(db_train, 'labeled_indices', []) or []),
+        'unlabeled_cases': len(getattr(db_train, 'unlabeled_indices', []) or []),
     }
 
 

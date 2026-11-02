@@ -2,7 +2,12 @@ import json
 import os
 import sys
 
-def build_mean_teacher_notebook(task: str = "multiclass"):
+def build_mean_teacher_notebook(
+    task: str = "multiclass",
+    labelnum: int = 154,
+    max_samples: int = 2200,
+    labeled_sampling: str = "first",
+):
     cells = [
         # Cell 0: Header
         {
@@ -297,7 +302,9 @@ def build_mean_teacher_notebook(task: str = "multiclass"):
                 "SAVE_INTERVAL = 50                                           # Lưu checkpoint_latest.pth mỗi 50 bước\n",
                 "BATCH_SIZE = 8                                               # Batch size tổng (2 GPU -> 4 sample/GPU: 2 lab + 2 unlab)\n",
                 "LABELED_BS = 4                                               # 4 mẫu có nhãn trong batch\n",
-                "LABELNUM = 154                                               # Sử dụng full toàn bộ 154 mẫu có nhãn của fold 0\n",
+                f"LABELNUM = {int(labelnum)}                                               # Số lượng mẫu có nhãn (154 = 100%, 8 = 5% của 154 mẫu)\n",
+                f"MAX_SAMPLES = {int(max_samples)}                                           # Giới hạn pool huấn luyện (2200 = full cả unlabeled, 154 = chỉ dùng tập 154 ca)\n",
+                f"LABELED_SAMPLING = \"{labeled_sampling}\"                                 # \"first\" (mặc định) hoặc \"stratified\" (chia đều đủ 5 class)\n",
                 "\n",
                 "# Tự động phát hiện chế độ Đa GPU: Ưu tiên DDP nếu có >= 2 GPU\n",
                 "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
@@ -314,6 +321,8 @@ def build_mean_teacher_notebook(task: str = "multiclass"):
                 "    \"--amp\",\n",
                 "    \"--root_path\", str(DATA_ROOT),\n",
                 "    \"--labelnum\", str(LABELNUM),\n",
+                "    \"--max_samples\", str(MAX_SAMPLES),\n",
+                "    \"--labeled_sampling\", str(LABELED_SAMPLING),\n",
                 "    \"--batch_size\", str(BATCH_SIZE),\n",
                 "    \"--labeled_bs\", str(LABELED_BS),\n",
                 "    \"--max_iteration\", str(MAX_ITER),\n",
@@ -501,13 +510,40 @@ if __name__ == "__main__":
         choices=["multiclass", "binary"],
         help="Task type: 'multiclass' or 'binary'"
     )
+    parser.add_argument(
+        "--labelnum",
+        type=int,
+        default=int(os.environ.get("BHSD_LABELNUM", "154")),
+        help="Number of labeled samples (default: 154; use 8 for 5%% of 154)"
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=int(os.environ.get("BHSD_MAX_SAMPLES", "2200")),
+        help="Max training pool samples (default: 2200; use 154 to exclude 1,978 unlabeled cases)"
+    )
+    parser.add_argument(
+        "--labeled-sampling",
+        default=os.environ.get("BHSD_LABELED_SAMPLING", "first"),
+        choices=["first", "stratified"],
+        help="Labeled subset sampling strategy: 'first' (default) or 'stratified'"
+    )
     args = parser.parse_args()
 
-    nb = build_mean_teacher_notebook(task=args.task)
+    nb = build_mean_teacher_notebook(
+        task=args.task,
+        labelnum=args.labelnum,
+        max_samples=args.max_samples,
+        labeled_sampling=args.labeled_sampling,
+    )
     targets = [
         "scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
     ]
     for target in targets:
         with open(target, "w", encoding="utf-8") as f:
             json.dump(nb, f, indent=1, ensure_ascii=False)
-        print(f"Generated {target} successfully (task={args.task}).")
+        print(
+            f"Generated {target} successfully "
+            f"(task={args.task}, labelnum={args.labelnum}, max_samples={args.max_samples}, "
+            f"labeled_sampling={args.labeled_sampling})."
+        )
