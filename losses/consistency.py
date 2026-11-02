@@ -21,10 +21,10 @@ def compute_soft_dice_consistency(
 ) -> torch.Tensor:
     """
     Continuous Probability-to-Probability Soft Dice Consistency on Foregrounds.
-    Excludes background (class 0) for multiclass segmentation to eliminate confirmation bias.
+    Excludes background (class 0) whenever num_classes > 1 to eliminate background confirmation bias.
     """
-    fg_s = student_prob[:, 1:] if num_classes > 1 and not is_binary else student_prob
-    fg_t = teacher_prob[:, 1:] if num_classes > 1 and not is_binary else teacher_prob
+    fg_s = student_prob[:, 1:] if num_classes > 1 else student_prob
+    fg_t = teacher_prob[:, 1:] if num_classes > 1 else teacher_prob
 
     if conf_mask is not None:
         fg_s = fg_s * conf_mask

@@ -180,11 +180,11 @@ def load_empirical_runs() -> Dict[str, Any]:
 def collect_code_snippets() -> Dict[str, Dict[str, Any]]:
     """Extract key source code snippets across the repository with exact line ranges."""
     return {
-        "mt_init": extract_code_snippet("methods/mean_teacher.py", 37, 93, "MeanTeacherMethod.__init__ (Teacher Clone, Detach & Loss Init)"),
-        "mt_consistency_schedule": extract_code_snippet("methods/mean_teacher.py", 94, 111, "MeanTeacherMethod.get_current_consistency_weight (Ramp-up & Cosine Ramp-down)"),
-        "mt_train_step": extract_code_snippet("methods/mean_teacher.py", 112, 190, "MeanTeacherMethod.train_step (Teacher No-Grad, Perturbation, Multi-Scale Sup & Hybrid Cons)"),
-        "mt_ema_hook": extract_code_snippet("methods/mean_teacher.py", 191, 196, "MeanTeacherMethod.after_optimizer_step (Triggering EMA Update)"),
-        "mt_validate": extract_code_snippet("methods/mean_teacher.py", 230, 232, "MeanTeacherMethod.validate (Evaluating EMA Teacher)"),
+        "mt_init": extract_code_snippet("methods/mean_teacher.py", 37, 94, "MeanTeacherMethod.__init__ (Teacher Clone, Detach & Loss Init)"),
+        "mt_consistency_schedule": extract_code_snippet("methods/mean_teacher.py", 95, 112, "MeanTeacherMethod.get_current_consistency_weight (Ramp-up & Cosine Ramp-down)"),
+        "mt_train_step": extract_code_snippet("methods/mean_teacher.py", 113, 191, "MeanTeacherMethod.train_step (Teacher No-Grad, Perturbation, Multi-Scale Sup & Hybrid Cons)"),
+        "mt_ema_hook": extract_code_snippet("methods/mean_teacher.py", 192, 197, "MeanTeacherMethod.after_optimizer_step (Triggering EMA Update)"),
+        "mt_validate": extract_code_snippet("methods/mean_teacher.py", 231, 233, "MeanTeacherMethod.validate (Evaluating EMA Teacher)"),
         "ema_update_fn": extract_code_snippet("methods/ssl_utils.py", 93, 121, "update_ema_variables (Cosine Alpha Schedule & Buffer Copy)"),
         "consistency_loss": extract_code_snippet("losses/consistency.py", 14, 136, "ConsistencyLoss & compute_soft_dice_consistency (Hybrid Soft Dice + Class-Balanced MSE)"),
         "mask_dice_loss": extract_code_snippet("losses/dice.py", 60, 101, "MaskDiceLoss (Foreground-only Reduction when include_background=False)"),

@@ -68,9 +68,10 @@ class MeanTeacherMethod(BaseMethod):
             self.ds_consistency = True
 
         # Class balancing: Background downweighted to 0.05, Foregrounds full weight 1.0
-        if not self.is_binary and self.num_classes == 6:
+        if self.num_classes >= 2:
             bg_weight = float(getattr(self.cfg.method, 'bg_consistency_weight', 0.05))
-            self.class_weights = torch.tensor([bg_weight, 1.0, 1.0, 1.0, 1.0, 1.0], device=self.device).view(1, -1, 1, 1, 1)
+            weights_list = [bg_weight] + [1.0] * (self.num_classes - 1)
+            self.class_weights = torch.tensor(weights_list, device=self.device).view(1, -1, 1, 1, 1)
         else:
             self.class_weights = None
 
@@ -82,7 +83,7 @@ class MeanTeacherMethod(BaseMethod):
         self.ema_model.eval()
 
         # Modular Loss functions
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=self.is_binary)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
         self.consistency_loss = ConsistencyLoss(
             consistency_type=self.consistency_type,
             num_classes=self.num_classes,
