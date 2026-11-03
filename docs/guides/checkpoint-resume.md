@@ -52,4 +52,4 @@ Không có sampler cursor/permutation, worker RNG/prefetch hay RNG đầy đủ 
 
 Không tự sửa iteration để biến checkpoint giữa epoch thành boundary. Khi quay lại checkpoint cũ, lịch sử W&B và best trên đĩa có thể đã đi xa hơn; cần kiểm tra nguồn checkpoint và run identity trước khi đánh giá.
 
-Có [test epoch checkpoint](../../tests/test_epoch_boundary_checkpoint.py), nhưng tài liệu này không tuyên bố đã nghiệm thu GPU/NCCL, upload cloud hoặc mọi tổ hợp resume. Xem [checkpoint evaluation](checkpoint-evaluation.md) cho quy tắc chọn model đánh giá.
+Có [test epoch checkpoint](../../tests/test_epoch_boundary_checkpoint.py), nhưng tài liệu này không tuyên bố đã nghiệm thu GPU/NCCL, upload cloud hoặc mọi tổ hợp resume. Xem [checkpoint evaluation](checkpoint-evaluation.md) cho quy tắc chọn model đánh giá và [lệch task khi resume trên Kaggle](kaggle-resume-task-mismatch.md) cho hành vi khi đổi task giữa Multiclass/Binary.

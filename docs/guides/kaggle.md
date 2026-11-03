@@ -152,7 +152,7 @@ python3 tools/kaggle/kaggle_ctl.py push --account 1 --notebook my_new_method
 
 ## Tài liệu liên quan
 
-Xem [troubleshooting](kaggle-troubleshooting.md), [batch DDP](training.md) và [khôi phục checkpoint](checkpoint-resume.md).
+Xem [troubleshooting](kaggle-troubleshooting.md), [lệch task khi resume](kaggle-resume-task-mismatch.md), [batch DDP](training.md) và [khôi phục checkpoint](checkpoint-resume.md).
 
 ### Resume Mean Teacher trên tài khoản Kaggle khác
 
