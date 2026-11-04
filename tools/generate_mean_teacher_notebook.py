@@ -7,7 +7,43 @@ def build_mean_teacher_notebook(
     labelnum: int = 154,
     max_samples: int = 2200,
     labeled_sampling: str = "first",
+    setting: str = "default",
 ):
+    if setting == "swdl":
+        model_name = "nnunet3d"
+        batch_size = 32
+        labeled_bs = 6
+        max_iter = 12000
+        val_stride_xy = 16
+        val_stride_z = 4
+        patch_size_eval = ["16", "64", "64"]
+        config_file = "configs/methods/mean_teacher.yaml"
+        arch_desc = (
+            "- **Kiến trúc nnU-Net 3D với SWDL Hyperparameters**: Sử dụng đúng mô hình nnU-Net 3D (`nnunet3d`) "
+            "đồng nhất với run trước, kết hợp siêu tham số của SWDL: patch size [16, 64, 64], batch size 32 (16 mẫu/GPU trên 2x T4 DDP).\n"
+        )
+        extra_cli_lines = [
+            '    "--data.patch_size", "[16, 64, 64]",\n',
+            '    "--logging.val_stride_xy", "16",\n',
+            '    "--logging.val_stride_z", "4",\n',
+        ]
+    else:
+        model_name = "nnunet3d"
+        batch_size = 8
+        labeled_bs = 4
+        max_iter = 12000
+        val_stride_xy = 32
+        val_stride_z = 8
+        patch_size_eval = ["28", "256", "256"]
+        config_file = "configs/methods/mean_teacher.yaml"
+        arch_desc = (
+            "- **Kiến trúc SOTA nnU-Net 3D (7 stages)**: Sử dụng mô hình nnU-Net 3D 7 stages chuẩn mực (`nnunet3d`) "
+            "với InstanceNorm3d và LeakyReLU, kernel anisotropic (1, 3, 3) ở 2 tầng đầu bảo toàn chi tiết Z, "
+            "downsampling tích chập có bước nhảy (strided convolution), patch size chuẩn nnU-Net Option 1 (28, 256, 256) -> "
+            "bottleneck 320 kênh (7, 4, 4).\n"
+        )
+        extra_cli_lines = []
+
     cells = [
         # Cell 0: Header
         {
@@ -16,16 +52,16 @@ def build_mean_teacher_notebook(
             "source": [
                 "# 🧠 MedSSL-BHSD: Mean Teacher Semi-Supervised Segmentation trên Dual GPU T4 (Kaggle)\n",
                 "\n",
-                "Phân đoạn 5 phân loại xuất huyết não chi tiết (EDH, IPH, IVH, SAH, SDH) + Background trên 2x GPU T4 Kaggle theo phương pháp **Mean Teacher (Tarvainen & Valpola, NeurIPS 2017)** đã được tối ưu hóa cho bài toán mất cân bằng dữ liệu 3D BHSD.\n",
+                "Phân đoạn xuất huyết não trên 2x GPU T4 Kaggle theo phương pháp **Mean Teacher (Tarvainen & Valpola, NeurIPS 2017)** đã được tối ưu hóa cho bài toán mất cân bằng dữ liệu 3D BHSD.\n",
                 "\n",
-                "- **Kiến trúc SOTA nnU-Net 3D (7 stages)**: Sử dụng mô hình nnU-Net 3D 7 stages chuẩn mực (`nnunet3d`) với InstanceNorm3d và LeakyReLU, kernel anisotropic (1, 3, 3) ở 2 tầng đầu bảo toàn chi tiết Z, downsampling tích chập có bước nhảy (strided convolution), patch size chuẩn nnU-Net Option 1 (28, 256, 256) -> bottleneck 320 kênh (7, 4, 4).\n",
+                arch_desc,
                 "- **Data Augmentation 3D Mở Rộng**: Tự động áp dụng RandomScaling3D, GammaTransform và GaussianBlur3D chuẩn nnUNet v2 nhằm chống overfitting trên tập nhãn hạn chế.\n",
                 "- **Automatic Mixed Precision (AMP FP16) & GradScaler**: Tự động tăng tốc huấn luyện lên ~2x qua Tensor Cores của 2x GPU T4, tiết kiệm ~40% VRAM và chống tràn số (underflow/overflow).\n",
                 "- **Polynomial Learning Rate Decay**: Learning rate suy giảm đa thức theo từng bước ($lr = base\\_lr \\times (1 - iter/max\\_iter)^{0.9}$), cải thiện độ hội tụ và độ mượt mà của mDice.\n",
                 "- **EMA Teacher & Balanced Consistency**: Trọng số Teacher cập nhật liên tục qua Exponential Moving Average ổn định (EMA decay 0.999); Consistency Loss cân bằng theo từng lớp (class-balanced channel MSE), downweight background (x0.05) và loại bỏ threshold cứng để chống triệt để sụp đổ mô hình (collapse).\n",
                 "- **Tối ưu 2 GPU T4 (DDP qua `torchrun`)**: Tự động nhận diện 2x GPU T4, chia đều VRAM (~5.5GB/GPU), tốc độ cao hơn và tận dụng tối đa băng thông NVLink/PCIe.\n",
                 "- **Sliding-Window Validation định kỳ trên Teacher**: Mỗi 200 iters tự động đánh giá mô hình Teacher bằng kỹ thuật cửa sổ trượt 3D (AMP-accelerated), trực quan hóa mẫu dự đoán tương tác trên W&B và lưu `best_model.pth`.\n",
-                "- **Sử dụng trọn vẹn dữ liệu Fold 0**: Sử dụng đầy đủ 154 mẫu có nhãn của Fold 0 (`labelnum: 154`) cùng 1,978 mẫu không nhãn cho consistency regularization.\n",
+                f"- **Thiết lập mẫu có nhãn**: Sử dụng {labelnum} mẫu có nhãn cùng tập unlabeled cho consistency regularization.\n",
                 "- **Checkpoint kép & W&B Artifacts**: Lưu `checkpoint_latest.pth` mỗi 50 iters để chống timeout 12h, đồng thời tích hợp đồng bộ hóa W&B Cloud.\n",
                 "- **Benchmark độc lập (`evaluate.py`)**: Tự động nạp `best_model.pth` để đo FLOPs, Latency, Params và per-class Dice chi tiết.\n",
                 "- **Tự động đóng gói kết quả**: Nén toàn bộ log và checkpoint thành `.tar.gz` sẵn sàng tải về từ tab Output."
@@ -291,17 +327,18 @@ def build_mean_teacher_notebook(
                 "# --- THÔNG SỐ THÍ NGHIỆM ---\n",
                 "FOLD_ID = 0                                                  # Chọn fold (0..4)\n",
                 f"TASK = \"{task}\"                                          # \"multiclass\" (6 lớp) hoặc \"binary\" (2 lớp)\n",
-                "MODEL_NAME = \"nnunet3d\"                                      # SOTA nnU-Net 3D\n",
+                f"MODEL_NAME = \"{model_name}\"                                      # Backbone kiến trúc\n",
                 "METHOD_NAME = \"mean_teacher\"\n",
+                f"SETTING = \"{setting}\"                                            # Cấu hình: \"default\" hoặc \"swdl\"\n",
                 "RUN_TIMESTAMP = datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n",
-                "EXP_NAME = f\"BHSD_{TASK}_MeanTeacher_fold{FOLD_ID}_{RUN_TIMESTAMP}\"  # Run mới độc lập mỗi lần chạy\n",
+                f"EXP_NAME = f\"BHSD_{{TASK}}_MeanTeacher_{{SETTING}}_fold{{FOLD_ID}}_{{RUN_TIMESTAMP}}\"  # Run mới độc lập mỗi lần chạy\n",
                 "EXP_DIR = \"/kaggle/working/experiments\"\n",
-                "CONFIG_FILE = \"configs/methods/mean_teacher.yaml\"\n",
-                "MAX_ITER = 12000                                             # 12k iters chạy kiểm tra (~2h trên 2x T4)\n",
+                f"CONFIG_FILE = \"{config_file}\"\n",
+                f"MAX_ITER = {max_iter}                                             # iters chạy kiểm tra\n",
                 "VAL_INTERVAL = 200                                           # Đánh giá validation trượt 3D mỗi 200 bước\n",
                 "SAVE_INTERVAL = 50                                           # Lưu checkpoint_latest.pth mỗi 50 bước\n",
-                "BATCH_SIZE = 8                                               # Batch size tổng (2 GPU -> 4 sample/GPU: 2 lab + 2 unlab)\n",
-                "LABELED_BS = 4                                               # 4 mẫu có nhãn trong batch\n",
+                f"BATCH_SIZE = {batch_size}                                               # Batch size tổng (DDP chia đều per-GPU)\n",
+                f"LABELED_BS = {labeled_bs}                                               # Số mẫu có nhãn trong batch\n",
                 f"LABELNUM = {int(labelnum)}                                               # Số lượng mẫu có nhãn (154 = 100%, 8 = 5% của 154 mẫu)\n",
                 f"MAX_SAMPLES = {int(max_samples)}                                           # Giới hạn pool huấn luyện (2200 = full cả unlabeled, 154 = chỉ dùng tập 154 ca)\n",
                 f"LABELED_SAMPLING = \"{labeled_sampling}\"                                 # \"first\" (mặc định) hoặc \"stratified\" (chia đều đủ 5 class)\n",
@@ -331,7 +368,8 @@ def build_mean_teacher_notebook(
                 "    \"--use_wandb\",\n",
                 "    \"--wandb_required\",\n",
                 "    \"--save_wandb_model\",\n",
-                "    \"--wandb_project\", str(WANDB_PROJECT)\n",
+                "    \"--wandb_project\", str(WANDB_PROJECT),\n",
+            ] + extra_cli_lines + [
                 "]\n",
                 "\n",
                 "# Cấu hình Anti-Deadlock cho môi trường Đa GPU (2x T4):\n",
@@ -427,9 +465,9 @@ def build_mean_teacher_notebook(
                 "        \"--task\", TASK,\n",
                 "        \"--model\", MODEL_NAME,\n",
                 "        \"--fold\", str(FOLD_ID),\n",
-                "        \"--patch_size\", \"28\", \"256\", \"256\",\n",
-                "        \"--stride_xy\", \"32\",\n",
-                "        \"--stride_z\", \"8\",\n",
+                f"        \"--patch_size\", \"{patch_size_eval[0]}\", \"{patch_size_eval[1]}\", \"{patch_size_eval[2]}\",\n",
+                f"        \"--stride_xy\", \"{val_stride_xy}\",\n",
+                f"        \"--stride_z\", \"{val_stride_z}\",\n",
                 "        \"--use_tta\",\n",
                 "        \"--eval_space\", \"native\",\n",
                 "        \"--profile\"\n",
@@ -528,6 +566,12 @@ if __name__ == "__main__":
         choices=["first", "stratified"],
         help="Labeled subset sampling strategy: 'first' (default) or 'stratified'"
     )
+    parser.add_argument(
+        "--setting",
+        default=os.environ.get("BHSD_SETTING", "default"),
+        choices=["default", "swdl"],
+        help="Hyperparameter setting: 'default' or 'swdl'"
+    )
     args = parser.parse_args()
 
     nb = build_mean_teacher_notebook(
@@ -535,6 +579,7 @@ if __name__ == "__main__":
         labelnum=args.labelnum,
         max_samples=args.max_samples,
         labeled_sampling=args.labeled_sampling,
+        setting=args.setting,
     )
     targets = [
         "scripts/kaggle_bhsd_mean_teacher_dual_gpu.ipynb"
