@@ -90,9 +90,14 @@ def cmd_push(args):
 
     notebook_type = args.notebook or "mean_teacher"
     task = getattr(args, 'task', None)
+    setting = getattr(args, 'setting', None)
     import os
     if task:
         os.environ["BHSD_TASK"] = task
+    if setting:
+        os.environ["BHSD_SETTING"] = setting
+    else:
+        os.environ.pop("BHSD_SETTING", None)
     for env_key, attr_name in [
         ("BHSD_LABELNUM", "labelnum"),
         ("BHSD_MAX_SAMPLES", "max_samples"),
@@ -109,6 +114,8 @@ def cmd_push(args):
     print(f"Tài khoản đích: {acc.get('name')} (Username: {username})")
     if task:
         print(f"Task:          [✓ {task.upper()}]")
+    if setting:
+        print(f"Setting:       [✓ {setting.upper()}]")
     print("=" * 80)
 
     # Đóng gói notebook và kernel-metadata.json tự động tạo mới theo username
@@ -231,9 +238,14 @@ def cmd_build(args):
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
     task = getattr(args, 'task', None)
+    setting = getattr(args, 'setting', None)
     import os
     if task:
         os.environ["BHSD_TASK"] = task
+    if setting:
+        os.environ["BHSD_SETTING"] = setting
+    else:
+        os.environ.pop("BHSD_SETTING", None)
     for env_key, attr_name in [
         ("BHSD_LABELNUM", "labelnum"),
         ("BHSD_MAX_SAMPLES", "max_samples"),
@@ -250,6 +262,8 @@ def cmd_build(args):
     print(f"Target Username: {username}")
     if task:
         print(f"Task:            [✓ {task.upper()}]")
+    if setting:
+        print(f"Setting:         [✓ {setting.upper()}]")
     print("=" * 80)
 
     acc = mgr.get_account(username)
@@ -377,6 +391,8 @@ def main():
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):
+        command_parser.add_argument("--setting", choices=["default", "swdl"], default="default",
+                                    help="Cấu hình hyperparameter: 'default' (nnUNet3D, patch 28x256x256, bs 8) hoặc 'swdl' (VNet, patch 16x64x64, bs 32)")
         command_parser.add_argument("--labelnum", type=int, default=None,
                                     help="Số mẫu có nhãn (ví dụ: 8 cho 5%% của 154 mẫu; mặc định: 154)")
         command_parser.add_argument("--max-samples", type=int, default=None,

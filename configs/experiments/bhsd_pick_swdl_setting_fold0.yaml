@@ -1,0 +1,37 @@
+# Experiment Preset: BHSD Multi-Class PICK with SWDL Hyperparameters (Fold 0)
+# Setting adapted from ~/SWDL: patch_size [16, 64, 64], batch_size 32, labeled_bs 5
+experiment:
+  name: "bhsd_pick_swdl_setting_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet"
+  in_channels: 1
+  normalization: "batchnorm"
+  has_dropout: true
+
+method:
+  name: "pick"
+  base_lr: 0.01
+  pre_max_iteration: 4000
+  self_max_iteration: 12000
+  lambda_mim: 0.2
+  mask_ratio: 0.666667
+
+data:
+  patch_size: [16, 64, 64]
+  batch_size: 32
+  labeled_bs: 5
+  labelnum: 15
+
+logging:
+  val_stride_xy: 16
+  val_stride_z: 4
+

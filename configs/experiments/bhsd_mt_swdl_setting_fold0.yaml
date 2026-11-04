@@ -1,0 +1,37 @@
+# Experiment Preset: BHSD Multi-Class Mean Teacher with SWDL Hyperparameters (Fold 0)
+# Setting adapted from ~/SWDL: patch_size [16, 64, 64], batch_size 32, labeled_bs 5, ema 0.99, consistency 1.0
+experiment:
+  name: "bhsd_mt_swdl_setting_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet"
+  in_channels: 1
+  normalization: "batchnorm"
+  has_dropout: true
+
+method:
+  name: "mean_teacher"
+  base_lr: 0.01
+  max_iteration: 15000
+  ema_decay: 0.99
+  consistency: 1.0
+  consistency_rampup: 40.0
+
+data:
+  patch_size: [16, 64, 64]
+  batch_size: 32
+  labeled_bs: 5
+  labelnum: 15
+
+logging:
+  val_stride_xy: 16
+  val_stride_z: 4
+
