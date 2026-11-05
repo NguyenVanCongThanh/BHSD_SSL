@@ -143,10 +143,22 @@ class AccountsManager:
 
         return ""
 
+    def get_executor(self, account_id_or_slug: str) -> "KaggleExecutor":
+        """
+        Khởi tạo KaggleExecutor trực tiếp trong RAM (Zero-file mode).
+        Không sinh file hay thư mục tĩnh nào ra ổ cứng.
+        """
+        from tools.kaggle.kaggle_executor import KaggleExecutor
+        acc = self.get_account(account_id_or_slug)
+        if not acc:
+            raise KeyError(f"Không tìm thấy tài khoản với định danh: '{account_id_or_slug}'")
+        username, key = self.resolve_credentials(acc)
+        return KaggleExecutor(username=username, key=key)
+
     def create_isolated_profile(self, account_id_or_slug: str) -> Path:
         """
-        Tạo một profile directory biệt lập chứa kaggle.json an toàn (chmod 600)
-        cho tài khoản được chọn, trả về đường dẫn dùng làm KAGGLE_CONFIG_DIR.
+        [Legacy / Fallback] Tạo một profile directory biệt lập chứa kaggle.json
+        nếu một công cụ bên thứ ba bắt buộc yêu cầu file vật lý.
         """
         acc = self.get_account(account_id_or_slug)
         if not acc:
@@ -186,7 +198,7 @@ class AccountsManager:
                              slug: Optional[str] = None,
                              description: Optional[str] = None) -> Dict[str, Any]:
         """
-        Thêm mới hoặc cập nhật thông tin tài khoản vào registry.
+        Thêm mới hoặc cập nhật thông tin tài khoản vào registry (configs/kaggle/accounts.json).
         """
         acc_id = str(acc_id).strip()
         existing = self.accounts_data.get("accounts", {}).get(acc_id, {})
@@ -204,6 +216,4 @@ class AccountsManager:
         
         self.accounts_data.setdefault("accounts", {})[acc_id] = updated
         self._save_config()
-        # Tạo lại profile isolated
-        self.create_isolated_profile(acc_id)
         return updated

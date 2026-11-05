@@ -15,11 +15,31 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
 class KaggleExecutor:
-    def __init__(self, profile_dir: Path):
-        self.profile_dir = Path(profile_dir)
-        self.kaggle_json = self.profile_dir / "kaggle.json"
-        if not self.kaggle_json.exists():
-            raise FileNotFoundError(f"Không tìm thấy file kaggle.json trong profile: {self.profile_dir}")
+    def __init__(self, username: Optional[str] = None, key: Optional[str] = None, profile_dir: Optional[Path] = None):
+        """
+        Khởi tạo KaggleExecutor.
+        Ưu tiên sử dụng trực tiếp username và key (In-Memory / Zero-file mode).
+        Hỗ trợ fallback tương thích ngược nếu truyền profile_dir.
+        """
+        if profile_dir is not None and (not username or not key):
+            self.profile_dir = Path(profile_dir)
+            self.kaggle_json = self.profile_dir / "kaggle.json"
+            if self.kaggle_json.exists():
+                with open(self.kaggle_json, "r", encoding="utf-8") as f:
+                    kdata = json.load(f)
+                self.username = kdata.get("username", "").strip()
+                self.key = kdata.get("key", "").strip()
+            else:
+                self.username = ""
+                self.key = ""
+        else:
+            self.profile_dir = Path(profile_dir) if profile_dir else None
+            self.username = (username or "").strip()
+            self.key = (key or "").strip()
+
+        if not self.username or not self.key:
+            raise ValueError("KaggleExecutor yêu cầu username và key hợp lệ.")
+
         self.env = self._build_isolated_env()
         self.kaggle_bin = self._resolve_kaggle_bin()
 
@@ -40,7 +60,7 @@ class KaggleExecutor:
     def _build_isolated_env(self) -> Dict[str, str]:
         """
         Xây dựng môi trường cô lập, xóa các biến KAGGLE_* xung đột từ shell cha
-        và thiết lập chính xác các biến cần thiết cho tài khoản hiện tại.
+        và nạp trực tiếp credentials của tài khoản hiện tại vào RAM/env của tiến trình con.
         """
         env = os.environ.copy()
         
@@ -49,26 +69,17 @@ class KaggleExecutor:
         for k in keys_to_remove:
             del env[k]
             
-        # Đặt KAGGLE_CONFIG_DIR trỏ chuẩn xác tới thư mục profile cô lập
-        env["KAGGLE_CONFIG_DIR"] = str(self.profile_dir.resolve())
         env["PYTHONUNBUFFERED"] = "1"
+        env["KAGGLE_USERNAME"] = self.username
+        env["KAGGLE_KEY"] = self.key
         
-        # Nạp trực tiếp KAGGLE_USERNAME, KAGGLE_KEY và KAGGLE_API_TOKEN vào env của subprocess
-        # Hỗ trợ cả cơ chế Bearer Token mới (KGAT_...) và API Key truyền thống
-        try:
-            with open(self.kaggle_json, "r", encoding="utf-8") as f:
-                kdata = json.load(f)
-            if kdata.get("username"):
-                env["KAGGLE_USERNAME"] = kdata["username"].strip()
-            if kdata.get("key"):
-                key_val = kdata["key"].strip()
-                env["KAGGLE_KEY"] = key_val
-                # Kaggle API Token (bắt đầu bằng KGAT_...) yêu cầu biến môi trường KAGGLE_API_TOKEN
-                # để Kaggle CLI / API client tự động chuyển sang Bearer Authorization
-                if key_val.startswith("KGAT_"):
-                    env["KAGGLE_API_TOKEN"] = key_val
-        except Exception:
-            pass
+        # Kaggle API Token (bắt đầu bằng KGAT_...) yêu cầu biến môi trường KAGGLE_API_TOKEN
+        # để Kaggle CLI / API client tự động chuyển sang Bearer Authorization
+        if self.key.startswith("KGAT_"):
+            env["KAGGLE_API_TOKEN"] = self.key
+
+        if self.profile_dir and self.profile_dir.exists():
+            env["KAGGLE_CONFIG_DIR"] = str(self.profile_dir.resolve())
 
         # Đảm bảo ~/.local/bin nằm trong PATH
         local_bin = str(Path.home() / ".local" / "bin")
@@ -96,10 +107,8 @@ class KaggleExecutor:
         Kiểm tra kết nối và tính hợp lệ thực tế của tài khoản với Kaggle server.
         Khắc phục triệt để lỗi false-positive của api.authenticate().
         """
-        with open(self.kaggle_json, "r", encoding="utf-8") as f:
-            kdata = json.load(f)
-        u = kdata.get("username", "").strip()
-        k = kdata.get("key", "").strip()
+        u = self.username
+        k = self.key
 
         # 1. Kiểm tra trực tiếp qua HTTP REST call (chuẩn xác 100%)
         try:
@@ -215,11 +224,8 @@ class KaggleExecutor:
             meta = json.load(f)
         kernel_id = meta.get("id", "Unknown")
 
-        # Nạp thông tin xác thực từ profile cô lập
-        with open(self.kaggle_json, "r", encoding="utf-8") as f:
-            kdata = json.load(f)
-        u = kdata.get("username", "").strip()
-        k = kdata.get("key", "").strip()
+        u = self.username
+        k = self.key
 
         # TẦNG 1: Đẩy trực tiếp qua REST API (Hỗ trợ chuẩn Bearer Token KGAT_...)
         try:
@@ -290,10 +296,8 @@ class KaggleExecutor:
         # 2. Fallback sang REST API
         try:
             import requests
-            with open(self.kaggle_json, "r", encoding="utf-8") as f:
-                kdata = json.load(f)
-            u = kdata.get("username", "").strip()
-            k = kdata.get("key", "").strip()
+            u = self.username
+            k = self.key
             headers = {"User-Agent": "Kaggle-MultiAccount-Manager/1.0"}
             auth = None
             if k.startswith("KGAT_"):
@@ -325,10 +329,8 @@ class KaggleExecutor:
         """
         try:
             import requests
-            with open(self.kaggle_json, "r", encoding="utf-8") as f:
-                kdata = json.load(f)
-            u = kdata.get("username", "").strip()
-            k = kdata.get("key", "").strip()
+            u = self.username
+            k = self.key
             headers = {"User-Agent": "Kaggle-MultiAccount-Manager/1.0"}
             auth = None
             if k.startswith("KGAT_"):
