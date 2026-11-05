@@ -50,8 +50,7 @@ def cmd_account_test(args):
             continue
         print(f"[*] Kiểm tra: {acc.get('name')} (User: {acc.get('username')})...", end=" ", flush=True)
         try:
-            profile_dir = mgr.create_isolated_profile(acc_id)
-            executor = KaggleExecutor(profile_dir)
+            executor = mgr.get_executor(acc_id)
             ok, msg = executor.test_connection()
             if ok:
                 print(f"[✓ HỢP LỆ]")
@@ -85,8 +84,7 @@ def cmd_push(args):
         sys.exit(1)
 
     username, _ = mgr.resolve_credentials(acc)
-    profile_dir = mgr.create_isolated_profile(account_id)
-    executor = KaggleExecutor(profile_dir)
+    executor = mgr.get_executor(account_id)
 
     notebook_type = args.notebook or "mean_teacher"
     task = getattr(args, 'task', None)
@@ -169,8 +167,7 @@ def cmd_status(args):
         sys.exit(1)
         
     username, _ = mgr.resolve_credentials(acc)
-    profile_dir = mgr.create_isolated_profile(account_id)
-    executor = KaggleExecutor(profile_dir)
+    executor = mgr.get_executor(account_id)
 
     kernel_id = args.kernel
     if not kernel_id:
@@ -192,8 +189,7 @@ def cmd_log(args):
         sys.exit(1)
     account_id = acc.get("id", args.account)
     username, _ = mgr.resolve_credentials(acc)
-    profile_dir = mgr.create_isolated_profile(account_id)
-    executor = KaggleExecutor(profile_dir)
+    executor = mgr.get_executor(account_id)
 
     kernel_id = args.kernel
     if not kernel_id:
