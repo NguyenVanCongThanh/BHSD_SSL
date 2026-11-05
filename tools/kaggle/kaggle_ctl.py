@@ -68,7 +68,9 @@ def cmd_account_add(args):
         key=args.key,
         name=args.name,
         slug=args.slug,
-        description=args.desc
+        description=args.desc,
+        wandb_key=getattr(args, "wandb_key", None),
+        default_dataset_owner=getattr(args, "dataset_owner", None)
     )
     print(f"\n[✓] Đã lưu thành công tài khoản ID '{args.id}' (User: {updated['username']}) vào registry.")
     print(f"    Profile cô lập đã được tạo sẵn sàng.\n")
@@ -363,6 +365,8 @@ def main():
     add_acc.add_argument("--name", "-n", help="Tên hiển thị dễ nhớ")
     add_acc.add_argument("--slug", "-s", help="Slug viết tắt (ví dụ: user3)")
     add_acc.add_argument("--desc", "-d", help="Mô tả bổ sung")
+    add_acc.add_argument("--wandb-key", "-w", help="W&B API Key riêng (tùy chọn; mặc định sẽ dùng default_wandb_key của hệ thống)")
+    add_acc.add_argument("--dataset-owner", help="Owner của dataset nguồn (mặc định thnhnguynvncng)")
 
     # Subcommand: build
     parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")

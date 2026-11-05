@@ -200,9 +200,12 @@ class AccountsManager:
                              key: str,
                              name: Optional[str] = None,
                              slug: Optional[str] = None,
-                             description: Optional[str] = None) -> Dict[str, Any]:
+                             description: Optional[str] = None,
+                             wandb_key: Optional[str] = None,
+                             default_dataset_owner: Optional[str] = None) -> Dict[str, Any]:
         """
         Thêm mới hoặc cập nhật thông tin tài khoản vào registry (configs/kaggle/accounts.json).
+        Tự động cấu hình default_dataset_owner về owner gốc và kế thừa W&B key.
         """
         acc_id = str(acc_id).strip()
         existing = self.accounts_data.get("accounts", {}).get(acc_id, {})
@@ -215,8 +218,12 @@ class AccountsManager:
             "source": "key",
             "key": key.strip(),
             "description": description or existing.get("description") or f"Tài khoản Kaggle {username}",
-            "default_dataset_owner": existing.get("default_dataset_owner") or username.strip()
+            "default_dataset_owner": default_dataset_owner or existing.get("default_dataset_owner") or "thnhnguynvncng"
         }
+        
+        final_wb = wandb_key or existing.get("wandb_key")
+        if final_wb and str(final_wb).strip():
+            updated["wandb_key"] = str(final_wb).strip()
         
         self.accounts_data.setdefault("accounts", {})[acc_id] = updated
         self._save_config()

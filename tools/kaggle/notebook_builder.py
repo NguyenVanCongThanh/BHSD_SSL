@@ -100,9 +100,44 @@ class NotebookBuilder:
 
         # Đồng bộ file notebook vào bundle
         if found_source and found_source.exists():
-            shutil.copy2(found_source, target_code_path)
+            shutil.copy2(target_code_path if target_code_path.exists() and found_source == target_code_path else found_source, target_code_path)
         else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
+
+        # Tự động nạp W&B API Key vào notebook bundle (được bảo vệ trong kaggle_runs/ qua .gitignore)
+        # Đảm bảo mọi tài khoản mới hoặc cũ đều tự động đồng bộ W&B Cloud mà không phụ thuộc Kaggle Secrets
+        if wandb_key and wandb_key.strip():
+            with target_code_path.open("r", encoding="utf-8") as stream:
+                notebook = json.load(stream)
+            injected = False
+            for cell in notebook.get("cells", []):
+                if cell.get("cell_type") == "code":
+                    raw_lines = cell.get("source", [])
+                    lines = raw_lines if isinstance(raw_lines, list) else raw_lines.splitlines(keepends=True)
+                    new_lines = []
+                    cell_matched = False
+                    for line in lines:
+                        if line.strip().startswith("WANDB_API_KEY ="):
+                            new_lines.append(f'WANDB_API_KEY = "{wandb_key.strip()}"\n')
+                            cell_matched = True
+                            injected = True
+                        else:
+                            new_lines.append(line)
+                    if cell_matched:
+                        cell["source"] = new_lines
+                        break
+            if not injected:
+                # Nếu template không có biến WANDB_API_KEY, chèn thiết lập môi trường vào cell code đầu tiên
+                for cell in notebook.get("cells", []):
+                    if cell.get("cell_type") == "code":
+                        prefix = [f'import os\nos.environ["WANDB_API_KEY"] = "{wandb_key.strip()}"\n']
+                        raw_src = cell.get("source", [])
+                        lines = raw_src if isinstance(raw_src, list) else raw_src.splitlines(keepends=True)
+                        cell["source"] = prefix + lines
+                        injected = True
+                        break
+            if injected:
+                target_code_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
 
         if resume_run:
             from tools.kaggle.resume import inject_resume
