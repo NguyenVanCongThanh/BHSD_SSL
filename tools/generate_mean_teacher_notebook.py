@@ -42,6 +42,21 @@ def build_mean_teacher_notebook(
             "Deep Supervision 5 auxiliary heads, đồng bộ hóa 1:1 với baseline nnU-Net 3D (run y3jf7hjh).\\n"
         )
         extra_cli_lines = []
+    elif setting == "vnet_swdl":
+        model_name = "vnet"
+        batch_size = 8
+        labeled_bs = 4
+        max_iter = 12000
+        val_stride_xy = 32
+        val_stride_z = 8
+        patch_size_eval = ["28", "256", "256"]
+        config_file = "configs/experiments/bhsd_mt_vnet_swdl_binary_fold0.yaml"
+        arch_desc = (
+            "- **Kiến trúc V-Net 7 Stages phong cách SWDL**: Sử dụng mô hình V-Net 7 stages "
+            "với Long Skip Addition (+), ReLU activation, trọng số Deep Supervision [1.0, 0.8, 0.6, 0.4, 0.2, 0.1] "
+            "từ repository SWDL để đánh giá hiệu quả tối ưu tham số và tốc độ hội tụ.\\n"
+        )
+        extra_cli_lines = []
     else:
         model_name = "nnunet3d"
         batch_size = 8
@@ -585,8 +600,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--setting",
         default=os.environ.get("BHSD_SETTING", "default"),
-        choices=["default", "swdl", "vnet"],
-        help="Hyperparameter setting: 'default' (nnUNet3D), 'swdl' (VNet SWDL), or 'vnet' (7-Stage Residual V-Net)"
+        choices=["default", "swdl", "vnet", "vnet_swdl"],
+        help="Hyperparameter setting: 'default' (nnUNet3D), 'swdl' (VNet SWDL), 'vnet' (7-Stage Residual V-Net Concat), or 'vnet_swdl' (7-Stage V-Net Add/ReLU)"
     )
     args = parser.parse_args()
 
