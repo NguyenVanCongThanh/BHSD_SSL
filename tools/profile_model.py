@@ -50,13 +50,19 @@ def main():
     else:
         device = torch.device('cuda:0')
 
+    import inspect
+    model_cls = MODELS.get(args.model)
+    if model_cls is None:
+        raise KeyError(f"Unknown model architecture: '{args.model}'")
+    sig = inspect.signature(model_cls.__init__)
+    kwargs = {'in_channels': args.in_channels, 'num_classes': args.num_classes}
+    if 'has_dropout' in sig.parameters:
+        kwargs['has_dropout'] = False
+    if 'img_shape' in sig.parameters:
+        kwargs['img_shape'] = tuple(args.patch_size)
+
     print(f"\n[Profiler] Building model '{args.model}' (in_channels={args.in_channels}, num_classes={args.num_classes})...")
-    model = MODELS.build(
-        args.model,
-        in_channels=args.in_channels,
-        num_classes=args.num_classes,
-        has_dropout=False
-    ).to(device)
+    model = MODELS.build(args.model, **kwargs).to(device)
 
     input_shape = (args.batch_size, args.in_channels, args.patch_size[0], args.patch_size[1], args.patch_size[2])
     print(f"[Profiler] Running benchmark on {device} with input shape {list(input_shape)}...")

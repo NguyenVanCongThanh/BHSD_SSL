@@ -17,7 +17,6 @@ method:
   base_lr: 0.01
   lambda_mim: 0.2
   mask_ratio: 0.666667
-  consistency: 1.0
 
 logging:
   val_interval: 500

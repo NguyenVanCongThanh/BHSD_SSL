@@ -145,33 +145,8 @@ class MaskDiceLoss(nn.Module):
         """
         Compute loss from raw model logits [N, C, ...].
         """
-        N = logits.shape[0]
-        nclass = logits.shape[1]
-
-        logits_flat = logits.view(N, nclass, -1)
-        target_flat = target.view(N, 1, -1)
-
-        pred_flat, nclass = get_probability(logits_flat)
-        target_one_hot = to_one_hot(target_flat, nclass)
-
-        inter = pred_flat * target_one_hot
-        union = pred_flat + target_one_hot
-
-        if mask is not None:
-            if mask.dim() == 3:
-                mask = mask.unsqueeze(0)
-            if mask.shape[0] != N:
-                mask = mask.expand(N, -1, -1, -1)
-            mask_flat = mask.reshape(N, 1, -1)
-            inter = (inter * mask_flat).sum(dim=2)
-            union = (union * mask_flat).sum(dim=2)
-        else:
-            inter = inter.sum(dim=2)
-            union = union.sum(dim=2)
-
-        dice = (2.0 * inter + self.smooth) / (union + self.smooth)
-
-        return self._reduce_dice(dice)
+        pred, _ = get_probability(logits)
+        return self.prob_forward(pred, target, mask=mask)
 
 
 # Backward-compatible alias for existing imports

@@ -41,6 +41,10 @@ class AccountsManager:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.accounts_data, f, indent=2, ensure_ascii=False)
+        try:
+            os.chmod(self.config_path, 0o600)
+        except OSError:
+            pass
 
     def get_account(self, identifier: str) -> Optional[Dict[str, Any]]:
         """

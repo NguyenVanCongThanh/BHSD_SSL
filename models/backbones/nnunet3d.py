@@ -40,7 +40,10 @@ class nnUNetBlock(nn.Module):
 class nnUNet3D(nn.Module):
     """
     Standard 5-stage, 6-stage, or 7-stage nnU-Net 3D for Volumetric CT Segmentation.
+    """
+    CAPABILITIES = {"segmentation", "deep_supervision"}
 
+    """
     When num_stages == 7:
       Matches 100% with nnU-Net v2 PlainConvUNet from nnUNetPlans_Option1_CTClip and nnUNetPlans_spacing05:
       - 7 feature channels: [32, 64, 128, 256, 320, 320, 320]

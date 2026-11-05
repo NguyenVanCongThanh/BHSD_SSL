@@ -6,7 +6,7 @@ Guarantees compatibility with dict access, DataParallel gather, DDP autograd,
 and all downstream loss functions.
 """
 
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 import torch
 
 
@@ -102,9 +102,28 @@ def wrap_model_output(raw_out: Any) -> ModelOutput:
         if main is None:
             raise TypeError(f"Dictionary contains no primary tensor logits: {list(raw_out.keys())}")
 
-        aux = raw_out.get('aux', raw_out.get('aux_logits', []))
-        if isinstance(aux, torch.Tensor):
-            aux = [aux]
+        aux_val = raw_out.get('aux', raw_out.get('aux_logits'))
+        if aux_val is not None:
+            if isinstance(aux_val, torch.Tensor):
+                aux = [aux_val]
+            elif isinstance(aux_val, (list, tuple)):
+                aux = list(aux_val)
+            else:
+                raise TypeError(f"Auxiliary output must be a Tensor or list/tuple of Tensors, got {type(aux_val)}")
+        else:
+            aux = []
+            for k, v in raw_out.items():
+                if k == main_key or k.lower() in NON_AUX_KEYS or k.lower() in ('aux', 'aux_logits'):
+                    continue
+                if isinstance(v, torch.Tensor):
+                    aux.append(v)
+                elif isinstance(v, (list, tuple)) and all(isinstance(item, torch.Tensor) for item in v):
+                    aux.extend(v)
+
+        for i, a in enumerate(aux):
+            if not isinstance(a, torch.Tensor):
+                raise TypeError(f"Auxiliary output element at index {i} must be a torch.Tensor, got {type(a)}")
+
         extra = {k: v for k, v in raw_out.items() if k not in (main_key, 'logits', 'aux', 'aux_logits')}
         return ModelOutput(logits=main, aux=list(aux), **extra)
 
@@ -188,5 +207,24 @@ def extract_logits(model_output: Any) -> torch.Tensor:
                 return v
 
     raise TypeError(f"Unsupported model output type for logit extraction: {type(model_output)}")
+
+
+def extract_multiscale_outputs(
+    net_out: Union[torch.Tensor, Dict[str, Any], Tuple, List, ModelOutput]
+) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    """
+    Unpack network predictions into (main_logits, aux_logits_list).
+    Supports:
+      - Pure Tensor: (logits, [])
+      - Dict / ModelOutput: {'seg'|'logits'|'out'|'main': main_logits, 'aux'|'aux_logits': [aux1, aux2, ...]}
+      - Tuple/List:
+          - If PICK format: (proj, main, feat) -> main is net_out[1]
+          - If LeFeD format: (out1, out2, masks, deep_outs) -> main is out1, aux is deep_outs
+          - Otherwise: net_out[0] is main, net_out[1:] are aux
+    """
+    wrapped = wrap_model_output(net_out)
+    if wrapped.logits is None or not isinstance(wrapped.logits, torch.Tensor):
+        raise TypeError(f"Primary output must be a torch.Tensor, got {type(wrapped.logits)}")
+    return wrapped.logits, wrapped.aux
 
 

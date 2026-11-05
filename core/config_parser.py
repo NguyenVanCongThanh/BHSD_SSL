@@ -105,6 +105,11 @@ SECTION_MAPPING = {
     'max_samples': 'data',
     'intensity_units': 'data',
     'normalization': 'data',
+    'num_workers': 'data',
+    'pin_memory': 'data',
+    'drop_last': 'data',
+    'extended_aug': 'data',
+    'extended-aug': 'data',
     
     # Method section
     'method': 'method',
@@ -123,6 +128,11 @@ SECTION_MAPPING = {
     'cps_weight': 'method',
     'ema_decay': 'method',
     'u_weight': 'method',
+    'warmup_iters': 'method',
+    'warmup-iters': 'method',
+    'min_lr': 'method',
+    'min-lr': 'method',
+    'nesterov': 'method',
     
     # Experiment section
     'exp': 'experiment',
@@ -203,18 +213,19 @@ def parse_cli_overrides(unknown_args: List[str]) -> Dict[str, Any]:
                     i += 1
 
             if '.' in k:
-                sub_keys = k.split('.')
+                sub_keys = [sk.replace('-', '_') for sk in k.split('.')]
             else:
                 # Flat argument: check section mapping
                 target_sec = SECTION_MAPPING.get(k)
                 if target_sec is not None:
+                    norm_k = k.replace('-', '_')
                     # Special aliasing: --model VNet -> model.name: VNet, --dataset bhsd -> data.name: bhsd
-                    if k in ('model', 'exp', 'method', 'dataset'):
+                    if norm_k in ('model', 'exp', 'method', 'dataset'):
                         sub_keys = [target_sec, 'name']
                     else:
-                        sub_keys = [target_sec, k]
+                        sub_keys = [target_sec, norm_k]
                 else:
-                    sub_keys = [k]
+                    sub_keys = [k.replace('-', '_')]
 
             curr = overrides
             for sub_k in sub_keys[:-1]:
@@ -255,7 +266,8 @@ KNOWN_SECTION_KEYS = {
         'name', 'root_path', 'patch_size', 'batch_size', 'labeled_bs', 'labelnum',
         'labeled_sampling', 'labeled_indices', 'max_samples', 'intensity_units',
         'normalization', 'num_classes', 'task', 'class_names', 'num_workers',
-        'pin_memory', 'drop_last', 'train_split', 'val_split', 'test_split'
+        'pin_memory', 'drop_last', 'train_split', 'val_split', 'test_split',
+        'extended_aug'
     },
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
@@ -265,7 +277,8 @@ KNOWN_SECTION_KEYS = {
         'perturb_student', 'student_noise_std', 'student_intensity_scale',
         'deep_supervision', 'lambda_', 'lambda_mim', 'mask_ratio', 'cps_weight',
         'ema_decay', 'ema_schedule', 'u_weight', 'temperature', 'threshold',
-        'warmup_epochs', 'loss_name', 'aux_loss_weight', 'optimizer',
+        'warmup_epochs', 'warmup_iters', 'min_lr', 'nesterov', 'betas', 'eps',
+        'loss_name', 'aux_loss_weight', 'optimizer',
         'feedback_steps', 'feedback_scale', 'ds_weights'
     },
     'logging': {
@@ -298,11 +311,17 @@ def _canonical_name(val: Optional[Any]) -> str:
 
 def validate_config(cfg_dict: Dict[str, Any]) -> None:
     """Validate structure, types, ranges, unknown keys, and cross-section invariants."""
+    # 0. Strict unknown top-level section validation
+    allowed_top_level = {'experiment', 'data', 'model', 'method', 'logging'}
+    unknown_top = set(cfg_dict.keys()) - allowed_top_level
+    if unknown_top:
+        raise ValueError(f"Unknown top-level configuration section(s): {sorted(list(unknown_top))}")
+
     data = cfg_dict.get('data') or {}
     exp = cfg_dict.get('experiment') or {}
     method = cfg_dict.get('method') or {}
 
-    # 0. Strict unknown key validation for known sections
+    # Strict unknown key validation for known sections
     for sec, allowed in KNOWN_SECTION_KEYS.items():
         if isinstance(cfg_dict.get(sec), dict):
             unknown = set(cfg_dict[sec].keys()) - allowed
@@ -592,8 +611,7 @@ def load_config(
 
     # 6. Apply final CLI overrides (highest precedence)
     if cli_args is not None:
-        overrides = parse_cli_overrides(cli_args)
-        overrides_copy = copy.deepcopy(overrides)
+        overrides_copy = copy.deepcopy(early_overrides)
         overrides_copy.pop('model', None)
         _deep_update(merged_dict, overrides_copy)
 
@@ -621,6 +639,9 @@ def load_config(
     if 'data' in merged_dict and 'task' in merged_dict['data']:
         if user_exp_task is None:
             merged_dict.setdefault('experiment', {})['task'] = merged_dict['data']['task']
+
+    # Strip any transient top-level dataset key from merged_dict
+    merged_dict.pop('dataset', None)
 
     # Schema & value range validation
     validate_config(merged_dict)

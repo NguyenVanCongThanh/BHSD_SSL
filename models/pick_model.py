@@ -22,6 +22,7 @@ class PICKModel(nn.Module):
     - MIM Decoder: Tái tạo ảnh 3D bị che (Masked Image Modeling Reconstruction).
     - Aux Decoder: Nhánh phân đoạn phụ trợ trên ảnh tái tạo đã lật/tăng cường.
     """
+    CAPABILITIES = {"segmentation", "mim", "aux"}
     def __init__(
         self,
         in_channels: int = 1,

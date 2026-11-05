@@ -28,7 +28,7 @@ method:
 data:
   patch_size: [16, 64, 64]
   batch_size: 32
-  labeled_bs: 5
+  labeled_bs: 6
   labelnum: 15
 
 logging:

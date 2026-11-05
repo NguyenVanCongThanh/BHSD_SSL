@@ -16,8 +16,10 @@ source /home/u001015/.venv/nnunet/bin/activate
 # 2. Lấy Fold ID từ Slurm Array (0, 1, 2, 3, 4)
 FOLD_ID=$SLURM_ARRAY_TASK_ID
 
-# 3. Chuyển vào thư mục PICK
-cd /home/u001015/PICK
+# 3. Chuyển vào thư mục repo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 # 4. Thiết lập thư mục lưu logs/experiments
 mkdir -p /home/u001015/experiments

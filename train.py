@@ -13,8 +13,8 @@ Usage Examples:
     # 3. Run Binary task:
     python train.py --dataset bhsd_binary --method pick --fold 0
 
-    # 4. Benchmark Supervised baseline on custom / external dataset:
-    python train.py --dataset configs/datasets/acdc.yaml --method supervised --model vnet --fold 0
+    # 4. Benchmark Supervised baseline on BHSD:
+    python train.py --dataset bhsd_multiclass --method supervised --model vnet --fold 0
 """
 
 import os
@@ -34,7 +34,7 @@ from utils.logger import get_logger
 def main():
     parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Benchmarking & Training Entrypoint")
     parser.add_argument('--config', type=str, default=None, help='Path to YAML experiment config')
-    parser.add_argument('--dataset', type=str, default=None, help='Dataset name or config (e.g. bhsd_multiclass, bhsd_binary, acdc, la_heart)')
+    parser.add_argument('--dataset', type=str, default=None, help='Dataset name or config (e.g. bhsd_multiclass, bhsd_binary)')
     parser.add_argument('--method', type=str, default=None, help='Method name or config (e.g. pick, mean_teacher, supervised, cps, bcp, lefed)')
     parser.add_argument('--model', type=str, default=None, help='Model architecture (e.g. vnet, unet3d, unetr, nnunet3d)')
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID (e.g. 0, 0,1, auto)')
@@ -61,8 +61,9 @@ def main():
     if known_args.fold is not None:
         cli_overrides.extend(['--experiment.fold', str(known_args.fold)])
     if known_args.task is not None:
-        num_cls = "2" if known_args.task == "binary" else "6"
-        cli_overrides.extend(['--experiment.task', known_args.task, '--experiment.num_classes', num_cls])
+        cli_overrides.extend(['--experiment.task', known_args.task])
+        if known_args.task == 'binary':
+            cli_overrides.extend(['--experiment.num_classes', '2'])
     if known_args.resume is not None and known_args.resume:
         cli_overrides.extend(['--experiment.resume', 'true'])
 
@@ -98,10 +99,9 @@ def main():
     from core.model_builder import model_spec_from_config, build_model_from_spec
     model_spec = model_spec_from_config(cfg.to_dict(), num_classes)
     cfg.model_spec = model_spec
-    from core.distributed import get_rank
     model = build_model_from_spec(model_spec, seed=int(getattr(cfg.experiment, 'seed', 1337)),
                                   deterministic=bool(getattr(cfg.experiment, 'deterministic', True)),
-                                  rank=get_rank())
+                                  rank=0)
     logging.info("[Registry] Built model '%s'", model_spec['name'])
 
     # 2. Build Method / Trainer

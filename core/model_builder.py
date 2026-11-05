@@ -6,14 +6,48 @@ from core.registry import MODELS
 def model_spec_from_config(config, num_classes, legacy=False):
     model = dict(config.get('model') or {})
     name = str(model.pop('name', 'vnet')).lower()
-    method = str((config.get('method') or {}).get('name', '')).lower()
-    if name == 'pick' or (name == 'vnet' and method == 'pick'):
+    method_name = str((config.get('method') or {}).get('name', '')).lower()
+
+    # Resolve method class if registered to check aliases and capability contracts
+    method_cls = None
+    if method_name:
+        try:
+            import methods  # Ensure methods are registered
+            from core.registry import METHODS
+            method_cls = METHODS.get(method_name)
+        except (KeyError, ImportError):
+            method_cls = None
+
+    # 1. Alias resolution
+    if method_cls is not None and hasattr(method_cls, 'DEFAULT_MODEL_ALIAS'):
+        name = method_cls.DEFAULT_MODEL_ALIAS.get(name, name)
+    elif name == 'pick' or (name == 'vnet' and method_name == 'pick'):
         name = 'pick_vnet'
-    if method == 'pick' and name != 'pick_vnet':
+    elif name == 'lefed':
+        name = 'lefed_net'
+
+    model_cls = MODELS.get(name)
+    if model_cls is None:
+        raise KeyError(f"Model '{name}' is not registered in MODELS registry")
+
+    # 2. Capability verification
+    if method_cls is not None and hasattr(method_cls, 'REQUIRED_MODEL_CAPABILITIES'):
+        req_caps = set(getattr(method_cls, 'REQUIRED_MODEL_CAPABILITIES', set()))
+        model_caps = set(getattr(model_cls, 'CAPABILITIES', {'segmentation'}))
+        missing = req_caps - model_caps
+        if missing:
+            if method_name == 'pick':
+                raise ValueError('PICK requires pick_vnet; the configured backbone does not provide MIM/aux branches')
+            elif method_name == 'lefed':
+                raise ValueError('LeFeD requires lefed_net')
+            else:
+                raise ValueError(f"Method '{method_name}' requires capabilities {sorted(list(missing))} not provided by model '{name}'")
+    elif method_name == 'pick' and name != 'pick_vnet':
         raise ValueError('PICK requires pick_vnet; the configured backbone does not provide MIM/aux branches')
-    if method == 'lefed' and name != 'lefed_net':
+    elif method_name == 'lefed' and name != 'lefed_net':
         raise ValueError('LeFeD requires lefed_net')
-    signature = inspect.signature(MODELS.get(name).__init__)
+
+    signature = inspect.signature(model_cls.__init__)
     explicit_params = {
         k: p for k, p in signature.parameters.items()
         if k != 'self' and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)

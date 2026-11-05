@@ -1,7 +1,10 @@
 try:
-    from .crawl_storage import clean_data, new_snapshot, write_json
+    from tools.crawl_storage import clean_data, new_snapshot, write_json
 except ImportError:
-    from crawl_storage import clean_data, new_snapshot, write_json
+    try:
+        from .crawl_storage import clean_data, new_snapshot, write_json
+    except ImportError:
+        from crawl_storage import clean_data, new_snapshot, write_json
 
 import json
 

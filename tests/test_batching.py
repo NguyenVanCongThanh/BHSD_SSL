@@ -1,16 +1,7 @@
 """Batch contract checks; arithmetic tests also run without PyTorch installed."""
 import importlib.util
-from pathlib import Path
-import sys
 import unittest
-
-
-ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('batch_contract', ROOT / 'core/batching.py')
-batching = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = batching
-spec.loader.exec_module(batching)
-resolve_batch_layout = batching.resolve_batch_layout
+from core.batching import resolve_batch_layout
 
 
 class TestGlobalBatchContract(unittest.TestCase):

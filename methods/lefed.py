@@ -23,6 +23,8 @@ class LeFeDMethod(BaseMethod):
     - Multi-scale Deep Supervision loss.
     - Class-balanced Consistency Regularization across dual branches.
     """
+    REQUIRED_MODEL_CAPABILITIES = {"segmentation", "dual_feedback"}
+    DEFAULT_MODEL_ALIAS = {"lefed": "lefed_net"}
     def __init__(self, model: nn.Module, cfg):
         super(LeFeDMethod, self).__init__(model, cfg)
 
@@ -33,9 +35,10 @@ class LeFeDMethod(BaseMethod):
         self.ds_weights = getattr(self.cfg.method, 'ds_weights', [0.8, 0.6, 0.4, 0.2, 0.1])
 
         # Background vs Foregrounds weight balance for consistency
-        if not self.is_binary and self.num_classes == 6:
+        if not self.is_binary and self.num_classes >= 2:
             bg_weight = float(getattr(self.cfg.method, 'bg_consistency_weight', 0.1))
-            self.class_weights = torch.tensor([bg_weight, 1.0, 1.0, 1.0, 1.0, 1.0], device=self.device).view(1, -1, 1, 1, 1)
+            weights = [bg_weight] + [1.0] * (self.num_classes - 1)
+            self.class_weights = torch.tensor(weights, device=self.device).view(1, -1, 1, 1, 1)
         else:
             self.class_weights = None
 

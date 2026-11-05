@@ -9,10 +9,13 @@ import sys
 from train import main
 
 if __name__ == "__main__":
-    if '--dataset' not in sys.argv and '--config' not in sys.argv:
-        sys.argv.insert(1, '--dataset')
-        sys.argv.insert(2, 'bhsd_binary')
-    if '--method' not in sys.argv and '--config' not in sys.argv:
-        sys.argv.insert(3, '--method')
-        sys.argv.insert(4, 'pick')
+    has_cfg = any(a in ('--config', '-c') or a.startswith('--config=') for a in sys.argv[1:])
+    has_ds = any(a in ('--dataset', '--data.name') or a.startswith(('--dataset=', '--data.name=')) for a in sys.argv[1:])
+    has_m = any(a in ('--method', '--method.name') or a.startswith(('--method=', '--method.name=')) for a in sys.argv[1:])
+    prepend = []
+    if not has_ds and not has_cfg:
+        prepend += ['--dataset', 'bhsd_binary']
+    if not has_m and not has_cfg:
+        prepend += ['--method', 'pick']
+    sys.argv[1:1] = prepend
     main()

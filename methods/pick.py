@@ -27,6 +27,8 @@ class PICKMethod(BaseMethod):
     - Pre-training phase: CutMix on labeled data + lesion-informed MIM reconstruction + Aux branch.
     - Self-training phase: Bidirectional CutMix (labeled <-> unlabeled) + Unlabeled MIM + Aux branch.
     """
+    REQUIRED_MODEL_CAPABILITIES = {"segmentation", "mim", "aux"}
+    DEFAULT_MODEL_ALIAS = {"vnet": "pick_vnet", "pick": "pick_vnet"}
     def __init__(self, model: nn.Module, cfg):
         super(PICKMethod, self).__init__(model, cfg)
 
@@ -47,7 +49,6 @@ class PICKMethod(BaseMethod):
         os.makedirs(self.self_snapshot_path, exist_ok=True)
 
         # Compound loss functions (exclude background from Dice for multi-class)
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
         self.dice_ce_loss = DiceCELoss(nclass=self.num_classes, weight_dice=0.5, weight_ce=0.5, include_background=False)
 
     def pretrain_step(
@@ -232,10 +233,19 @@ class PICKMethod(BaseMethod):
         """Execute Phase 2: Self-training via unified training loop."""
         logging.info("=== [PICK] STARTING SELF-TRAINING PHASE ===")
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
-        latest_pth = os.path.join(self.self_snapshot_path, "checkpoint_latest.pth")
-        
+        policy = getattr(self.cfg.experiment, 'resume_policy', 'latest')
+        target_name = "checkpoint_epoch_latest.pth" if policy == 'epoch_boundary' else "checkpoint_latest.pth"
+        latest_pth = os.path.join(self.self_snapshot_path, target_name)
+        alt_pth = os.path.join(self.self_snapshot_path, "checkpoint_latest.pth")
+
+        has_self_train_ckpt = os.path.exists(latest_pth) or os.path.exists(alt_pth)
+        if resume and not has_self_train_ckpt and self.wandb_manager is not None and self.wandb_manager.enabled:
+            restored = self.wandb_manager.restore_checkpoint(target_name, self.self_snapshot_path)
+            if restored and os.path.exists(restored):
+                has_self_train_ckpt = True
+
         # If not resuming existing self-training checkpoint, load pre-trained weights
-        if not (resume and os.path.exists(latest_pth)):
+        if not (resume and has_self_train_ckpt):
             self.load_pretrain_weights_for_selftrain()
 
         return self.run_training_loop(

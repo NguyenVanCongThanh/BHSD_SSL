@@ -264,10 +264,13 @@ def build_bhsd_dataloaders(
                 labeled_dataset, num_replicas=world_size, rank=rank,
                 shuffle=True, drop_last=True,
             )
+        num_workers = int(getattr(cfg.data, 'num_workers', 2 if is_ddp else 4))
+        pin_memory = bool(getattr(cfg.data, 'pin_memory', is_ddp))
+        drop_last = bool(getattr(cfg.data, 'drop_last', True))
         trainloader = DataLoader(
             labeled_dataset, batch_size=batch_size, sampler=train_sampler,
-            shuffle=train_sampler is None, drop_last=True,
-            num_workers=2 if is_ddp else 4, pin_memory=is_ddp,
+            shuffle=train_sampler is None, drop_last=drop_last,
+            num_workers=num_workers, pin_memory=pin_memory,
         )
         return DataLoaderBundle(
             db_train=db_train,
@@ -288,18 +291,18 @@ def build_bhsd_dataloaders(
             num_replicas=world_size, rank=rank,
             seed=int(getattr(cfg.experiment, 'seed', 1337)),
         )
-        trainloader = DataLoader(
-            db_train, batch_sampler=batch_sampler,
-            num_workers=2, pin_memory=True,
-        )
     else:
         batch_sampler = TwoStreamBatchSampler(
             labeled_idxs, unlabeled_idxs, batch_size, unlabeled_bs,
         )
-        trainloader = DataLoader(
-            db_train, batch_sampler=batch_sampler,
-            num_workers=4, pin_memory=False,
-        )
+
+    num_workers = int(getattr(cfg.data, 'num_workers', 2 if is_ddp else 4))
+    pin_mem = getattr(cfg.data, 'pin_memory', None)
+    pin_memory = (is_ddp if pin_mem is None else bool(pin_mem))
+    trainloader = DataLoader(
+        db_train, batch_sampler=batch_sampler,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
 
     return DataLoaderBundle(
         db_train=db_train,

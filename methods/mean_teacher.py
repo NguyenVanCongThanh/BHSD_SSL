@@ -50,22 +50,35 @@ class MeanTeacherMethod(BaseMethod):
 
         # Late-stage consistency rampdown
         max_iter = int(getattr(self.cfg.method, 'max_iteration', 12000))
-        self.consistency_rampdown_start = int(getattr(self.cfg.method, 'consistency_rampdown_start', int(max_iter * 0.65)))
+        rampdown_val = getattr(self.cfg.method, 'consistency_rampdown_start', None)
+        if rampdown_val is None or rampdown_val == 'null':
+            self.consistency_rampdown_start = int(max_iter * 0.65)
+        else:
+            self.consistency_rampdown_start = int(rampdown_val)
         self.consistency_min_factor = float(getattr(self.cfg.method, 'consistency_min_factor', 0.25))
         self.ema_schedule = str(getattr(self.cfg.method, 'ema_schedule', 'cosine')).lower()
 
-        # Deep supervision configuration
-        self.ds_enabled = bool(
-            getattr(self.cfg.model, 'deep_supervision', False) or
-            getattr(self.cfg.method, 'deep_supervision', False)
-        )
-        ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
-        if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
+        # Deep supervision configuration: only activate if model architecture actually supports it
+        model_caps = set(getattr(getattr(self.model, 'module', self.model), 'CAPABILITIES', set()))
+        model_ds = bool(getattr(self.cfg.model, 'deep_supervision', False))
+        supports_ds = ('deep_supervision' in model_caps) or model_ds
+
+        method_ds = getattr(self.cfg.method, 'deep_supervision', False)
+        if isinstance(method_ds, dict) or hasattr(method_ds, 'weights'):
+            ds_cfg = method_ds
+            ds_flag = bool(getattr(ds_cfg, 'enabled', True)) if 'enabled' in ds_cfg else True
             self.ds_weights = ds_cfg.get('weights')
             self.ds_consistency = bool(getattr(ds_cfg, 'consistency_multiscale', True))
-        else:
+        elif isinstance(method_ds, bool):
+            ds_flag = method_ds
             self.ds_weights = None
             self.ds_consistency = True
+        else:
+            ds_flag = False
+            self.ds_weights = None
+            self.ds_consistency = True
+
+        self.ds_enabled = bool(supports_ds and (model_ds or ds_flag))
 
         # Class balancing: Background downweighted to 0.05, Foregrounds full weight 1.0
         if self.num_classes >= 2:
@@ -114,68 +127,67 @@ class MeanTeacherMethod(BaseMethod):
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
-            # 1. Teacher forward on clean, unperturbed volume
-            with torch.no_grad():
-                if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
-                    teacher_out = self.ema_model(volume_batch, return_all_scales=True)
-                else:
-                    teacher_out = self.ema_model(volume_batch)
-                teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
-
-            # 2. Asymmetric student perturbation
-            if self.perturb_student:
-                noise = torch.randn_like(volume_batch) * self.student_noise_std
-                scale = 1.0 + (torch.rand((volume_batch.shape[0], 1, 1, 1, 1), device=self.device) * 2.0 - 1.0) * self.student_intensity_scale
-                student_input = volume_batch * scale + noise
+        # 1. Teacher forward on clean, unperturbed volume
+        with torch.no_grad():
+            if self.ds_enabled and self.ds_consistency and getattr(self.ema_model, 'deep_supervision', False):
+                teacher_out = self.ema_model(volume_batch, return_all_scales=True)
             else:
-                student_input = volume_batch
+                teacher_out = self.ema_model(volume_batch)
+            teacher_logits, teacher_aux = extract_multiscale_outputs(teacher_out)
 
-            # 3. Forward student on perturbed input
-            student_out = self.model(student_input)
-            student_logits, student_aux = extract_multiscale_outputs(student_out)
+        # 2. Asymmetric student perturbation
+        if self.perturb_student:
+            noise = torch.randn_like(volume_batch) * self.student_noise_std
+            scale = 1.0 + (torch.rand((volume_batch.shape[0], 1, 1, 1, 1), device=self.device) * 2.0 - 1.0) * self.student_intensity_scale
+            student_input = volume_batch * scale + noise
+        else:
+            student_input = volume_batch
 
-            # Supervised loss on labeled samples (0..labeled_bs)
-            lab_logits = student_logits[:self.labeled_bs]
-            lab_targets = label_batch[:self.labeled_bs]
-            loss_ce = F.cross_entropy(lab_logits, lab_targets)
-            loss_dice = self.dice_loss(lab_logits, lab_targets)
-            loss_sup_main = (loss_ce + loss_dice) / 2.0
+        # 3. Forward student on perturbed input
+        student_out = self.model(student_input)
+        student_logits, student_aux = extract_multiscale_outputs(student_out)
 
-            # Multi-scale deep supervision on labeled samples
-            loss_ds_accum = 0.0
-            if self.ds_enabled and len(student_aux) > 0:
-                all_student_lab = [lab_logits] + [aux[:self.labeled_bs] for aux in student_aux]
-                norm_w = resolve_ds_weights(len(all_student_lab), self.ds_weights)
-                loss_supervised = norm_w[0] * loss_sup_main
-                target_shape = lab_targets.shape[1:]
+        # Supervised loss on labeled samples (0..labeled_bs)
+        lab_logits = student_logits[:self.labeled_bs]
+        lab_targets = label_batch[:self.labeled_bs]
+        loss_ce = F.cross_entropy(lab_logits, lab_targets)
+        loss_dice = self.dice_loss(lab_logits, lab_targets)
+        loss_sup_main = (loss_ce + loss_dice) / 2.0
 
-                for idx in range(1, len(all_student_lab)):
-                    aux_lab = all_student_lab[idx]
-                    if aux_lab.shape[2:] != target_shape:
-                        aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
-                    l_stage = (F.cross_entropy(aux_lab, lab_targets) + self.dice_loss(aux_lab, lab_targets)) / 2.0
-                    loss_supervised = loss_supervised + norm_w[idx] * l_stage
-                    loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
-            else:
-                loss_supervised = loss_sup_main
+        # Multi-scale deep supervision on labeled samples
+        loss_ds_accum = 0.0
+        if self.ds_enabled and len(student_aux) > 0:
+            all_student_lab = [lab_logits] + [aux[:self.labeled_bs] for aux in student_aux]
+            norm_w = resolve_ds_weights(len(all_student_lab), self.ds_weights)
+            loss_supervised = norm_w[0] * loss_sup_main
+            target_shape = lab_targets.shape[1:]
 
-            # Consistency loss across full batch via centralized ConsistencyLoss
-            loss_cons_main = self.consistency_loss(student_logits, teacher_logits)
+            for idx in range(1, len(all_student_lab)):
+                aux_lab = all_student_lab[idx]
+                if aux_lab.shape[2:] != target_shape:
+                    aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
+                l_stage = (F.cross_entropy(aux_lab, lab_targets) + self.dice_loss(aux_lab, lab_targets)) / 2.0
+                loss_supervised = loss_supervised + norm_w[idx] * l_stage
+                loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
+        else:
+            loss_supervised = loss_sup_main
 
-            if self.ds_enabled and self.ds_consistency and len(student_aux) > 0 and len(teacher_aux) == len(student_aux):
-                all_student = [student_logits] + student_aux
-                all_teacher = [teacher_logits] + teacher_aux
-                norm_w = resolve_ds_weights(len(all_student), self.ds_weights)
-                loss_consistency = norm_w[0] * loss_cons_main
-                for idx in range(1, len(all_student)):
-                    loss_consistency = loss_consistency + norm_w[idx] * self.consistency_loss(all_student[idx], all_teacher[idx])
-            else:
-                loss_consistency = loss_cons_main
+        # Consistency loss across full batch via centralized ConsistencyLoss
+        loss_cons_main = self.consistency_loss(student_logits, teacher_logits)
 
-            cur_epoch = iter_num / max(len(self.trainloader), 1)
-            consistency_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
-            total_loss = loss_supervised + consistency_weight * loss_consistency
+        if self.ds_enabled and self.ds_consistency and len(student_aux) > 0 and len(teacher_aux) == len(student_aux):
+            all_student = [student_logits] + student_aux
+            all_teacher = [teacher_logits] + teacher_aux
+            norm_w = resolve_ds_weights(len(all_student), self.ds_weights)
+            loss_consistency = norm_w[0] * loss_cons_main
+            for idx in range(1, len(all_student)):
+                loss_consistency = loss_consistency + norm_w[idx] * self.consistency_loss(all_student[idx], all_teacher[idx])
+        else:
+            loss_consistency = loss_cons_main
+
+        cur_epoch = iter_num / max(len(self.trainloader), 1)
+        consistency_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
+        total_loss = loss_supervised + consistency_weight * loss_consistency
 
         loss_dict = {
             "total": float(total_loss.item()),
@@ -224,7 +236,7 @@ class MeanTeacherMethod(BaseMethod):
         """Load student weights and restore teacher (EMA) weights."""
         iter_num, best_dice = super().load_checkpoint(path, prefer_ema=False)
         from utils.checkpoint import load_checkpoint as _load_ckpt
-        _load_ckpt(path, model=self.ema_model, device=self.device, prefer_ema=True, strict=True)
+        _load_ckpt(path, model=self.ema_model, device=self.device, prefer_ema=True, strict=True, checkpoint_state=self._last_loaded_checkpoint_state)
         logging.info('[Checkpoint] Loaded Teacher weights with strict validation')
         return iter_num, best_dice
 
