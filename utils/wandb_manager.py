@@ -66,7 +66,7 @@ class WandbManager:
             directories.extend(root / name for name in ('pre_train', 'self_train')
                                if phase in ('all', name))
         for directory in directories:
-            for name in ('checkpoint_latest.pth', 'best_model.pth', 'VNet_best_model.pth'):
+            for name in ('checkpoint_latest.pth', 'checkpoint_epoch_latest.pth', 'best_model.pth', 'VNet_best_model.pth'):
                 if (directory / name).exists():
                     raise FileExistsError(
                         f'Existing checkpoints in {directory}; use resume or a new experiment directory')
@@ -139,16 +139,21 @@ class WandbManager:
         import torch
         phase = getattr(self.cfg.experiment, 'phase', 'all')
         directories = ['self_train', '', 'pre_train'] if phase == 'all' else [phase, '']
+        ckpt_found = False
         for directory in directories:
-            path = self.identity_path.parent / directory / 'checkpoint_latest.pth'
-            if path.is_file():
-                checkpoint_identity = torch.load(path, map_location='cpu', weights_only=True).get('wandb_run')
-                if checkpoint_identity:
-                    if identity and any(identity.get(key) != checkpoint_identity.get(key)
-                                        for key in ('id', 'project', 'entity')):
-                        raise ValueError(f'W&B saved identity conflicts with checkpoint {path}')
-                    identity = checkpoint_identity
-                    break
+            for fname in ('checkpoint_latest.pth', 'checkpoint_epoch_latest.pth'):
+                path = self.identity_path.parent / directory / fname
+                if path.is_file():
+                    checkpoint_identity = torch.load(path, map_location='cpu', weights_only=True).get('wandb_run')
+                    if checkpoint_identity:
+                        if identity and any(identity.get(key) != checkpoint_identity.get(key)
+                                            for key in ('id', 'project', 'entity')):
+                            raise ValueError(f'W&B saved identity conflicts with checkpoint {path}')
+                        identity = checkpoint_identity
+                        ckpt_found = True
+                        break
+            if ckpt_found:
+                break
         if identity:
             if self.entity is None:
                 self.entity = identity.get('entity')

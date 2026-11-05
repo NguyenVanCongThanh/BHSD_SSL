@@ -8,6 +8,7 @@ Integrated with 5-fold cross-validation and optional MIM masking.
 from typing import Callable, Optional, Tuple, Dict, Any, Union, List
 import os
 import ast
+import logging
 import hashlib
 import h5py
 import numpy as np
@@ -83,7 +84,7 @@ class BHSDDataset(Dataset):
 
         task_type = "Binary (Hemorrhage vs Background)" if self.binary else f"Multi-class ({self.num_classes} classes)"
         fold_str = f"Fold {self.fold}" if self.fold is not None else "Default Split"
-        print(f"[BHSDDataset] {fold_str} | Split '{self.split}' | Task: {task_type} | Samples: {len(self.image_list)}")
+        logging.info(f"[BHSDDataset] {fold_str} | Split '{self.split}' | Task: {task_type} | Samples: {len(self.image_list)}")
 
     def _load_split_cases(self) -> List[str]:
         if self.split not in ('train', 'val', 'test'):

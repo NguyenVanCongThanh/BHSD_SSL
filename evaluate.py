@@ -23,6 +23,7 @@ import sys
 import argparse
 import logging
 import json
+import inspect
 import torch
 
 from core.registry import MODELS, DATASETS
@@ -37,10 +38,21 @@ from utils.logger import get_logger
 
 
 def model_builder_helper(name: str, in_channels: int = 1, num_classes: int = 6):
-    actual_name = name
-    if name == 'pick':
+    actual_name = name.lower()
+    if actual_name in ('pick', 'pick_model'):
         actual_name = 'pick_vnet'
-    return MODELS.build(actual_name, in_channels=in_channels, num_classes=num_classes, has_dropout=False)
+    elif actual_name == 'lefed':
+        actual_name = 'lefed_net'
+    model_cls = MODELS.get(actual_name)
+    if model_cls is None:
+        raise KeyError(f"Model '{actual_name}' is not registered in MODELS")
+    sig = inspect.signature(model_cls.__init__)
+    kwargs = {'in_channels': in_channels, 'num_classes': num_classes}
+    if 'has_dropout' in sig.parameters:
+        kwargs['has_dropout'] = False
+    if 'img_shape' in sig.parameters:
+        kwargs.setdefault('img_shape', (16, 64, 64))
+    return MODELS.build(actual_name, **kwargs)
 
 
 def main():
@@ -49,7 +61,7 @@ def main():
     parser = argparse.ArgumentParser(description="MedSSL-BHSD Unified Benchmark & Evaluation")
     parser.add_argument('--exp_dir', type=str, default=None, help='Experiment directory containing fold_0..fold_4')
     parser.add_argument('--checkpoint', type=str, default=None, help='Direct checkpoint path to evaluate single model')
-    parser.add_argument('--dataset', type=str, default='bhsd_multiclass', help='Dataset name or config (e.g. bhsd_multiclass, bhsd_binary, acdc)')
+    parser.add_argument('--dataset', type=str, default='bhsd_multiclass', help='Dataset name or config (e.g. bhsd_multiclass, bhsd_binary)')
     parser.add_argument('--root_path', type=str, default=None, help='Override path to H5 dataset directory')
     parser.add_argument('--task', type=str, default=None, choices=['multiclass', 'binary'], help='Task type override')
     parser.add_argument('--model', type=str, default=None, help='Model architecture (required for legacy checkpoints without config)')

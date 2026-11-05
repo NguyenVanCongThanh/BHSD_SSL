@@ -246,7 +246,7 @@ def benchmark_5folds(
         print(f"[Fold {fold} Done] mDice: {fold_mdice:.4f} | {summary_str}")
 
     if not all_fold_dices:
-        print("[ERROR] Không tìm thấy kết quả của fold nào!")
+        print("[ERROR] No fold results found!")
         raise RuntimeError("No folds evaluated; no benchmark result produced")
 
     overall_mean = float(np.mean(all_fold_dices))
@@ -282,9 +282,9 @@ def benchmark_5folds(
 
     # Print Report Table
     print("\n" + "=" * 70)
-    print("=== TỔNG HỢP BENCHMARK 5-FOLD CROSS VALIDATION (OOF) ===")
+    print("=== 5-FOLD CROSS VALIDATION (OOF) BENCHMARK SUMMARY ===")
     print("=" * 70)
-    print(f"Dataset: {dataset_name.upper()} | Model: {model_name} | Nhiệm vụ: {task.upper()}")
+    print(f"Dataset: {dataset_name.upper()} | Model: {model_name} | Task: {task.upper()}")
     print(f"Mean fold Dice: {overall_mean:.4f} ± {overall_std:.4f}")
     print("-" * 70)
     for c_idx, name in enumerate(fg_class_names):
@@ -299,6 +299,6 @@ def benchmark_5folds(
     with open(summary_file + '.tmp', 'w') as f:
         json.dump(benchmark_summary, f, indent=2)
     os.replace(summary_file + '.tmp', summary_file)
-    print(f"-> Đã lưu chi tiết benchmark tại: {summary_file}")
+    print(f"[Benchmark] Saved benchmark details to: {summary_file}")
 
     return benchmark_summary

@@ -16,6 +16,10 @@ configs/kaggle/accounts.json
 kaggle_mean_teacher/accounts.json
 kaggle_runs/
 experiment_data/
+/wandb/
+/artifacts/
+/logs/
+/kaggle_mean_teacher/
 
 # Regenerable per-case EDA fingerprints and profiles
 /notebooks/eda_cache/

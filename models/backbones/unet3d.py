@@ -59,6 +59,7 @@ class UNet3D(Module):
     """
     3D U-Net segmentation network with configurable feature channels and skip connections.
     """
+    CAPABILITIES = {"segmentation"}
     def __init__(
         self,
         in_channels: int = 1,

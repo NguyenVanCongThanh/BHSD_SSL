@@ -280,6 +280,7 @@ class LeFeD_Net(nn.Module):
     - Decoder 1 (mode 0 deconvolution) + Decoder 2 (mode 1 trilinear upsample + conv).
     - SideConv for Deep Supervision.
     """
+    CAPABILITIES = {"segmentation", "dual_feedback"}
     def __init__(
         self,
         in_channels: int = 1,

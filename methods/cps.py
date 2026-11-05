@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.base_method import BaseMethod
-from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights
+from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, resolve_ds_weights
 from utils.ramps import sigmoid_rampup
 from utils.checkpoint import get_raw_model
 from core.optimizers import build_optimizer
@@ -43,16 +43,22 @@ class CPSMethod(BaseMethod):
             self.model2 = nn.parallel.DistributedDataParallel(
                 self.model2, device_ids=[self.device.index] if self.device.type == "cuda" else None, broadcast_buffers=False,
                 find_unused_parameters=True)
+        elif torch.cuda.is_available() and torch.cuda.device_count() > 1:
+            self.model2 = nn.DataParallel(self.model2)
 
         self.optimizer2 = build_optimizer(self.model2, self.cfg)
 
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
 
-        # Deep supervision configuration
-        self.ds_enabled = bool(
-            getattr(self.cfg.model, 'deep_supervision', False) or
-            getattr(self.cfg.method, 'deep_supervision', False)
-        )
+        # Deep supervision configuration: only activate if model architecture actually supports it
+        model_caps = set(getattr(get_raw_model(self.model), 'CAPABILITIES', set()))
+        model_ds = bool(getattr(self.cfg.model, 'deep_supervision', False))
+        supports_ds = ('deep_supervision' in model_caps) or model_ds
+
+        method_ds = getattr(self.cfg.method, 'deep_supervision', False)
+        ds_flag = bool(method_ds.get('enabled', True)) if isinstance(method_ds, dict) else bool(method_ds)
+        self.ds_enabled = bool(supports_ds and (model_ds or ds_flag))
+
         ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
         if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
             self.ds_weights = list(getattr(ds_cfg, 'weights', [0.533, 0.267, 0.133, 0.067]))
@@ -69,10 +75,7 @@ class CPSMethod(BaseMethod):
 
         all_labs = [main_lab] + aux_labs
         num_scales = len(all_labs)
-        if len(self.ds_weights) >= num_scales:
-            norm_w = [w / sum(self.ds_weights[:num_scales]) for w in self.ds_weights[:num_scales]]
-        else:
-            norm_w = compute_ds_weights(num_scales)
+        norm_w = resolve_ds_weights(num_scales, self.ds_weights)
 
         total_sup = norm_w[0] * l_main
         ds_accum = 0.0
@@ -153,9 +156,13 @@ class CPSMethod(BaseMethod):
         return super().save_checkpoint(*args, extra_state=state, **kwargs)
 
     def load_checkpoint(self, path, prefer_ema=False):
+        from utils.checkpoint import strip_module_prefix
         state = torch.load(path, map_location=self.device, weights_only=True)
         if 'net2' not in state or 'opt2' not in state:
             raise ValueError('CPS resume requires net2 and opt2; legacy checkpoint cannot restore full training state')
-        get_raw_model(self.model2).load_state_dict(state['net2'], strict=True)
+        self._last_loaded_checkpoint_state = state
+        iter_num, best_dice = super().load_checkpoint(path, prefer_ema)
+        net2_weights = strip_module_prefix(state['net2'])
+        get_raw_model(self.model2).load_state_dict(net2_weights, strict=True)
         self.optimizer2.load_state_dict(state['opt2'])
-        return super().load_checkpoint(path, prefer_ema)
+        return iter_num, best_dice

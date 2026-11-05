@@ -63,11 +63,10 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
         torch.cuda.set_device(local_rank)
     dist_backend = "nccl" if torch.cuda.is_available() else "gloo"
     
-    print(f"[DDP-Rank{rank}] Đang khởi tạo process group (local_rank={local_rank}, world_size={world_size}, backend={dist_backend})...", flush=True)
     logging.info(f"[DDP] Initializing process group: rank={rank}, world_size={world_size}, "
                  f"local_rank={local_rank}, backend={dist_backend}")
-    
-    # Anti-deadlock: Đặt timeout 1800s (30 phút) để Rank 1 có đủ thời gian chờ Rank 0 chạy sliding window validation (38 ca 3D)
+
+    # Timeout 1800s to allow ranks sufficient time while Rank 0 runs sliding window validation
     dist.init_process_group(
         backend=dist_backend,
         init_method="env://",
@@ -75,9 +74,8 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
         rank=rank,
         timeout=timedelta(seconds=1800)
     )
-    print(f"[DDP-Rank{rank}] Đang đồng bộ barrier khởi tạo...", flush=True)
     dist.barrier()
-    print(f"[DDP-Rank{rank}] Khởi tạo DDP thành công! Đã vượt qua barrier.", flush=True)
+    logging.info(f"[DDP-Rank{rank}] DDP initialization succeeded, barrier passed.")
     return True
 
 

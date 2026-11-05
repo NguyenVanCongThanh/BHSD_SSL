@@ -1,9 +1,14 @@
 """Storage cleanup must never delete a pending upload or another run's data."""
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+# Ensure wandb mock is available when wandb package is not installed
+if 'wandb' not in sys.modules or not hasattr(sys.modules['wandb'], 'Api'):
+    sys.modules['wandb'] = MagicMock()
 
 from methods.base_method import BaseMethod
 from utils.wandb_manager import WandbManager

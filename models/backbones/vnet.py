@@ -29,7 +29,7 @@ class ConvBlock(nn.Module):
             if normalization == 'batchnorm':
                 ops.append(nn.BatchNorm3d(n_filters_out))
             elif normalization == 'groupnorm':
-                ops.append(nn.GroupNorm(num_groups=16, num_channels=n_filters_out))
+                ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
             elif normalization == 'instancenorm':
                 ops.append(nn.InstanceNorm3d(n_filters_out))
             elif normalization != 'none':
@@ -58,7 +58,7 @@ class ResidualConvBlock(nn.Module):
             if normalization == 'batchnorm':
                 ops.append(nn.BatchNorm3d(n_filters_out))
             elif normalization == 'groupnorm':
-                ops.append(nn.GroupNorm(num_groups=16, num_channels=n_filters_out))
+                ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
             elif normalization == 'instancenorm':
                 ops.append(nn.InstanceNorm3d(n_filters_out))
             elif normalization != 'none':
@@ -88,7 +88,7 @@ class DownsamplingConvBlock(nn.Module):
         if normalization == 'batchnorm':
             ops.append(nn.BatchNorm3d(n_filters_out))
         elif normalization == 'groupnorm':
-            ops.append(nn.GroupNorm(num_groups=16, num_channels=n_filters_out))
+            ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
         elif normalization == 'instancenorm':
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
@@ -115,7 +115,7 @@ class UpsamplingDeconvBlock(nn.Module):
         if normalization == 'batchnorm':
             ops.append(nn.BatchNorm3d(n_filters_out))
         elif normalization == 'groupnorm':
-            ops.append(nn.GroupNorm(num_groups=16, num_channels=n_filters_out))
+            ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
         elif normalization == 'instancenorm':
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
@@ -142,7 +142,7 @@ class Upsampling(nn.Module):
         if normalization == 'batchnorm':
             ops.append(nn.BatchNorm3d(n_filters_out))
         elif normalization == 'groupnorm':
-            ops.append(nn.GroupNorm(num_groups=16, num_channels=n_filters_out))
+            ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
         elif normalization == 'instancenorm':
             ops.append(nn.InstanceNorm3d(n_filters_out))
         elif normalization != 'none':
@@ -247,6 +247,7 @@ Decoder = VNetDecoder
 @MODELS.register("vnet_single")
 class VNet(nn.Module):
     """Standard Single-Head VNet for supervised baseline and general segmentation."""
+    CAPABILITIES = {"segmentation"}
     def __init__(
         self,
         in_channels: int = 1,

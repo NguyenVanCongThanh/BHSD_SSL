@@ -36,6 +36,7 @@ class BaseMethod(abc.ABC):
     Abstract Base Class for training engines.
     Subclasses only need to implement `train_step()` and specific loss computations.
     """
+    REQUIRED_MODEL_CAPABILITIES = {"segmentation"}
     def __init__(self, model: nn.Module, cfg: Config):
         self.model = model
         self.cfg = cfg
@@ -96,16 +97,15 @@ class BaseMethod(abc.ABC):
             # Distributed Data Parallel mode
             local_rank = int(os.environ.get('LOCAL_RANK', 0))
             self.model = self.model.to(self.device)
+            is_pick = str(getattr(cfg.method, 'name', '')).lower() == 'pick'
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,
                 device_ids=[local_rank] if self.device.type == "cuda" else None,
                 output_device=local_rank if self.device.type == "cuda" else None,
                 broadcast_buffers=False,
-                find_unused_parameters=True
+                find_unused_parameters=True,
+                static_graph=is_pick
             )
-            # PICK has repeated forwards through shared encoder branches.
-            if str(getattr(cfg.method, 'name', '')).lower() == 'pick':
-                self.model._set_static_graph()
             logging.info('[Model] DDP initialized on %s (rank %s/%s)', self.device, self.rank, self.world_size)
         elif torch.cuda.is_available():
             # DataParallel default (preserving backward compatibility)
@@ -159,6 +159,10 @@ class BaseMethod(abc.ABC):
         self.trainloader = bundle.trainloader
         self.train_sampler = bundle.train_sampler
         self.batch_sampler = bundle.batch_sampler
+        self.split_fingerprints = {
+            'train': getattr(self.db_train, 'split_fingerprint', None),
+            'val': getattr(self.db_val, 'split_fingerprint', None)
+        }
 
     def setup_optimizer(self):
         self.optimizer = build_optimizer(self.model, self.cfg)
@@ -296,6 +300,7 @@ class BaseMethod(abc.ABC):
         checkpoint_state = torch.load(path, map_location=self.device, weights_only=True)
         validate_checkpoint_context(checkpoint_state, fold=self.fold, task=self.task,
                                     num_classes=self.num_classes, dataset_name=self.dataset_name)
+        self._last_loaded_checkpoint_state = checkpoint_state
         ckpt_data = _load_ckpt(
             path=path,
             model=self.model,
@@ -383,17 +388,18 @@ class BaseMethod(abc.ABC):
         """Update derived model state only after a successful optimizer step."""
 
     def apply_gradients(self, loss, iter_num):
-        handler = GradientHandler(
-            optimizers=self.training_optimizers(),
-            models=self.training_models(),
-            scaler=self.scaler if hasattr(self, 'scaler') else None,
-            use_amp=self.use_amp,
-            is_ddp=self.is_ddp,
-            device=self.device,
-            clip_norm=12.0,
-            after_step_fn=self.after_optimizer_step
-        )
-        success = handler.apply_gradients(loss, iter_num)
+        if getattr(self, '_gradient_handler', None) is None:
+            self._gradient_handler = GradientHandler(
+                optimizers=self.training_optimizers(),
+                models=self.training_models(),
+                scaler=self.scaler if hasattr(self, 'scaler') else None,
+                use_amp=self.use_amp,
+                is_ddp=self.is_ddp,
+                device=self.device,
+                clip_norm=12.0,
+                after_step_fn=self.after_optimizer_step
+            )
+        success = self._gradient_handler.apply_gradients(loss, iter_num)
         if success and hasattr(self, 'successful_updates'):
             self.successful_updates += 1
         return success

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # ==============================================================================
 # Script tự động đẩy Dataset preprocessed_bhsd_pick (20GB) lên Kaggle Dataset
 # ==============================================================================
@@ -61,7 +62,12 @@ cat "$DATA_DIR/dataset-metadata.json"
 echo ""
 echo "=== [4/4] Bắt đầu upload dataset lên Kaggle ==="
 echo "[*] Đang tải ~20GB dữ liệu trực tiếp từ máy chủ lên Kaggle. Vui lòng đợi trong ít phút..."
-kaggle datasets create -p "$DATA_DIR" -r zip --public
+# Default to private dataset. Pass --public explicitly as script argument if public access is required.
+PUBLIC_FLAG=""
+if [[ "${1:-}" == "--public" ]]; then
+    PUBLIC_FLAG="--public"
+fi
+kaggle datasets create -p "$DATA_DIR" -r zip $PUBLIC_FLAG
 
 echo ""
 echo "=== HOÀN TẤT ==="

@@ -194,6 +194,7 @@ class UNETR(nn.Module):
     """
     UNETR: Transformers for 3D Medical Image Segmentation.
     """
+    CAPABILITIES = {"segmentation"}
     def __init__(
         self,
         in_channels: int = 1,

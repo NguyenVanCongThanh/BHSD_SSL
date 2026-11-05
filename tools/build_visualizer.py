@@ -53,9 +53,18 @@ def compile_html(bundle: dict) -> str:
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MedSSL-BHSD — Research Method Visualization & Interactive Learning System</title>
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {{
+      --background: #090d16;
+      --card: #111827;
+      --border: #1e293b;
+      --foreground: #f8fafc;
+      --muted-foreground: #94a3b8;
+    }}
+  </style>
 </head>
-<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4">
+<body class="bg-[#090d16] text-[#f8fafc] antialiased p-4">
   <div id="medssl-app-root" class="max-w-[1600px] mx-auto"></div>
   <script>
     window.MEDSSL_BUNDLE = {bundle_json};
