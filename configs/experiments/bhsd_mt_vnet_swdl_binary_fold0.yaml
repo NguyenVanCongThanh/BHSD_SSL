@@ -1,0 +1,79 @@
+# Experiment Preset: BHSD Binary Mean Teacher with SWDL-style 7-Stage Residual V-Net (Fold 0)
+# Ablation Variant: Element-wise Skip Addition (+), ReLU activation, and SWDL-style Deep Supervision weighting
+experiment:
+  name: "bhsd_mt_vnet_swdl_binary_fold0"
+  task: "binary"
+  num_classes: 2
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+  amp: true
+
+dataset: "bhsd_binary"
+
+model:
+  name: "vnet"
+  num_stages: 7
+  base_filters: 32
+  in_channels: 1
+  has_dropout: false
+  has_residual: true
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+  skip_mode: "add"
+  activation: "relu"
+
+method:
+  name: "mean_teacher"
+  base_lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0001
+  lr_scheduler: "poly"
+  poly_power: 0.7
+  max_iteration: 12000
+  ema_decay: 0.999
+  ema_schedule: "cosine"
+  consistency: 0.05
+  consistency_rampup: 4000.0
+  consistency_rampdown_start: 7800
+  consistency_min_factor: 0.25
+  consistency_type: "hybrid"
+  bg_consistency_weight: 0.05
+  confidence_thresh: 0.0
+  perturb_student: true
+  student_noise_std: 0.02
+  student_intensity_scale: 0.05
+  deep_supervision:
+    weights: [1.0, 0.8, 0.6, 0.4, 0.2, 0.1]
+    consistency_multiscale: false
+
+data:
+  name: "bhsd"
+  task: "binary"
+  num_classes: 2
+  class_names:
+    - "Background"
+    - "Hemorrhage"
+  patch_size: [28, 256, 256]
+  batch_size: 8
+  labeled_bs: 4
+  labelnum: 8
+  max_samples: 154
+  labeled_sampling: "stratified"
+
+logging:
+  val_interval: 200
+  save_interval: 50
+  val_stride_xy: 32
+  val_stride_z: 8
+  val_eval_space: "preprocessed"
+  val_gaussian: true
+  val_amp: true
+  val_visualize: true
+  num_vis_samples: 4
+  use_wandb: true
+  save_wandb_model: true
+  wandb_project: "BHSD_MeanTeacher"
+
