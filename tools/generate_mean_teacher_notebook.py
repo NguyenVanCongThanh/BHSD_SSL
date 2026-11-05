@@ -27,6 +27,21 @@ def build_mean_teacher_notebook(
             '    "--logging.val_stride_xy", "16",\n',
             '    "--logging.val_stride_z", "4",\n',
         ]
+    elif setting == "vnet":
+        model_name = "vnet"
+        batch_size = 8
+        labeled_bs = 4
+        max_iter = 12000
+        val_stride_xy = 32
+        val_stride_z = 8
+        patch_size_eval = ["28", "256", "256"]
+        config_file = "configs/experiments/bhsd_mt_vnet_binary_fold0.yaml"
+        arch_desc = (
+            "- **Kiến trúc V-Net 7 Stages (Residual Blocks & Skip Concat)**: Sử dụng mô hình V-Net 7 stages "
+            "với Residual Blocks (2 convs/block), Skip Concatenation (chuẩn Milletari et al. 2016), InstanceNorm3d, LeakyReLU, "
+            "Deep Supervision 5 auxiliary heads, đồng bộ hóa 1:1 với baseline nnU-Net 3D (run y3jf7hjh).\\n"
+        )
+        extra_cli_lines = []
     else:
         model_name = "nnunet3d"
         batch_size = 8
@@ -570,8 +585,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--setting",
         default=os.environ.get("BHSD_SETTING", "default"),
-        choices=["default", "swdl"],
-        help="Hyperparameter setting: 'default' or 'swdl'"
+        choices=["default", "swdl", "vnet"],
+        help="Hyperparameter setting: 'default' (nnUNet3D), 'swdl' (VNet SWDL), or 'vnet' (7-Stage Residual V-Net)"
     )
     args = parser.parse_args()
 

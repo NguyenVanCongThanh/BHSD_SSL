@@ -1,0 +1,12 @@
+# Model Configuration: 7-Stage Anisotropic Residual V-Net for BHSD
+model:
+  name: "vnet"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 7
+  has_dropout: false
+  has_residual: true
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+
