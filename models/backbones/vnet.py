@@ -3,7 +3,7 @@ V-Net 3D Volumetric Segmentation Architecture and Modular Encoder/Decoder Blocks
 Reference: Milletari et al., "V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation", 3DV 2016.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -243,39 +243,287 @@ Encoder = VNetEncoder
 Decoder = VNetDecoder
 
 
+class VNetResidualBlock(nn.Module):
+    """
+    Two-convolution residual block with InstanceNorm3d and LeakyReLU for V-Net.
+    Implements intra-block residual addition: y = LeakyReLU(Conv2(Norm(Conv1(x))) + Shortcut(x)).
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: Union[int, Tuple[int, int, int]] = 3
+    ):
+        super().__init__()
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size, kernel_size)
+        padding = tuple(k // 2 for k in kernel_size)
+
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False)
+        self.norm1 = nn.InstanceNorm3d(out_channels, affine=True)
+        self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False)
+        self.norm2 = nn.InstanceNorm3d(out_channels, affine=True)
+        self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv3d(in_channels, out_channels, kernel_size=1, bias=False),
+                nn.InstanceNorm3d(out_channels, affine=True)
+            )
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        res = self.act1(self.norm1(self.conv1(x)))
+        res = self.norm2(self.conv2(res))
+        res = res + self.shortcut(x)
+        return self.act2(res)
+
+
+@MODELS.register("vnet_7stage")
+@MODELS.register("resvnet3d")
+class VNet7Stage(nn.Module):
+    """
+    7-Stage Anisotropic Residual V-Net for Volumetric CT Segmentation.
+    Designed for controlled 1:1 ablation comparison against 7-Stage nnU-Net 3D:
+    - 7 resolution stages with matching stride schedule.
+    - Anisotropic kernels (1, 3, 3) at early stages, (3, 3, 3) at deeper stages.
+    - Long skip connections: Concatenation (as in Milletari et al., 2016).
+    - Intra-block connections: Residual addition with 1x1 projection shortcuts.
+    - Multi-scale deep supervision (1 main + 5 auxiliary heads).
+    """
+    CAPABILITIES = {"segmentation", "deep_supervision"}
+
+    def __init__(
+        self,
+        in_channels: int = 1,
+        num_classes: int = 6,
+        base_filters: int = 32,
+        num_stages: int = 7,
+        has_dropout: bool = False,
+        deep_supervision: bool = True,
+        anisotropic_kernels: bool = True,
+        use_strided_conv: bool = True,
+        **kwargs
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.num_stages = num_stages
+        self.deep_supervision = deep_supervision
+        self.anisotropic_kernels = anisotropic_kernels
+        self.use_strided_conv = use_strided_conv
+
+        f = [
+            base_filters,
+            base_filters * 2,
+            base_filters * 4,
+            base_filters * 8,
+            base_filters * 10,
+            base_filters * 10,
+            base_filters * 10
+        ]  # [32, 64, 128, 256, 320, 320, 320]
+
+        k1 = (1, 3, 3) if anisotropic_kernels else (3, 3, 3)
+        k2 = (1, 3, 3) if anisotropic_kernels else (3, 3, 3)
+        k3 = (3, 3, 3)
+        k4 = (3, 3, 3)
+        k5 = (3, 3, 3)
+        k6 = (3, 3, 3)
+        k_btn = (3, 3, 3)
+
+        def _make_downsample(channels: int, stride: Tuple[int, int, int]):
+            if use_strided_conv:
+                return nn.Conv3d(channels, channels, kernel_size=stride, stride=stride, padding=0, bias=False)
+            else:
+                return nn.MaxPool3d(kernel_size=stride, stride=stride)
+
+        # Encoder stages & Strides
+        self.enc1 = VNetResidualBlock(in_channels, f[0], kernel_size=k1)
+        self.pool1 = _make_downsample(f[0], stride=(1, 2, 2) if anisotropic_kernels else (2, 2, 2))
+
+        self.enc2 = VNetResidualBlock(f[0], f[1], kernel_size=k2)
+        self.pool2 = _make_downsample(f[1], stride=(1, 2, 2) if anisotropic_kernels else (2, 2, 2))
+
+        self.enc3 = VNetResidualBlock(f[1], f[2], kernel_size=k3)
+        self.pool3 = _make_downsample(f[2], stride=(2, 2, 2))
+
+        self.enc4 = VNetResidualBlock(f[2], f[3], kernel_size=k4)
+        self.pool4 = _make_downsample(f[3], stride=(2, 2, 2))
+
+        self.enc5 = VNetResidualBlock(f[3], f[4], kernel_size=k5)
+        self.pool5 = _make_downsample(f[4], stride=(1, 2, 2))
+
+        self.enc6 = VNetResidualBlock(f[4], f[5], kernel_size=k6)
+        self.pool6 = _make_downsample(f[5], stride=(1, 2, 2))
+
+        self.bottleneck = VNetResidualBlock(f[5], f[6], kernel_size=k_btn)
+
+        self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.dec6 = VNetResidualBlock(f[5] * 2, f[5], kernel_size=k6)
+
+        self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.dec5 = VNetResidualBlock(f[4] * 2, f[4], kernel_size=k5)
+
+        self.dropout = nn.Dropout3d(p=0.2) if has_dropout else nn.Identity()
+
+        dec4_in = f[4]
+        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.dec4 = VNetResidualBlock(f[3] * 2, f[3], kernel_size=k4)
+
+        self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.dec3 = VNetResidualBlock(f[2] * 2, f[2], kernel_size=k3)
+
+        stride2 = (1, 2, 2) if anisotropic_kernels else (2, 2, 2)
+        self.up2 = nn.ConvTranspose3d(f[2], f[1], kernel_size=stride2, stride=stride2)
+        self.dec2 = VNetResidualBlock(f[1] * 2, f[1], kernel_size=k2)
+
+        stride1 = (1, 2, 2) if anisotropic_kernels else (2, 2, 2)
+        self.up1 = nn.ConvTranspose3d(f[1], f[0], kernel_size=stride1, stride=stride1)
+        self.dec1 = VNetResidualBlock(f[0] * 2, f[0], kernel_size=k1)
+
+        # Final segmentation head (1x1x1 Conv)
+        self.final_conv = nn.Conv3d(f[0], num_classes, kernel_size=1)
+
+        # Auxiliary heads for deep supervision
+        if self.deep_supervision:
+            self.ds_conv2 = nn.Conv3d(f[1], num_classes, kernel_size=1)
+            self.ds_conv3 = nn.Conv3d(f[2], num_classes, kernel_size=1)
+            self.ds_conv4 = nn.Conv3d(f[3], num_classes, kernel_size=1)
+            self.ds_conv5 = nn.Conv3d(f[4], num_classes, kernel_size=1)
+            self.ds_conv6 = nn.Conv3d(f[5], num_classes, kernel_size=1)
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv3d, nn.ConvTranspose3d)):
+                nn.init.kaiming_normal_(m.weight, a=0.01, mode='fan_out', nonlinearity='leaky_relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.InstanceNorm3d):
+                if m.weight is not None:
+                    nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: torch.Tensor, return_all_scales: bool = False):
+        x1 = self.enc1(x)
+        x2 = self.enc2(self.pool1(x1))
+        x3 = self.enc3(self.pool2(x2))
+        x4 = self.enc4(self.pool3(x3))
+        x5 = self.enc5(self.pool4(x4))
+        x6 = self.enc6(self.pool5(x5))
+        b = self.bottleneck(self.pool6(x6))
+        b = self.dropout(b)
+
+        d6 = self.up6(b)
+        d6 = torch.cat([d6, x6], dim=1)
+        d6 = self.dec6(d6)
+
+        d5 = self.up5(d6)
+        d5 = torch.cat([d5, x5], dim=1)
+        d5 = self.dec5(d5)
+
+        d4 = self.up4(d5)
+        d4 = torch.cat([d4, x4], dim=1)
+        d4 = self.dec4(d4)
+
+        d3 = self.up3(d4)
+        d3 = torch.cat([d3, x3], dim=1)
+        d3 = self.dec3(d3)
+
+        d2 = self.up2(d3)
+        d2 = torch.cat([d2, x2], dim=1)
+        d2 = self.dec2(d2)
+
+        d1 = self.up1(d2)
+        d1 = torch.cat([d1, x1], dim=1)
+        d1 = self.dec1(d1)
+
+        logits = self.final_conv(d1)
+
+        if self.deep_supervision and (self.training or return_all_scales):
+            aux = [
+                self.ds_conv2(d2),  # Scale 0.5
+                self.ds_conv3(d3),  # Scale 0.25
+                self.ds_conv4(d4),  # Scale 0.125
+                self.ds_conv5(d5),  # Scale 0.0625
+                self.ds_conv6(d6),  # Scale 0.03125
+            ]
+            return {
+                "seg": logits,
+                "aux": aux
+            }
+        return logits
+
+
 @MODELS.register("vnet")
 @MODELS.register("vnet_single")
 class VNet(nn.Module):
-    """Standard Single-Head VNet for supervised baseline and general segmentation."""
-    CAPABILITIES = {"segmentation"}
+    """
+    Unified V-Net Architecture:
+    - num_stages == 7: 7-Stage Anisotropic Residual V-Net (aligned with nnU-Net topology, 2 convs per block,
+      skip concatenation, multi-scale auxiliary heads).
+    - num_stages == 5: Classic 5-Stage V-Net (Milletari et al. 2016).
+    """
+    CAPABILITIES = {"segmentation", "deep_supervision"}
+
     def __init__(
         self,
         in_channels: int = 1,
         num_classes: int = 6,
         n_filters: int = 16,
+        base_filters: Optional[int] = None,
+        num_stages: int = 5,
         normalization: str = 'batchnorm',
         has_dropout: bool = True,
-        has_residual: bool = False
+        has_residual: bool = False,
+        deep_supervision: bool = False,
+        anisotropic_kernels: bool = True,
+        use_strided_conv: bool = True,
+        **kwargs
     ):
         super(VNet, self).__init__()
-        self.encoder = VNetEncoder(
-            n_channels=in_channels,
-            n_classes=num_classes,
-            n_filters=n_filters,
-            normalization=normalization,
-            has_dropout=has_dropout,
-            has_residual=has_residual
-        )
-        self.decoder = VNetDecoder(
-            n_channels=in_channels,
-            n_classes=num_classes,
-            n_filters=n_filters,
-            normalization=normalization,
-            has_dropout=has_dropout,
-            has_residual=has_residual
-        )
+        self.num_stages = num_stages
+        if num_stages == 7 or base_filters is not None:
+            bf = base_filters if base_filters is not None else max(32, n_filters * 2)
+            self.model = VNet7Stage(
+                in_channels=in_channels,
+                num_classes=num_classes,
+                base_filters=bf,
+                num_stages=7,
+                has_dropout=has_dropout,
+                deep_supervision=deep_supervision,
+                anisotropic_kernels=anisotropic_kernels,
+                use_strided_conv=use_strided_conv,
+                **kwargs
+            )
+            self.is_7stage = True
+        else:
+            self.encoder = VNetEncoder(
+                n_channels=in_channels,
+                n_classes=num_classes,
+                n_filters=n_filters,
+                normalization=normalization,
+                has_dropout=has_dropout,
+                has_residual=has_residual
+            )
+            self.decoder = VNetDecoder(
+                n_channels=in_channels,
+                n_classes=num_classes,
+                n_filters=n_filters,
+                normalization=normalization,
+                has_dropout=has_dropout,
+                has_residual=has_residual
+            )
+            self.is_7stage = False
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, **kwargs):
+        if self.is_7stage:
+            return self.model(x, **kwargs)
         features = self.encoder(x)
         out_seg, feat_de = self.decoder(features)
         return out_seg
