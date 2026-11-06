@@ -413,6 +413,7 @@ def build_mean_teacher_notebook(
                 "\n",
                 "env = os.environ.copy()\n",
                 "env[\"PYTHONUNBUFFERED\"] = \"1\"\n",
+                "env[\"PYTORCH_CUDA_ALLOC_CONF\"] = \"expandable_segments:True\"  # Chống phân mảnh bộ nhớ VRAM cho tensor 3D lớn\n",
                 "env[\"NCCL_DEBUG\"] = \"WARN\"\n",
                 "env[\"NCCL_IB_DISABLE\"] = \"1\"\n",
                 "env[\"NCCL_P2P_DISABLE\"] = \"1\"\n",

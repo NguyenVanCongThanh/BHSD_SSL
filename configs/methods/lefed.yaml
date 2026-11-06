@@ -31,7 +31,7 @@ data:
 
 logging:
   val_interval: 500
-  save_interval: 50
+  save_interval: 1000
   val_stride_xy: 32
   val_stride_z: 8
   use_wandb: false

@@ -10,6 +10,10 @@ import logging
 import json
 import subprocess
 import sys
+import shutil
+import tempfile
+import threading
+import queue
 from pathlib import Path
 
 
@@ -44,11 +48,17 @@ class WandbManager:
         self.cache_cleanup_interval = int(getattr(cfg.logging, 'artifact_cache_cleanup_interval', 5))
         if self.artifact_keep_versions < 0 or self.cache_cleanup_interval < 1:
             raise ValueError('artifact_keep_versions must be nonnegative and artifact_cache_cleanup_interval positive')
+        self.async_upload = bool(getattr(cfg.logging, 'artifact_async_upload', True))
+        self._upload_queue = None
+        self._upload_thread = None
 
         from core.distributed import is_main_process
         if self.enabled and self.mode != "disabled" and is_main_process():
             self.check_fresh_run_directory(cfg, self.fold)
             self._init_wandb()
+            if self.save_artifacts and self.async_upload and self.run is not None:
+                self._upload_queue = queue.Queue(maxsize=4)
+                self._start_upload_worker()
         else:
             self.enabled = False
 
@@ -229,6 +239,79 @@ class WandbManager:
             logging.warning(f"[W&B] Failed to build evaluation summary table: {table_err}")
             return None
 
+    def _start_upload_worker(self):
+        """Start a dedicated single-worker background thread for non-blocking artifact uploads."""
+        def _worker():
+            while True:
+                task = self._upload_queue.get()
+                if task is None:
+                    self._upload_queue.task_done()
+                    break
+                staging_file, target_filename, name, artifact_type, description, aliases, metadata = task
+                try:
+                    self._upload_and_prune(
+                        staging_file=staging_file,
+                        target_filename=target_filename,
+                        name=name,
+                        artifact_type=artifact_type,
+                        description=description,
+                        aliases=aliases,
+                        metadata=metadata
+                    )
+                except Exception as e:
+                    logging.warning(f"[W&B ASYNC ARTIFACT] Failed to upload artifact '{name}': {e}")
+                finally:
+                    if staging_file and os.path.exists(staging_file):
+                        try:
+                            os.remove(staging_file)
+                        except OSError:
+                            pass
+                    self._upload_queue.task_done()
+
+        self._upload_thread = threading.Thread(target=_worker, name="WandbArtifactUploader", daemon=True)
+        self._upload_thread.start()
+
+    def wait_for_uploads(self, timeout: Optional[float] = None):
+        """Wait until all pending async artifact uploads complete."""
+        if not self.async_upload or self._upload_queue is None:
+            return
+        try:
+            self._upload_queue.join()
+        except Exception as e:
+            logging.warning(f"[W&B ARTIFACT] Error waiting for pending uploads: {e}")
+
+    def _upload_and_prune(
+        self,
+        staging_file: str,
+        target_filename: str,
+        name: str,
+        artifact_type: str,
+        description: str,
+        aliases: List[str],
+        metadata: Optional[Dict[str, Any]]
+    ):
+        """Serialize and commit artifact with wait and prune in background thread."""
+        if not self.enabled or self.run is None:
+            return
+        import wandb
+        artifact = wandb.Artifact(
+            name=name,
+            type=artifact_type,
+            description=description,
+            metadata=metadata or {}
+        )
+        artifact.add_file(staging_file, name=target_filename)
+        self.run.log_artifact(artifact, aliases=aliases)
+        logging.info(f"[W&B ARTIFACT] Uploading '{name}' ({artifact_type}) with aliases {aliases}...")
+        if self.mode == 'online':
+            try:
+                artifact.wait(timeout=120)
+                logging.info(f"[W&B ARTIFACT] Successfully committed '{name}' to cloud.")
+            except Exception as exc:
+                logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
+            else:
+                self._maintain_artifact_storage(artifact, name, artifact_type)
+
     def log_artifact(
         self,
         file_path: str,
@@ -240,6 +323,7 @@ class WandbManager:
     ) -> bool:
         """
         Upload checkpoint or dataset artifact to W&B Cloud Storage.
+        Supports safe non-blocking async upload via an isolated file snapshot.
         """
         if not self.enabled or not self.save_artifacts or self.run is None:
             return False
@@ -247,6 +331,79 @@ class WandbManager:
             logging.warning(f"[W&B ARTIFACT] File not found: {file_path}")
             return False
 
+        aliases = aliases or ["latest"]
+        target_filename = Path(file_path).name
+
+        if not self.async_upload or self._upload_queue is None:
+            try:
+                import wandb
+                artifact = wandb.Artifact(
+                    name=name,
+                    type=artifact_type,
+                    description=description,
+                    metadata=metadata or {}
+                )
+                artifact.add_file(file_path, name=target_filename)
+                self.run.log_artifact(artifact, aliases=aliases)
+                logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
+                if self.mode == 'online':
+                    try:
+                        artifact.wait(timeout=60)
+                    except Exception as exc:
+                        logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
+                    else:
+                        self._maintain_artifact_storage(artifact, name, artifact_type)
+                return True
+            except Exception as e:
+                logging.warning(f"[W&B ARTIFACT] Failed to log artifact '{name}': {e}")
+                return False
+
+        # Async upload path: create an isolated temporary snapshot to avoid Data Race with future overwrites
+        try:
+            temp_dir = Path(file_path).parent / '.artifact_staging'
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            staging_file = temp_dir / f"{target_filename}.staging_{os.getpid()}_{threading.get_ident()}_{int(metadata.get('iter_num', 0) if metadata else 0)}.pth"
+            shutil.copy2(file_path, staging_file)
+
+            task = (
+                str(staging_file),
+                target_filename,
+                name,
+                artifact_type,
+                description,
+                aliases,
+                metadata
+            )
+
+            # Best model checkpoints must NEVER be skipped; periodic latest can be dropped if congested
+            is_critical = ("best" in aliases) or (artifact_type == "model")
+            if is_critical:
+                try:
+                    self._upload_queue.put(task, timeout=120)
+                    logging.info(f"[W&B ASYNC ARTIFACT] Queued critical upload for '{name}'")
+                    return True
+                except queue.Full:
+                    logging.warning(f"[W&B ASYNC ARTIFACT] Queue full for critical upload '{name}', falling back to direct upload")
+                    if staging_file.exists():
+                        os.remove(staging_file)
+                    # Fallback to direct synchronous upload to guarantee best model persistence
+                    return self._upload_and_prune_direct(file_path, target_filename, name, artifact_type, description, aliases, metadata)
+            else:
+                try:
+                    self._upload_queue.put_nowait(task)
+                    logging.info(f"[W&B ASYNC ARTIFACT] Queued background upload for '{name}'")
+                    return True
+                except queue.Full:
+                    logging.warning(f"[W&B ASYNC ARTIFACT] Upload queue full; skipping periodic upload for '{name}'")
+                    if staging_file.exists():
+                        os.remove(staging_file)
+                    return False
+        except Exception as e:
+            logging.warning(f"[W&B ASYNC ARTIFACT] Failed to stage snapshot for '{name}': {e}")
+            return False
+
+    def _upload_and_prune_direct(self, file_path, target_filename, name, artifact_type, description, aliases, metadata):
+        """Fallback synchronous upload when queue is unavailable or blocked."""
         try:
             import wandb
             artifact = wandb.Artifact(
@@ -255,21 +412,14 @@ class WandbManager:
                 description=description,
                 metadata=metadata or {}
             )
-            artifact.add_file(file_path)
-            aliases = aliases or ["latest"]
+            artifact.add_file(file_path, name=target_filename)
             self.run.log_artifact(artifact, aliases=aliases)
-            logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
             if self.mode == 'online':
-                # Never prune using an upload that has merely been queued.
-                try:
-                    artifact.wait(timeout=60)
-                except Exception as exc:
-                    logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
-                else:
-                    self._maintain_artifact_storage(artifact, name, artifact_type)
+                artifact.wait(timeout=120)
+                self._maintain_artifact_storage(artifact, name, artifact_type)
             return True
-        except Exception as e:
-            logging.warning(f"[W&B ARTIFACT] Failed to log artifact '{name}': {e}")
+        except Exception as exc:
+            logging.warning(f"[W&B DIRECT ARTIFACT] Direct upload failed for '{name}': {exc}")
             return False
 
     def _maintain_artifact_storage(self, artifact, name, artifact_type):
@@ -366,6 +516,11 @@ class WandbManager:
         if not self.enabled or self.run is None:
             return
         try:
+            self.wait_for_uploads()
+            if self.async_upload and self._upload_queue is not None:
+                self._upload_queue.put(None)
+                if self._upload_thread and self._upload_thread.is_alive():
+                    self._upload_thread.join(timeout=120)
             self.run.finish(exit_code=exit_code)
             if self.mode == 'online':
                 self._cleanup_artifact_cache()
