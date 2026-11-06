@@ -59,7 +59,10 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
         'run': run_path, 'artifact': artifact.name, 'metadata': artifact.metadata,
         'mode': resume_mode,
     }
-    cfg.pop('resolved', None)
+    allowed_top_level = {'experiment', 'data', 'model', 'method', 'logging'}
+    for key in list(cfg.keys()):
+        if key not in allowed_top_level:
+            cfg.pop(key, None)
     config_path = destination / 'resume_config.yaml'
     config_path.write_text(yaml.safe_dump(cfg), encoding='utf-8')
     # Fail before launching any GPU workers if the staged config is incompatible.
