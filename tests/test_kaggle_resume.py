@@ -31,6 +31,8 @@ def check_prepare_resume_restores_source_config_and_owned_checkpoint(tmp_path):
               'method': {'name': 'mean_teacher', 'max_iteration': 12000},
               'data': {'name': 'bhsd', 'task': 'binary', 'num_classes': 2,
                        'class_names': ['Background', 'Hemorrhage'], 'root_path': 'old', 'batch_size': 8}, 'logging': {},
+              'model': {'name': 'vnet'},
+              'model_spec': {'name': 'vnet', 'kwargs': {}},
               'resolved': {'batch_layout': {'world_size': 2}}}
     class Artifact:
         name = 'original_fold0_best:v27'
