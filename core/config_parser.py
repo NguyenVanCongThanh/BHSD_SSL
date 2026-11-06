@@ -169,6 +169,7 @@ SECTION_MAPPING = {
     'artifact_keep_versions': 'logging',
     'artifact_cache_size': 'logging',
     'artifact_cache_cleanup_interval': 'logging',
+    'artifact_async_upload': 'logging',
     'log_interval': 'logging',
     'val_interval': 'logging',
     'save_interval': 'logging',
@@ -287,7 +288,7 @@ KNOWN_SECTION_KEYS = {
         'val_interval', 'val_stride_xy',
         'val_stride_z', 'log_interval', 'save_interval', 'artifact_interval',
         'epoch_artifact_interval', 'artifact_keep_versions', 'artifact_cache_size',
-        'artifact_cache_cleanup_interval',
+        'artifact_cache_cleanup_interval', 'artifact_async_upload',
         'val_amp', 'val_gaussian', 'val_surface_metrics', 'val_tta', 'val_visualize',
         'num_vis_samples', 'visual_every_n_validations', 'visualization', 'val_eval_space', 'raw_gt_dir'
     }

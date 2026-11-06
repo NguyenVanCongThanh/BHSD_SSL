@@ -63,7 +63,7 @@ data:
 
 logging:
   val_interval: 200
-  save_interval: 50
+  save_interval: 1000
   val_stride_xy: 32
   val_stride_z: 8
   val_eval_space: "preprocessed"
