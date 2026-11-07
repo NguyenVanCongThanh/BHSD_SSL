@@ -228,7 +228,8 @@ def build_supervised_notebook(
                 "    \"--use_wandb\",\n",
                 "    \"--save_wandb_model\",\n",
                 "    \"--wandb_project\", str(WANDB_PROJECT),\n",
-                "] + extra_cli_lines\n",
+            ] + extra_cli_lines + [
+                "]\n",
                 "\n",
                 "def find_free_port():\n",
                 "    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:\n",
