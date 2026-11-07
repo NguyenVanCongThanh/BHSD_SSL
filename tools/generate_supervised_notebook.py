@@ -169,7 +169,7 @@ def build_supervised_notebook(
             "source": [
                 "import wandb\n",
                 "WANDB_API_KEY = \"\"\n",
-                "WANDB_PROJECT = \"medssl-bhsd-benchmark\"\n",
+                "WANDB_PROJECT = \"BHSD_Supervised\"\n",
                 "if WANDB_API_KEY.strip():\n",
                 "    os.environ[\"WANDB_API_KEY\"] = WANDB_API_KEY.strip()\n",
                 "    os.environ[\"WANDB_MODE\"] = \"online\"\n",
@@ -344,12 +344,25 @@ def build_supervised_notebook(
     return notebook
 
 def main():
-    nb = build_supervised_notebook()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=["multiclass", "binary"], default="binary")
+    parser.add_argument("--setting", default="opt1_nnunet")
+    parser.add_argument("--labelnum", type=int, default=154)
+    parser.add_argument("--max_samples", type=int, default=154)
+    args, _ = parser.parse_known_args()
+
+    nb = build_supervised_notebook(
+        task=args.task,
+        labelnum=args.labelnum,
+        max_samples=args.max_samples,
+        setting=args.setting
+    )
     target = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
     os.makedirs("scripts", exist_ok=True)
     with open(target, "w", encoding="utf-8") as f:
         json.dump(nb, f, indent=1, ensure_ascii=False)
-    print(f"Updated {target} successfully.")
+    print(f"Updated {target} (task={args.task}, setting={args.setting}) successfully.")
 
 if __name__ == "__main__":
     main()
