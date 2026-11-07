@@ -370,7 +370,7 @@ def main():
 
     # Subcommand: build
     parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")
-    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised')")
     parser_build.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_build.add_argument("--username", "-u", default="dry_run_user", help="Username giả định để build metadata")
     parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
@@ -382,7 +382,7 @@ def main():
     # Subcommand: push
     parser_push = subparsers.add_parser("push", help="Đẩy notebook lên Kaggle")
     parser_push.add_argument("--account", "-a", default="1", help="Tài khoản để submit (ID '1', '2' hoặc slug 'thanh', 'khanh')")
-    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick')")
+    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised')")
     parser_push.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")

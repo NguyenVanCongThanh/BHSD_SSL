@@ -1,0 +1,45 @@
+# Experiment Preset: BHSD Multi-Class Supervised Baseline with 7-Stage nnUNet3D (Option 1 Design)
+# Fair comparison baseline using 100% labeled data (154 cases for Fold 0) with Deep Supervision.
+
+experiment:
+  name: "bhsd_supervised_nnunet_opt1_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "nnunet3d"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 7
+  has_dropout: false
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+
+method:
+  name: "supervised"
+  base_lr: 0.01
+  max_iteration: 25000
+  deep_supervision: true
+
+data:
+  root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
+  patch_size: [28, 256, 256]
+  batch_size: 2
+  labeled_bs: 2
+  labelnum: 154
+  max_samples: 154
+  labeled_sampling: "first"
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  val_stride_xy: 32
+  val_stride_z: 8
+

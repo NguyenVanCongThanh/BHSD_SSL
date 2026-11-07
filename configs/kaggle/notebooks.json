@@ -32,6 +32,22 @@
         "thnhnguynvncng/bhsd-fold0"
       ],
       "description": "Huấn luyện PICK Semi-Supervised Segmentation trên Dual GPU T4"
+    },
+    "supervised": {
+      "slug": "kaggle-bhsd-supervised-dual-gpu",
+      "title": "kaggle_bhsd_supervised_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0"
+      ],
+      "description": "Huấn luyện Supervised Baseline (100% data = 154 mẫu) với 7-Stage nnUNet3D Option 1 và Deep Supervision trên Dual GPU T4"
     }
   }
 }
