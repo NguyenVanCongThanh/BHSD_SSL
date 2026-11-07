@@ -23,3 +23,7 @@ experiment_data/
 
 # Regenerable per-case EDA fingerprints and profiles
 /notebooks/eda_cache/
+
+# Auto-generated notebook build artifacts
+scripts/*.ipynb
+
