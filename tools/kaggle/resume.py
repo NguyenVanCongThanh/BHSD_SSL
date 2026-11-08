@@ -15,22 +15,39 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
 
     if resume_mode not in ('same-run', 'new-run'):
         raise ValueError('Invalid resume mode')
-    if '/' not in run_path:
-        default_prefix = os.environ.get(
-            'MEDSSL_WANDB_RUN_PREFIX',
-            'thanhnguyen2005243-ho-chi-minh-city-university-of-technology/BHSD_MeanTeacher/',
-        )
-        if not default_prefix.endswith('/'):
-            default_prefix += '/'
-        run_path = default_prefix + run_path
+    if run_path.count('/') == 0:
+        entity = os.environ.get('MEDSSL_WANDB_ENTITY', 'thanhnguyen2005243-ho-chi-minh-city-university-of-technology')
+        # Probe known projects for run ID
+        api = wandb.Api()
+        candidate = None
+        for proj in ('BHSD_Supervised', 'BHSD_MeanTeacher', 'PICK_BHSD'):
+            try:
+                p = f"{entity}/{proj}/{run_path}"
+                candidate = api.run(p)
+                run_path = p
+                break
+            except Exception:
+                continue
+        if candidate is None:
+            default_prefix = os.environ.get(
+                'MEDSSL_WANDB_RUN_PREFIX',
+                f"{entity}/BHSD_MeanTeacher/",
+            )
+            if not default_prefix.endswith('/'):
+                default_prefix += '/'
+            run_path = default_prefix + run_path
+    elif run_path.count('/') == 1:
+        entity = os.environ.get('MEDSSL_WANDB_ENTITY', 'thanhnguyen2005243-ho-chi-minh-city-university-of-technology')
+        run_path = f"{entity}/{run_path}"
     if len(run_path.split('/')) != 3:
-        raise ValueError('Expected run ID or entity/project/id')
+        raise ValueError('Expected run ID, project/id, or entity/project/id')
     run = wandb.Api().run(run_path)
     if run.state == 'running':
         raise RuntimeError('Source run is still running; stop it before resuming')
     cfg = copy.deepcopy(dict(run.config))
-    if cfg.get('method', {}).get('name') != 'mean_teacher':
-        raise ValueError('Only Mean Teacher resume is supported')
+    method_name = cfg.get('method', {}).get('name')
+    if method_name not in ('mean_teacher', 'supervised'):
+        raise ValueError('Only Mean Teacher and Supervised resume are supported')
     exp = cfg['experiment']
     layout = cfg.get('resolved', {}).get('batch_layout', {})
     if layout.get('world_size', 1) != max(1, num_gpus):
@@ -91,7 +108,7 @@ def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
     matches = [c for c in notebook['cells'] if c.get('cell_type') == 'code'
                and 'base_args = [' in ''.join(c['source']) and marker in ''.join(c['source'])]
     if len(matches) != 1:
-        raise ValueError('Cannot identify the Mean Teacher training cell')
+        raise ValueError('Cannot identify the training cell')
     # Kaggle clones GitHub: ship both schema and manager from this CLI revision.
     # Both modes use resume_source, so both need the updated schema.
     from pathlib import Path

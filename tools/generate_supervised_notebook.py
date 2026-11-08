@@ -127,6 +127,7 @@ def build_supervised_notebook(
             + [
                 "]\n",
                 "\n",
+                "# Cấu hình Anti-Deadlock cho môi trường Đa GPU (2x T4):\n",
                 "def find_free_port():\n",
                 "    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:\n",
                 "        s.bind(('', 0))\n",

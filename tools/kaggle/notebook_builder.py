@@ -57,8 +57,8 @@ class NotebookBuilder:
         """
         if (resume_checkpoint or resume_mode) and not resume_run:
             raise ValueError("--resume-checkpoint/--resume-mode requires --resume-run")
-        if resume_run and notebook_type != "mean_teacher":
-            raise ValueError("--resume-run currently supports mean_teacher only")
+        if resume_run and notebook_type not in ("mean_teacher", "supervised", "supervised_vnet", "supervised_vnet_v2"):
+            raise ValueError("--resume-run supports mean_teacher, supervised, supervised_vnet, and supervised_vnet_v2")
         if resume_checkpoint not in (None, "latest", "best"):
             raise ValueError("Invalid resume checkpoint kind")
         if resume_mode not in (None, 'same-run', 'new-run'):
