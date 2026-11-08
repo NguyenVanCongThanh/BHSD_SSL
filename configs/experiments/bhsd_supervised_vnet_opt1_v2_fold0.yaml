@@ -1,0 +1,56 @@
+# Experiment Preset: BHSD Binary Supervised Enhanced Baseline (V2) with 7-Stage Anisotropic Residual V-Net
+# Enhancements:
+#   1. Spatial: Patch size [32, 256, 256] (+14% Z context, exact power-of-2 divisibility)
+#   2. Sampling: Foreground oversampling probability 50% (foreground_prob: 0.50)
+#   3. Objective: Asymmetric Focal Tversky Loss (alpha=0.3, beta=0.7, gamma=2.0) targeting False Negative recall
+#   4. Dynamics: Deep Supervision ramp-down from 15,000 to 20,000 iters to refine fine-scale boundaries
+#   5. Budget: 20,000 max iterations (terminating at peak empirical performance before overfitting)
+
+experiment:
+  name: "bhsd_supervised_vnet_opt1_v2_fold0"
+  task: "binary"
+  num_classes: 2
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_binary"
+
+model:
+  name: "vnet"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 7
+  has_dropout: false
+  has_residual: true
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+
+method:
+  name: "supervised"
+  base_lr: 0.01
+  max_iteration: 20000
+  deep_supervision: true
+  loss_type: "focal_tversky"
+  tversky_alpha: 0.3
+  tversky_beta: 0.7
+  focal_gamma: 2.0
+  ds_rampdown_start: 15000
+
+data:
+  patch_size: [32, 256, 256]
+  batch_size: 2
+  labeled_bs: 2
+  labelnum: 154
+  max_samples: 154
+  labeled_sampling: "first"
+  foreground_prob: 0.50
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  val_stride_xy: 32
+  val_stride_z: 8
+

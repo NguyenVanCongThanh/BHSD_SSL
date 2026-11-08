@@ -64,6 +64,22 @@
         "thnhnguynvncng/bhsd-fold0"
       ],
       "description": "Huấn luyện Supervised Baseline (100% data = 154 mẫu) với 7-Stage Anisotropic Residual V-Net Option 1 và Deep Supervision trên Dual GPU T4"
+    },
+    "supervised_vnet_v2": {
+      "slug": "kaggle-bhsd-supervised-vnet-v2-dual-gpu",
+      "title": "kaggle_bhsd_supervised_vnet_v2_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0"
+      ],
+      "description": "Huấn luyện Supervised V-Net 7-Stage V2 (Patch 32x256x256, Focal Tversky Loss, DS Rampdown, 50% FG) trên Dual GPU T4"
     }
   }
 }

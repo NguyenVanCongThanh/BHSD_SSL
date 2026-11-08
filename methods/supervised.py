@@ -50,6 +50,32 @@ class SupervisedMethod(BaseMethod):
 
         self.ds_enabled = bool(supports_ds and (ds_flag or model_ds))
 
+        # Loss type configuration (backward-compatible: defaults to standard 'ce_dice')
+        self.loss_type = str(getattr(self.cfg.method, 'loss_type', 'ce_dice')).lower()
+        if self.loss_type == 'focal_tversky':
+            from losses.focal_tversky import FocalTverskyLoss
+            tversky_alpha = float(getattr(self.cfg.method, 'tversky_alpha', 0.3))
+            tversky_beta = float(getattr(self.cfg.method, 'tversky_beta', 0.7))
+            focal_gamma = float(getattr(self.cfg.method, 'focal_gamma', 2.0))
+            self.focal_tversky_loss = FocalTverskyLoss(
+                nclass=self.num_classes,
+                alpha=tversky_alpha,
+                beta=tversky_beta,
+                gamma=focal_gamma,
+                weight_tversky=self.sup_dice_weight,
+                weight_focal=self.sup_ce_weight,
+            )
+        else:
+            self.focal_tversky_loss = None
+
+        self.ds_rampdown_start = getattr(self.cfg.method, 'ds_rampdown_start', None)
+        self.max_iteration = int(getattr(self.cfg.method, 'max_iteration', 25000))
+
+    def _compute_stage_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if self.loss_type == 'focal_tversky' and self.focal_tversky_loss is not None:
+            return self.focal_tversky_loss(pred, target)
+        return self.sup_ce_weight * F.cross_entropy(pred, target) + self.sup_dice_weight * self.dice_loss(pred, target)
+
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         volume_batch = sampled_batch['image'][:self.labeled_bs].to(self.device)
         label_batch = sampled_batch['label'][:self.labeled_bs].to(self.device)
@@ -57,22 +83,37 @@ class SupervisedMethod(BaseMethod):
         out = self.model(volume_batch)
         main_logits, aux_logits = extract_multiscale_outputs(out)
 
-        loss_ce = F.cross_entropy(main_logits, label_batch)
-        loss_dice = self.dice_loss(main_logits, label_batch)
-        loss_main = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
+        if self.loss_type == 'focal_tversky' and self.focal_tversky_loss is not None:
+            loss_ce = self.focal_tversky_loss.focal(main_logits, label_batch)
+            loss_dice = self.focal_tversky_loss.tversky(main_logits, label_batch)
+            loss_main = self.focal_tversky_loss(main_logits, label_batch)
+        else:
+            loss_ce = F.cross_entropy(main_logits, label_batch)
+            loss_dice = self.dice_loss(main_logits, label_batch)
+            loss_main = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         loss_ds_accum = 0.0
         if self.ds_enabled and len(aux_logits) > 0:
             all_logits = [main_logits] + aux_logits
-            norm_w = resolve_ds_weights(len(all_logits), self.ds_weights)
+            norm_w = list(resolve_ds_weights(len(all_logits), self.ds_weights))
+
+            # Optional deep supervision decay/rampdown in late iterations
+            if self.ds_rampdown_start is not None and iter_num >= int(self.ds_rampdown_start):
+                ramp_span = max(1, self.max_iteration - int(self.ds_rampdown_start))
+                ramp_factor = max(0.0, 1.0 - (iter_num - int(self.ds_rampdown_start)) / ramp_span)
+                for i in range(1, len(norm_w)):
+                    norm_w[i] = norm_w[i] * ramp_factor
+
             total_loss = norm_w[0] * loss_main
             target_shape = label_batch.shape[1:]
 
             for idx in range(1, len(all_logits)):
+                if norm_w[idx] <= 0.0:
+                    continue
                 aux_pred = all_logits[idx]
                 if aux_pred.shape[2:] != target_shape:
                     aux_pred = F.interpolate(aux_pred, size=target_shape, mode='trilinear', align_corners=False)
-                l_stage = self.sup_ce_weight * F.cross_entropy(aux_pred, label_batch) + self.sup_dice_weight * self.dice_loss(aux_pred, label_batch)
+                l_stage = self._compute_stage_loss(aux_pred, label_batch)
                 total_loss = total_loss + norm_w[idx] * l_stage
                 loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
         else:

@@ -241,6 +241,17 @@ def main():
         with open(target_vnet, "w", encoding="utf-8") as f:
             json.dump(nb_vnet, f, indent=1, ensure_ascii=False)
         print(f"Updated {target_vnet} (task={args.task}, setting=vnet) successfully.")
+
+        nb_vnet_v2 = build_supervised_notebook(
+            task=args.task,
+            labelnum=args.labelnum,
+            max_samples=args.max_samples,
+            setting="vnet_v2",
+        )
+        target_vnet_v2 = "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb"
+        with open(target_vnet_v2, "w", encoding="utf-8") as f:
+            json.dump(nb_vnet_v2, f, indent=1, ensure_ascii=False)
+        print(f"Updated {target_vnet_v2} (task={args.task}, setting=vnet_v2) successfully.")
     else:
         nb = build_supervised_notebook(
             task=args.task,
@@ -250,6 +261,8 @@ def main():
         )
         if args.output:
             target = args.output
+        elif args.setting in ("vnet_v2", "vnet_enhanced"):
+            target = "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb"
         elif args.setting in ("vnet", "vnet_opt1"):
             target = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
         else:
