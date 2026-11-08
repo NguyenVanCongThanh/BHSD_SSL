@@ -1,0 +1,56 @@
+{
+  "runs": [
+    {
+      "id": "o6s4pex3",
+      "label": "Run o6s4pex3 (2026-10-30 | Patch 28×256×256 | Batch 8 [4L+4U] | 12k budget)",
+      "description": "Chạy với cấu hình tối ưu configs/methods/mean_teacher.yaml: nnUNet3D 7 stages, patch [28,256,256], global batch 8 (2L+2U mỗi GPU T4), consistency=0.05, rampup=4000 iters, rampdown=7800, cosine EMA 0.99->0.999. Dừng ở iter 8,600/12,000 (~11.89h).",
+      "summary_file": "run_o6s4pex3_summary.json",
+      "validation_csv": "run_o6s4pex3_validation.csv",
+      "class_breakdown_final": {
+        "iteration": 8400,
+        "total_val_cases": 38,
+        "classes": [
+          {"name": "Epidural (EDH)", "pos_cases": 6, "neg_cases": 32, "pos_dice": 0.0000, "case_mean_dice": 0.8421, "precision": 0.0000, "recall": 0.0000, "fp_neg_cases": 0, "fp_ml_mean": 0.000},
+          {"name": "Intraparenchymal (IPH)", "pos_cases": 23, "neg_cases": 15, "pos_dice": 0.5395, "case_mean_dice": 0.3791, "precision": 0.5611, "recall": 0.7912, "fp_neg_cases": 13, "fp_ml_mean": 2.778},
+          {"name": "Intraventricular (IVH)", "pos_cases": 22, "neg_cases": 16, "pos_dice": 0.4872, "case_mean_dice": 0.3347, "precision": 0.6374, "recall": 0.5566, "fp_neg_cases": 14, "fp_ml_mean": 0.293},
+          {"name": "Subarachnoid (SAH)", "pos_cases": 20, "neg_cases": 18, "pos_dice": 0.2559, "case_mean_dice": 0.1347, "precision": 0.3247, "recall": 0.2518, "fp_neg_cases": 18, "fp_ml_mean": 1.905},
+          {"name": "Subdural (SDH)", "pos_cases": 13, "neg_cases": 25, "pos_dice": 0.3453, "case_mean_dice": 0.1181, "precision": 0.4074, "recall": 0.4286, "fp_neg_cases": 25, "fp_ml_mean": 4.072}
+        ],
+        "loss_windows": [
+          {"window": "1 – 2,000", "sup_mean": 0.53437, "cons_raw_mean": 0.08668, "weighted_ratio_pct": 0.0476},
+          {"window": "2,001 – 4,000", "sup_mean": 0.48121, "cons_raw_mean": 0.04684, "weighted_ratio_pct": 0.3496},
+          {"window": "4,001 – 6,000", "sup_mean": 0.46325, "cons_raw_mean": 0.04595, "weighted_ratio_pct": 0.4951},
+          {"window": "6,001 – 8,000", "sup_mean": 0.45071, "cons_raw_mean": 0.04303, "weighted_ratio_pct": 0.4795},
+          {"window": "8,001 – 8,600", "sup_mean": 0.44601, "cons_raw_mean": 0.04809, "weighted_ratio_pct": 0.5263}
+        ]
+      }
+    },
+    {
+      "id": "9tvq8qld",
+      "label": "Run 9tvq8qld (2026-10-28 | Patch 32×192×192 | Batch 4 [2L+2U] | 30k budget)",
+      "description": "Chạy với patch [32,192,192], global batch 4 (1L+1U mỗi GPU T4), consistency=0.05, rampup=8000 iters, rampdown=19500, max_iteration=30,000. Dừng ở iter 16,250/30,000 (~11.93h).",
+      "summary_file": "run_9tvq8qld_summary.json",
+      "validation_csv": "run_9tvq8qld_validation.csv",
+      "class_breakdown_final": {
+        "iteration": 16000,
+        "total_val_cases": 38,
+        "classes": [
+          {"name": "Epidural (EDH)", "pos_cases": 6, "neg_cases": 32, "pos_dice": 0.0000, "case_mean_dice": 0.8421, "precision": 0.0000, "recall": 0.0000, "fp_neg_cases": 0, "fp_ml_mean": 0.000},
+          {"name": "Intraparenchymal (IPH)", "pos_cases": 23, "neg_cases": 15, "pos_dice": 0.5432, "case_mean_dice": 0.3814, "precision": 0.5787, "recall": 0.7636, "fp_neg_cases": 13, "fp_ml_mean": 2.651},
+          {"name": "Intraventricular (IVH)", "pos_cases": 22, "neg_cases": 16, "pos_dice": 0.5136, "case_mean_dice": 0.3237, "precision": 0.6548, "recall": 0.5841, "fp_neg_cases": 15, "fp_ml_mean": 0.322},
+          {"name": "Subarachnoid (SAH)", "pos_cases": 20, "neg_cases": 18, "pos_dice": 0.2810, "case_mean_dice": 0.1479, "precision": 0.3775, "recall": 0.2921, "fp_neg_cases": 18, "fp_ml_mean": 2.055},
+          {"name": "Subdural (SDH)", "pos_cases": 13, "neg_cases": 25, "pos_dice": 0.3393, "case_mean_dice": 0.1161, "precision": 0.3469, "recall": 0.4431, "fp_neg_cases": 25, "fp_ml_mean": 5.645}
+        ],
+        "loss_windows": [
+          {"window": "1 – 2,000", "sup_mean": 0.54236, "cons_raw_mean": 0.08958, "weighted_ratio_pct": 0.0164},
+          {"window": "2,001 – 4,000", "sup_mean": 0.50687, "cons_raw_mean": 0.06126, "weighted_ratio_pct": 0.0947},
+          {"window": "6,001 – 8,000", "sup_mean": 0.47044, "cons_raw_mean": 0.05949, "weighted_ratio_pct": 0.5682},
+          {"window": "8,001 – 10,000", "sup_mean": 0.46470, "cons_raw_mean": 0.06409, "weighted_ratio_pct": 0.6901},
+          {"window": "12,001 – 14,000", "sup_mean": 0.45319, "cons_raw_mean": 0.06184, "weighted_ratio_pct": 0.6829},
+          {"window": "14,001 – 16,250", "sup_mean": 0.44775, "cons_raw_mean": 0.06465, "weighted_ratio_pct": 0.7225}
+        ]
+      }
+    }
+  ]
+}
+

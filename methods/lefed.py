@@ -10,7 +10,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
+from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
+
+DEFAULT_LEFED_DS_WEIGHTS = [0.8, 0.6, 0.4, 0.2, 0.1]
 from losses import MaskDiceLoss
 from utils.ramps import sigmoid_rampup
 
@@ -32,7 +35,11 @@ class LeFeDMethod(BaseMethod):
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
         self.feedback_steps = int(getattr(self.cfg.method, 'feedback_steps', 3))
         self.feedback_scale = float(getattr(self.cfg.method, 'feedback_scale', 1e-3))
-        self.ds_weights = getattr(self.cfg.method, 'ds_weights', [0.8, 0.6, 0.4, 0.2, 0.1])
+        self.ds_weights = getattr(self.cfg.method, 'ds_weights', DEFAULT_LEFED_DS_WEIGHTS)
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
 
         # Background vs Foregrounds weight balance for consistency
         if not self.is_binary and self.num_classes >= 2:
@@ -82,8 +89,8 @@ class LeFeDMethod(BaseMethod):
             out2_lab = outputs2[:self.labeled_bs]
             target_lab = label_batch[:self.labeled_bs]
 
-            loss_sup1 = (F.cross_entropy(out1_lab, target_lab) + self.dice_loss(out1_lab, target_lab)) / 2.0
-            loss_sup2 = (F.cross_entropy(out2_lab, target_lab) + self.dice_loss(out2_lab, target_lab)) / 2.0
+            loss_sup1 = self.sup_ce_weight * F.cross_entropy(out1_lab, target_lab) + self.sup_dice_weight * self.dice_loss(out1_lab, target_lab)
+            loss_sup2 = self.sup_ce_weight * F.cross_entropy(out2_lab, target_lab) + self.sup_dice_weight * self.dice_loss(out2_lab, target_lab)
             loss_sup = loss_sup1 + loss_sup2
 
             # 2. Deep Supervision loss on multi-scale side outputs
@@ -93,7 +100,7 @@ class LeFeDMethod(BaseMethod):
                 w = self.ds_weights[ds_idx] if ds_idx < len(self.ds_weights) else 0.1
                 l_ce = F.cross_entropy(ds_lab, target_lab)
                 l_dice = self.dice_loss(ds_lab, target_lab)
-                loss_ds = loss_ds + w * ((l_ce + l_dice) / 2.0)
+                loss_ds = loss_ds + w * (self.sup_ce_weight * l_ce + self.sup_dice_weight * l_dice)
 
             # 3. Consistency loss between Decoder 1 and Decoder 2 across all samples
             prob1 = F.softmax(outputs1, dim=1)

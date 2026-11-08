@@ -6,9 +6,46 @@ Supports composable 3-tier configurations: Datasets + Models + Methods.
 
 from typing import Any, Dict, List, Optional, Union
 import os
+import re
 import copy
 import math
 import yaml
+
+
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+_PATH_SECTION_KEYS = (
+    ('experiment', 'exp_dir'),
+    ('experiment', 'pretrain_checkpoint'),
+    ('data', 'root_path'),
+    ('logging', 'raw_gt_dir'),
+)
+
+
+def _resolve_path_string(value: Any) -> Any:
+    """Resolve ${VAR:-default}, $VAR, and user-home (~) placeholders in path strings."""
+    if not isinstance(value, str) or not value.strip():
+        return value
+
+    def _replace_match(match: re.Match) -> str:
+        var_name = match.group(1)
+        default_val = match.group(2)
+        env_val = os.environ.get(var_name)
+        if env_val is not None and env_val != "":
+            return env_val
+        return default_val if default_val is not None else match.group(0)
+
+    resolved = _ENV_VAR_PATTERN.sub(_replace_match, value)
+    resolved = os.path.expandvars(resolved)
+    resolved = os.path.expanduser(resolved)
+    return resolved
+
+
+def _resolve_config_paths(cfg_dict: Dict[str, Any]) -> None:
+    """Expand environment variables and ~ in known path fields in-place."""
+    for section, key in _PATH_SECTION_KEYS:
+        sec_dict = cfg_dict.get(section)
+        if isinstance(sec_dict, dict) and key in sec_dict and sec_dict[key] is not None:
+            sec_dict[key] = _resolve_path_string(sec_dict[key])
 
 
 class Config(dict):
@@ -110,6 +147,14 @@ SECTION_MAPPING = {
     'drop_last': 'data',
     'extended_aug': 'data',
     'extended-aug': 'data',
+    'foreground_prob': 'data',
+    'strong_voxel_thresh': 'data',
+    'aug_scale_range': 'data',
+    'aug_scale_prob': 'data',
+    'aug_gamma_range': 'data',
+    'aug_gamma_prob': 'data',
+    'aug_blur_sigma_range': 'data',
+    'aug_blur_prob': 'data',
     
     # Method section
     'method': 'method',
@@ -128,6 +173,12 @@ SECTION_MAPPING = {
     'cps_weight': 'method',
     'ema_decay': 'method',
     'u_weight': 'method',
+    'clip_norm': 'method',
+    'consistency_dice_weight': 'method',
+    'consistency_mse_weight': 'method',
+    'fg_confidence_max_thresh': 'method',
+    'sup_ce_weight': 'method',
+    'sup_dice_weight': 'method',
     'warmup_iters': 'method',
     'warmup-iters': 'method',
     'min_lr': 'method',
@@ -268,13 +319,19 @@ KNOWN_SECTION_KEYS = {
         'labeled_sampling', 'labeled_indices', 'max_samples', 'intensity_units',
         'normalization', 'num_classes', 'task', 'class_names', 'num_workers',
         'pin_memory', 'drop_last', 'train_split', 'val_split', 'test_split',
-        'extended_aug'
+        'extended_aug', 'foreground_prob', 'strong_voxel_thresh',
+        'aug_scale_range', 'aug_scale_prob', 'aug_gamma_range', 'aug_gamma_prob',
+        'aug_blur_sigma_range', 'aug_blur_prob'
     },
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
         'max_iteration', 'pre_max_iteration', 'self_max_iteration', 'consistency',
         'consistency_rampup', 'consistency_rampdown_start', 'consistency_min_factor',
         'consistency_type', 'bg_consistency_weight', 'confidence_thresh',
+        'fg_confidence_max_thresh', 'consistency_dice_weight', 'consistency_mse_weight',
+        'sup_ce_weight', 'sup_dice_weight', 'clip_norm',
+        'pretrain_pseudo_thresh_init', 'pretrain_pseudo_thresh_late',
+        'pretrain_pseudo_switch_iter', 'selftrain_pseudo_thresh',
         'perturb_student', 'student_noise_std', 'student_intensity_scale',
         'deep_supervision', 'lambda_', 'lambda_mim', 'mask_ratio', 'cps_weight',
         'ema_decay', 'ema_schedule', 'u_weight', 'temperature', 'threshold',
@@ -387,6 +444,30 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
                     f"len(data.class_names) ({len(cnames) if isinstance(cnames, list) else type(cnames)}) "
                     f"must match data.num_classes ({nc})"
                 )
+    if 'foreground_prob' in data and data['foreground_prob'] is not None:
+        fp = data['foreground_prob']
+        if not (_is_finite_number(fp) and 0.0 <= fp <= 1.0):
+            raise ValueError(f"data.foreground_prob must be in [0.0, 1.0], got {fp}")
+    if 'strong_voxel_thresh' in data and data['strong_voxel_thresh'] is not None:
+        svt = data['strong_voxel_thresh']
+        if not _is_int(svt) or svt < 0:
+            raise ValueError(f"data.strong_voxel_thresh must be non-negative integer, got {svt}")
+    for prob_key in ('aug_scale_prob', 'aug_gamma_prob', 'aug_blur_prob'):
+        if prob_key in data and data[prob_key] is not None:
+            pv = data[prob_key]
+            if not (_is_finite_number(pv) and 0.0 <= pv <= 1.0):
+                raise ValueError(f"data.{prob_key} must be in [0.0, 1.0], got {pv}")
+    for range_key in ('aug_scale_range', 'aug_gamma_range', 'aug_blur_sigma_range'):
+        if range_key in data and data[range_key] is not None:
+            rv = data[range_key]
+            if (
+                not isinstance(rv, (list, tuple))
+                or len(rv) != 2
+                or not (_is_finite_number(rv[0]) and _is_finite_number(rv[1]))
+                or rv[0] <= 0
+                or rv[0] > rv[1]
+            ):
+                raise ValueError(f"data.{range_key} must be 2 positive finite numbers [low, high] with low <= high, got {rv}")
 
     # 2. Experiment invariants
     if 'task' in exp:
@@ -419,6 +500,24 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         lr = method['base_lr']
         if not (_is_finite_number(lr) and lr > 0):
             raise ValueError(f"method.base_lr must be positive finite float, got {lr}")
+    if 'clip_norm' in method and method['clip_norm'] is not None:
+        cn = method['clip_norm']
+        if not (_is_finite_number(cn) and cn > 0):
+            raise ValueError(f"method.clip_norm must be positive finite float, got {cn}")
+    for w_key in ('consistency_dice_weight', 'consistency_mse_weight', 'sup_ce_weight', 'sup_dice_weight'):
+        if w_key in method and method[w_key] is not None:
+            wv = method[w_key]
+            if not (_is_finite_number(wv) and wv >= 0.0):
+                raise ValueError(f"method.{w_key} must be non-negative finite float, got {wv}")
+    for t_key in ('fg_confidence_max_thresh', 'pretrain_pseudo_thresh_init', 'pretrain_pseudo_thresh_late', 'selftrain_pseudo_thresh'):
+        if t_key in method and method[t_key] is not None:
+            tv = method[t_key]
+            if not (_is_finite_number(tv) and 0.0 <= tv <= 1.0):
+                raise ValueError(f"method.{t_key} must be in [0.0, 1.0], got {tv}")
+    if 'pretrain_pseudo_switch_iter' in method and method['pretrain_pseudo_switch_iter'] is not None:
+        sw = method['pretrain_pseudo_switch_iter']
+        if not _is_int(sw) or sw < 0:
+            raise ValueError(f"method.pretrain_pseudo_switch_iter must be non-negative integer, got {sw}")
 
 
 def load_config(
@@ -643,6 +742,9 @@ def load_config(
 
     # Strip any transient top-level dataset key from merged_dict
     merged_dict.pop('dataset', None)
+
+    # Expand environment variables (${VAR:-default}) and user home (~) in path fields
+    _resolve_config_paths(merged_dict)
 
     # Schema & value range validation
     validate_config(merged_dict)

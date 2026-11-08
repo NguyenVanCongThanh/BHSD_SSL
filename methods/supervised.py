@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
+from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from models.outputs import extract_multiscale_outputs
 from losses import MaskDiceLoss
@@ -25,6 +26,10 @@ class SupervisedMethod(BaseMethod):
     def __init__(self, model: nn.Module, cfg):
         super(SupervisedMethod, self).__init__(model, cfg)
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
 
         # Deep supervision configuration
         model_caps = set(getattr(getattr(self.model, 'module', self.model), 'CAPABILITIES', set()))
@@ -54,7 +59,7 @@ class SupervisedMethod(BaseMethod):
 
         loss_ce = F.cross_entropy(main_logits, label_batch)
         loss_dice = self.dice_loss(main_logits, label_batch)
-        loss_main = (loss_ce + loss_dice) / 2.0
+        loss_main = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         loss_ds_accum = 0.0
         if self.ds_enabled and len(aux_logits) > 0:
@@ -67,7 +72,7 @@ class SupervisedMethod(BaseMethod):
                 aux_pred = all_logits[idx]
                 if aux_pred.shape[2:] != target_shape:
                     aux_pred = F.interpolate(aux_pred, size=target_shape, mode='trilinear', align_corners=False)
-                l_stage = (F.cross_entropy(aux_pred, label_batch) + self.dice_loss(aux_pred, label_batch)) / 2.0
+                l_stage = self.sup_ce_weight * F.cross_entropy(aux_pred, label_batch) + self.sup_dice_weight * self.dice_loss(aux_pred, label_batch)
                 total_loss = total_loss + norm_w[idx] * l_stage
                 loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
         else:

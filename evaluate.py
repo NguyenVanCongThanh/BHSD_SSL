@@ -6,10 +6,10 @@ across multiple medical datasets.
 
 Usage Examples:
     # 1. Benchmark full 5-fold cross-validation experiment:
-    python evaluate.py --exp_dir /home/u001015/experiments/BHSD_multiclass_PICK_5folds --dataset bhsd_multiclass
+    python evaluate.py --exp_dir ~/experiments/BHSD_multiclass_PICK_5folds --dataset bhsd_multiclass
 
     # 2. Benchmark binary task:
-    python evaluate.py --exp_dir /home/u001015/experiments/BHSD_binary_PICK_5folds --dataset bhsd_binary
+    python evaluate.py --exp_dir ~/experiments/BHSD_binary_PICK_5folds --dataset bhsd_binary
 
     # 3. Evaluate single checkpoint:
     python evaluate.py --checkpoint /path/to/model.pth --dataset bhsd_multiclass --fold 0
@@ -28,9 +28,16 @@ import torch
 
 from core.registry import MODELS, DATASETS
 from core.config_parser import load_config
+from data.constants import (
+    DEFAULT_DATA_ROOT,
+    DEFAULT_PATCH_SIZE,
+    DEFAULT_VAL_STRIDE_XY,
+    DEFAULT_VAL_STRIDE_Z,
+    get_dataset_class_names,
+)
 from evaluation.benchmark import benchmark_5folds
 from evaluation.sliding_window import evaluate_dataset_sliding_window
-from evaluation.metrics import format_dice_summary, CLASS_NAMES_MULTICLASS, CLASS_NAMES_BINARY
+from evaluation.metrics import format_dice_summary
 from evaluation.complexity import profile_model_complexity, format_complexity_summary
 import data    # Register datasets
 import models  # Register models
@@ -67,8 +74,8 @@ def main():
     parser.add_argument('--model', type=str, default=None, help='Model architecture (required for legacy checkpoints without config)')
     parser.add_argument('--fold', type=int, default=0, help='Fold to evaluate (used if evaluating single checkpoint)')
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID')
-    parser.add_argument('--stride_xy', type=int, default=32, help='XY stride for sliding window')
-    parser.add_argument('--stride_z', type=int, default=8, help='Z stride for sliding window')
+    parser.add_argument('--stride_xy', type=int, default=DEFAULT_VAL_STRIDE_XY, help='XY stride for sliding window')
+    parser.add_argument('--stride_z', type=int, default=DEFAULT_VAL_STRIDE_Z, help='Z stride for sliding window')
     parser.add_argument('--no_gaussian', action='store_true', help='Disable Gaussian weighting in sliding window (default: Gaussian enabled)')
     parser.add_argument('--use_tta', action='store_true', help='Enable 3D Test-Time Augmentation (flips across spatial axes, nnUNet standard)')
     parser.add_argument('--profile', action='store_true', help='Measure computational complexity (FLOPs, params, latency, VRAM)')
@@ -107,7 +114,13 @@ def main():
     task = args.task or getattr(cfg.data, 'task', getattr(cfg.experiment, 'task', 'multiclass'))
     is_binary = (task == 'binary')
     num_classes = 2 if is_binary else int(getattr(cfg.data, 'num_classes', getattr(cfg.experiment, 'num_classes', 6)))
-    root_path = args.root_path or getattr(cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
+    raw_root_path = (
+        args.root_path
+        or getattr(cfg.data, 'root_path', None)
+        or os.environ.get('MEDSSL_DATA_ROOT')
+        or DEFAULT_DATA_ROOT
+    )
+    root_path = os.path.expanduser(os.path.expandvars(str(raw_root_path)))
 
     # Auto-resolve patch_size: CLI explicit > Checkpoint saved config > YAML cfg > fallback
     if args.patch_size:
@@ -115,10 +128,10 @@ def main():
     elif saved_config and isinstance(saved_config.get('data'), dict) and saved_config['data'].get('patch_size'):
         patch_size = tuple(saved_config['data']['patch_size'])
     else:
-        patch_size = tuple(getattr(cfg.data, 'patch_size', [32, 160, 160]))
+        patch_size = tuple(getattr(cfg.data, 'patch_size', DEFAULT_PATCH_SIZE))
     class_names = getattr(cfg.data, 'class_names', None)
     if class_names is None:
-        class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
+        class_names = get_dataset_class_names(dataset_name, task=task, num_classes=num_classes)
 
     if args.exp_dir:
         # 5-fold benchmark aggregation

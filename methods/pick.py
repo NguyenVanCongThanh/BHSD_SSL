@@ -14,7 +14,13 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from core.distributed import is_main_process
+from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
+
+DEFAULT_PRETRAIN_PSEUDO_THRESH_INIT = 0.2
+DEFAULT_PRETRAIN_PSEUDO_THRESH_LATE = 0.5
+DEFAULT_PRETRAIN_PSEUDO_SWITCH_ITER = 2000
+DEFAULT_SELFTRAIN_PSEUDO_THRESH = 0.5
 from methods.ssl_utils import split_ssl_batch, get_or_create_mim_mask
 from losses import MaskDiceLoss, DiceCELoss
 from data.masking import context_mask
@@ -49,7 +55,22 @@ class PICKMethod(BaseMethod):
         os.makedirs(self.self_snapshot_path, exist_ok=True)
 
         # Compound loss functions (exclude background from Dice for multi-class)
-        self.dice_ce_loss = DiceCELoss(nclass=self.num_classes, weight_dice=0.5, weight_ce=0.5, include_background=False)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        dice_w = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
+        ce_w = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.dice_ce_loss = DiceCELoss(
+            nclass=self.num_classes, weight_dice=dice_w, weight_ce=ce_w, include_background=False
+        )
+
+        pt_init = getattr(self.cfg.method, 'pretrain_pseudo_thresh_init', None)
+        pt_late = getattr(self.cfg.method, 'pretrain_pseudo_thresh_late', None)
+        pt_switch = getattr(self.cfg.method, 'pretrain_pseudo_switch_iter', None)
+        st_thresh = getattr(self.cfg.method, 'selftrain_pseudo_thresh', None)
+        self.pretrain_pseudo_thresh_init = DEFAULT_PRETRAIN_PSEUDO_THRESH_INIT if pt_init is None else float(pt_init)
+        self.pretrain_pseudo_thresh_late = DEFAULT_PRETRAIN_PSEUDO_THRESH_LATE if pt_late is None else float(pt_late)
+        self.pretrain_pseudo_switch_iter = DEFAULT_PRETRAIN_PSEUDO_SWITCH_ITER if pt_switch is None else int(pt_switch)
+        self.selftrain_pseudo_thresh = DEFAULT_SELFTRAIN_PSEUDO_THRESH if st_thresh is None else float(st_thresh)
 
     def pretrain_step(
         self,
@@ -79,11 +100,15 @@ class PICKMethod(BaseMethod):
         _, main_outputs, _ = self.model(torch.cat((cutmix_batch, volume_batch), dim=0))
 
         main_prob = F.softmax(main_outputs.detach(), dim=1)
-        threshold = 0.5 if iter_num > 2000 else 0.2
+        threshold = (
+            self.pretrain_pseudo_thresh_late
+            if iter_num > self.pretrain_pseudo_switch_iter
+            else self.pretrain_pseudo_thresh_init
+        )
         fg_prob = main_prob[num_cutmix:, 1:, :, :, :].sum(dim=1, keepdim=True)
         main_ps_lab = (fg_prob > threshold).float()
 
-        mask_region = torch.clamp(mim_mask + main_ps_lab, 0.0, 1.0) if iter_num > 2000 else mim_mask
+        mask_region = torch.clamp(mim_mask + main_ps_lab, 0.0, 1.0) if iter_num > self.pretrain_pseudo_switch_iter else mim_mask
         mim_batch = volume_batch * (1 - mask_region)
         mim_outputs = self.model(mim_batch, mode='mim')
 
@@ -127,7 +152,7 @@ class PICKMethod(BaseMethod):
             _, un_main_outputs, _ = raw_net(unimg)
             un_prob = F.softmax(un_main_outputs, dim=1)
             fg_un_prob = un_prob[:, 1:, :, :, :].sum(dim=1, keepdim=True)
-            un_ps_lab = (fg_un_prob > 0.5).float()
+            un_ps_lab = (fg_un_prob > self.selftrain_pseudo_thresh).float()
             img_mask, _ = context_mask(img_a, self.mask_ratio)
 
         cutmix_batch_f = img_a * img_mask + unimg_a * (1 - img_mask)

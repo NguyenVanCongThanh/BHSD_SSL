@@ -13,6 +13,12 @@ import torch
 from tqdm import tqdm
 
 from core.registry import DATASETS
+from data.constants import (
+    DEFAULT_PATCH_SIZE,
+    DEFAULT_VAL_STRIDE_XY,
+    DEFAULT_VAL_STRIDE_Z,
+    get_dataset_class_names,
+)
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
     CLASS_NAMES_BINARY,
@@ -34,10 +40,10 @@ def benchmark_5folds(
     task: str = "multiclass",
     model_name: Optional[str] = None,
     device: Optional[torch.device] = None,
-    stride_z: int = 8,
-    stride_xy: int = 32,
+    stride_z: int = DEFAULT_VAL_STRIDE_Z,
+    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
     use_amp: bool = True,
-    patch_size: Tuple[int, int, int] = (32, 160, 160),
+    patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
     dataset_cls=None,
     dataset_name: str = "bhsd",
     class_names: Optional[List[str]] = None,
@@ -88,7 +94,7 @@ def benchmark_5folds(
         num_classes = 2 if is_binary else 6
 
     if class_names is None:
-        class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
+        class_names = get_dataset_class_names(dataset_name, task=task, num_classes=num_classes)
 
     fg_class_names = class_names[1:] if len(class_names) > 1 else class_names
 

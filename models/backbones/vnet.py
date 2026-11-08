@@ -3,12 +3,26 @@ V-Net 3D Volumetric Segmentation Architecture and Modular Encoder/Decoder Blocks
 Reference: Milletari et al., "V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation", 3DV 2016.
 """
 
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union, Sequence
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 from core.registry import MODELS
+
+LEGACY_DROPOUT_PROB = 0.5
+DEFAULT_DROPOUT_PROB = 0.2
+DEFAULT_STAGE_MULTIPLIERS: Tuple[int, ...] = (1, 2, 4, 8, 10, 10, 10)
+DEFAULT_ANISOTROPIC_KERNELS: Tuple[Tuple[int, int, int], ...] = (
+    (1, 3, 3), (1, 3, 3), (3, 3, 3), (3, 3, 3), (3, 3, 3), (3, 3, 3), (3, 3, 3)
+)
+DEFAULT_ISOTROPIC_KERNELS: Tuple[Tuple[int, int, int], ...] = ((3, 3, 3),) * 7
+DEFAULT_ANISOTROPIC_POOL_STRIDES: Tuple[Tuple[int, int, int], ...] = (
+    (1, 2, 2), (1, 2, 2), (2, 2, 2), (2, 2, 2), (1, 2, 2), (1, 2, 2)
+)
+DEFAULT_ISOTROPIC_POOL_STRIDES: Tuple[Tuple[int, int, int], ...] = (
+    (2, 2, 2), (2, 2, 2), (2, 2, 2), (2, 2, 2), (1, 2, 2), (1, 2, 2)
+)
 
 
 class ConvBlock(nn.Module):
@@ -163,7 +177,8 @@ class VNetEncoder(nn.Module):
         n_filters: int = 16,
         normalization: str = 'batchnorm',
         has_dropout: bool = False,
-        has_residual: bool = False
+        has_residual: bool = False,
+        dropout_prob: float = LEGACY_DROPOUT_PROB,
     ):
         super(VNetEncoder, self).__init__()
         self.has_dropout = has_dropout
@@ -182,7 +197,7 @@ class VNetEncoder(nn.Module):
         self.block_four_dw = DownsamplingConvBlock(n_filters * 8, n_filters * 16, normalization=normalization)
 
         self.block_five = conv_block(3, n_filters * 16, n_filters * 16, normalization=normalization)
-        self.dropout = nn.Dropout3d(p=0.5, inplace=False)
+        self.dropout = nn.Dropout3d(p=dropout_prob, inplace=False)
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         x1 = self.block_one(x)
@@ -204,7 +219,8 @@ class VNetDecoder(nn.Module):
         n_filters: int = 16,
         normalization: str = 'batchnorm',
         has_dropout: bool = False,
-        has_residual: bool = False
+        has_residual: bool = False,
+        dropout_prob: float = LEGACY_DROPOUT_PROB,
     ):
         super(VNetDecoder, self).__init__()
         self.has_dropout = has_dropout
@@ -223,7 +239,7 @@ class VNetDecoder(nn.Module):
 
         self.block_nine = conv_block(1, n_filters, n_filters, normalization=normalization)
         self.out_conv = nn.Conv3d(n_filters, n_classes, 1, padding=0)
-        self.dropout = nn.Dropout3d(p=0.5, inplace=False)
+        self.dropout = nn.Dropout3d(p=dropout_prob, inplace=False)
 
     def forward(self, features: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         x1, x2, x3, x4, x5 = features
@@ -319,6 +335,10 @@ class VNet7Stage(nn.Module):
         use_strided_conv: bool = True,
         skip_mode: str = 'concat',
         activation: str = 'leaky_relu',
+        dropout_prob: float = DEFAULT_DROPOUT_PROB,
+        stage_multipliers: Optional[Sequence[int]] = None,
+        pool_strides: Optional[Sequence[Tuple[int, int, int]]] = None,
+        stage_kernels: Optional[Sequence[Tuple[int, int, int]]] = None,
         **kwargs
     ):
         super().__init__()
@@ -334,23 +354,26 @@ class VNet7Stage(nn.Module):
         if self.skip_mode not in ('concat', 'add'):
             raise ValueError(f"skip_mode must be 'concat' or 'add', got {self.skip_mode}")
 
-        f = [
-            base_filters,
-            base_filters * 2,
-            base_filters * 4,
-            base_filters * 8,
-            base_filters * 10,
-            base_filters * 10,
-            base_filters * 10
-        ]  # [32, 64, 128, 256, 320, 320, 320]
+        multipliers = tuple(stage_multipliers) if stage_multipliers is not None else DEFAULT_STAGE_MULTIPLIERS
+        if len(multipliers) != 7:
+            raise ValueError(f"stage_multipliers must have length 7 for VNet7Stage, got {len(multipliers)}")
+        f = [base_filters * int(m) for m in multipliers]  # Default: [32, 64, 128, 256, 320, 320, 320]
 
-        k1 = (1, 3, 3) if anisotropic_kernels else (3, 3, 3)
-        k2 = (1, 3, 3) if anisotropic_kernels else (3, 3, 3)
-        k3 = (3, 3, 3)
-        k4 = (3, 3, 3)
-        k5 = (3, 3, 3)
-        k6 = (3, 3, 3)
-        k_btn = (3, 3, 3)
+        if stage_kernels is not None:
+            kernels = [tuple(k) for k in stage_kernels]
+        else:
+            kernels = list(DEFAULT_ANISOTROPIC_KERNELS if anisotropic_kernels else DEFAULT_ISOTROPIC_KERNELS)
+        if len(kernels) != 7:
+            raise ValueError(f"stage_kernels must have length 7 for VNet7Stage, got {len(kernels)}")
+        k1, k2, k3, k4, k5, k6, k_btn = kernels
+
+        if pool_strides is not None:
+            strides = [tuple(s) for s in pool_strides]
+        else:
+            strides = list(DEFAULT_ANISOTROPIC_POOL_STRIDES if anisotropic_kernels else DEFAULT_ISOTROPIC_POOL_STRIDES)
+        if len(strides) != 6:
+            raise ValueError(f"pool_strides must have length 6 for VNet7Stage, got {len(strides)}")
+        stride1, stride2, stride3, stride4, stride5, stride6 = strides
 
         def _make_downsample(channels: int, stride: Tuple[int, int, int]):
             if use_strided_conv:
@@ -360,51 +383,49 @@ class VNet7Stage(nn.Module):
 
         # Encoder stages & Strides
         self.enc1 = VNetResidualBlock(in_channels, f[0], kernel_size=k1, activation=self.activation)
-        self.pool1 = _make_downsample(f[0], stride=(1, 2, 2) if anisotropic_kernels else (2, 2, 2))
+        self.pool1 = _make_downsample(f[0], stride=stride1)
 
         self.enc2 = VNetResidualBlock(f[0], f[1], kernel_size=k2, activation=self.activation)
-        self.pool2 = _make_downsample(f[1], stride=(1, 2, 2) if anisotropic_kernels else (2, 2, 2))
+        self.pool2 = _make_downsample(f[1], stride=stride2)
 
         self.enc3 = VNetResidualBlock(f[1], f[2], kernel_size=k3, activation=self.activation)
-        self.pool3 = _make_downsample(f[2], stride=(2, 2, 2))
+        self.pool3 = _make_downsample(f[2], stride=stride3)
 
         self.enc4 = VNetResidualBlock(f[2], f[3], kernel_size=k4, activation=self.activation)
-        self.pool4 = _make_downsample(f[3], stride=(2, 2, 2))
+        self.pool4 = _make_downsample(f[3], stride=stride4)
 
         self.enc5 = VNetResidualBlock(f[3], f[4], kernel_size=k5, activation=self.activation)
-        self.pool5 = _make_downsample(f[4], stride=(1, 2, 2))
+        self.pool5 = _make_downsample(f[4], stride=stride5)
 
         self.enc6 = VNetResidualBlock(f[4], f[5], kernel_size=k6, activation=self.activation)
-        self.pool6 = _make_downsample(f[5], stride=(1, 2, 2))
+        self.pool6 = _make_downsample(f[5], stride=stride6)
 
         self.bottleneck = VNetResidualBlock(f[5], f[6], kernel_size=k_btn, activation=self.activation)
 
         # Decoder stages (skip_mode = 'concat' -> in_channels = f * 2; skip_mode = 'add' -> in_channels = f)
         dec_in6 = f[5] * 2 if self.skip_mode == 'concat' else f[5]
-        self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=stride6, stride=stride6)
         self.dec6 = VNetResidualBlock(dec_in6, f[5], kernel_size=k6, activation=self.activation)
 
         dec_in5 = f[4] * 2 if self.skip_mode == 'concat' else f[4]
-        self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5)
         self.dec5 = VNetResidualBlock(dec_in5, f[4], kernel_size=k5, activation=self.activation)
 
-        self.dropout = nn.Dropout3d(p=0.2) if has_dropout else nn.Identity()
+        self.dropout = nn.Dropout3d(p=dropout_prob) if has_dropout else nn.Identity()
 
         dec4_in = f[4]
         dec_in4 = f[3] * 2 if self.skip_mode == 'concat' else f[3]
-        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=stride4, stride=stride4)
         self.dec4 = VNetResidualBlock(dec_in4, f[3], kernel_size=k4, activation=self.activation)
 
         dec_in3 = f[2] * 2 if self.skip_mode == 'concat' else f[2]
-        self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=stride3, stride=stride3)
         self.dec3 = VNetResidualBlock(dec_in3, f[2], kernel_size=k3, activation=self.activation)
 
-        stride2 = (1, 2, 2) if anisotropic_kernels else (2, 2, 2)
         dec_in2 = f[1] * 2 if self.skip_mode == 'concat' else f[1]
         self.up2 = nn.ConvTranspose3d(f[2], f[1], kernel_size=stride2, stride=stride2)
         self.dec2 = VNetResidualBlock(dec_in2, f[1], kernel_size=k2, activation=self.activation)
 
-        stride1 = (1, 2, 2) if anisotropic_kernels else (2, 2, 2)
         dec_in1 = f[0] * 2 if self.skip_mode == 'concat' else f[0]
         self.up1 = nn.ConvTranspose3d(f[1], f[0], kernel_size=stride1, stride=stride1)
         self.dec1 = VNetResidualBlock(dec_in1, f[0], kernel_size=k1, activation=self.activation)
@@ -517,6 +538,10 @@ class VNet(nn.Module):
         use_strided_conv: bool = True,
         skip_mode: str = 'concat',
         activation: str = 'leaky_relu',
+        dropout_prob: Optional[float] = None,
+        stage_multipliers: Optional[Sequence[int]] = None,
+        pool_strides: Optional[Sequence[Tuple[int, int, int]]] = None,
+        stage_kernels: Optional[Sequence[Tuple[int, int, int]]] = None,
         **kwargs
     ):
         super(VNet, self).__init__()
@@ -534,17 +559,23 @@ class VNet(nn.Module):
                 use_strided_conv=use_strided_conv,
                 skip_mode=skip_mode,
                 activation=activation,
+                dropout_prob=DEFAULT_DROPOUT_PROB if dropout_prob is None else dropout_prob,
+                stage_multipliers=stage_multipliers,
+                pool_strides=pool_strides,
+                stage_kernels=stage_kernels,
                 **kwargs
             )
             self.is_7stage = True
         else:
+            legacy_drop = LEGACY_DROPOUT_PROB if dropout_prob is None else dropout_prob
             self.encoder = VNetEncoder(
                 n_channels=in_channels,
                 n_classes=num_classes,
                 n_filters=n_filters,
                 normalization=normalization,
                 has_dropout=has_dropout,
-                has_residual=has_residual
+                has_residual=has_residual,
+                dropout_prob=legacy_drop,
             )
             self.decoder = VNetDecoder(
                 n_channels=in_channels,
@@ -552,7 +583,8 @@ class VNet(nn.Module):
                 n_filters=n_filters,
                 normalization=normalization,
                 has_dropout=has_dropout,
-                has_residual=has_residual
+                has_residual=has_residual,
+                dropout_prob=legacy_drop,
             )
             self.is_7stage = False
 

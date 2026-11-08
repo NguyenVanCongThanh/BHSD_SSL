@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
+from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from methods.ssl_utils import extract_logits, split_ssl_batch, compute_masked_ce_loss
 from losses import MaskDiceLoss
@@ -29,6 +30,10 @@ class BCPMethod(BaseMethod):
         if self.u_weight < 0:
             raise ValueError('u_weight must be nonnegative')
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
 
     def train_step(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
         batch = split_ssl_batch(sampled_batch, self.labeled_bs, device=self.device)
@@ -69,7 +74,7 @@ class BCPMethod(BaseMethod):
         ], dim=0)
         loss_ce = compute_masked_ce_loss(mix_logits, mix_labs, weights)
         loss_dice = self.dice_loss(mix_logits, mix_labs, mask=weights)
-        total_loss = (loss_ce + loss_dice) / 2.0
+        total_loss = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         loss_dict = {
             "total": float(total_loss.item()),

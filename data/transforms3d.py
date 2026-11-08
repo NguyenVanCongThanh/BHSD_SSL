@@ -7,6 +7,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from data.constants import (
+    DEFAULT_AUGMENTATION_CONFIG,
+    DEFAULT_CROP_JITTER_XY,
+    DEFAULT_CROP_JITTER_Z,
+    DEFAULT_FOREGROUND_OVERSAMPLE_PROB,
+)
+
 
 class RandomRotFlip(object):
     """Randomly rotate (90 deg) and flip the 3D volume along spatial dimensions."""
@@ -34,9 +41,17 @@ class RandomCrop(object):
     the crop is centered on a random foreground lesion voxel.
     Applies symmetric zero-padding if any dimension of the volume is smaller than the target.
     """
-    def __init__(self, output_size: Tuple[int, int, int], foreground_prob: float = 0.33):
+    def __init__(
+        self,
+        output_size: Tuple[int, int, int],
+        foreground_prob: float = DEFAULT_FOREGROUND_OVERSAMPLE_PROB,
+        jitter_z: int = DEFAULT_CROP_JITTER_Z,
+        jitter_xy: int = DEFAULT_CROP_JITTER_XY,
+    ):
         self.output_size = output_size
         self.foreground_prob = foreground_prob
+        self.jitter_z = int(jitter_z)
+        self.jitter_xy = int(jitter_xy)
 
     def __call__(self, sample: Dict) -> Dict:
         image, label = sample['image'], sample['label']
@@ -64,9 +79,12 @@ class RandomCrop(object):
             target_idx = np.random.randint(0, len(fg_coords))
             cz, cy, cx = fg_coords[target_idx]
             # Center the crop around the selected foreground voxel with random jitter
-            z1 = int(cz - self.output_size[0] // 2 + np.random.randint(-4, 5))
-            y1 = int(cy - self.output_size[1] // 2 + np.random.randint(-16, 17))
-            x1 = int(cx - self.output_size[2] // 2 + np.random.randint(-16, 17))
+            jz = np.random.randint(-self.jitter_z, self.jitter_z + 1) if self.jitter_z > 0 else 0
+            jy = np.random.randint(-self.jitter_xy, self.jitter_xy + 1) if self.jitter_xy > 0 else 0
+            jx = np.random.randint(-self.jitter_xy, self.jitter_xy + 1) if self.jitter_xy > 0 else 0
+            z1 = int(cz - self.output_size[0] // 2 + jz)
+            y1 = int(cy - self.output_size[1] // 2 + jy)
+            x1 = int(cx - self.output_size[2] // 2 + jx)
             z1 = max(0, min(z1, z - self.output_size[0]))
             y1 = max(0, min(y1, y - self.output_size[1]))
             x1 = max(0, min(x1, x - self.output_size[2]))
@@ -144,7 +162,11 @@ class RandomScaling3D(object):
     Randomly scale 3D volume by a factor within [min_scale, max_scale] (following nnUNet design).
     Uses trilinear interpolation for image and nearest neighbor for segmentation label.
     """
-    def __init__(self, scale_range: Tuple[float, float] = (0.85, 1.15), prob: float = 0.2):
+    def __init__(
+        self,
+        scale_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["scale_range"],
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["scale_prob"],
+    ):
         self.scale_range = scale_range
         self.prob = prob
 
@@ -209,7 +231,11 @@ class GaussianBlur3D(object):
     Subtle Gaussian blurring on 3D CT volume to simulate varying scanner resolution/noise.
     Following nnUNet data augmentation specification.
     """
-    def __init__(self, sigma_range: Tuple[float, float] = (0.5, 1.0), prob: float = 0.2):
+    def __init__(
+        self,
+        sigma_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["blur_sigma_range"],
+        prob: float = 0.2,
+    ):
         self.sigma_range = sigma_range
         self.prob = prob
 
@@ -228,7 +254,12 @@ class GammaTransform(object):
     Enriches contrast around diverse lesion densities (e.g. hyperdense EDH vs isodense subacute SDH).
     Normalized to preserve foreground range.
     """
-    def __init__(self, gamma_range: Tuple[float, float] = (0.7, 1.5), prob: float = 0.2, retain_stats: bool = True):
+    def __init__(
+        self,
+        gamma_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["gamma_range"],
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["gamma_prob"],
+        retain_stats: bool = True,
+    ):
         self.gamma_range = gamma_range
         self.prob = prob
         self.retain_stats = retain_stats

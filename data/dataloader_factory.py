@@ -5,7 +5,7 @@ and supervised / semi-supervised data loaders with single-GPU and DDP samplers.
 """
 
 from dataclasses import dataclass
-from typing import Tuple, Sequence, Optional, List
+from typing import Tuple, Sequence, Optional, List, Dict, Any
 import logging
 import os
 import h5py
@@ -17,6 +17,12 @@ from torchvision import transforms
 from core.config_parser import Config
 from core.batching import BatchLayout
 from core.registry import DATASETS
+from data.constants import (
+    BHSD_FOREGROUND_NAMES,
+    DEFAULT_AUGMENTATION_CONFIG,
+    DEFAULT_DATA_ROOT,
+    DEFAULT_FOREGROUND_OVERSAMPLE_PROB,
+)
 from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
 from data.transforms3d import (
     RandomRotFlip,
@@ -26,6 +32,41 @@ from data.transforms3d import (
     GaussianBlur3D,
     GammaTransform,
 )
+
+DEFAULT_STRATIFIED_FG_CLASSES = len(BHSD_FOREGROUND_NAMES)
+DEFAULT_STRATIFIED_STRONG_VOXEL_THRESH = 1000
+STRATIFIED_MIN_CASE_WEIGHT = 1000.0
+STRATIFIED_COVERAGE_WEIGHT = 100.0
+STRATIFIED_VOXEL_STD_PENALTY = 0.5
+
+
+def _resolve_data_root(cfg: Config) -> str:
+    """Resolve dataset root directory from cfg.data.root_path, MEDSSL_DATA_ROOT, or default relative dir."""
+    data_cfg = getattr(cfg, 'data', None)
+    root_path = getattr(data_cfg, 'root_path', None) if data_cfg is not None else None
+    if not root_path:
+        root_path = os.environ.get('MEDSSL_DATA_ROOT') or DEFAULT_DATA_ROOT
+    return os.path.expanduser(os.path.expandvars(str(root_path)))
+
+
+def _extract_aug_config(cfg: Config) -> Dict[str, Any]:
+    """Read optional data augmentation overrides from cfg.data with canonical defaults."""
+    data_cfg = getattr(cfg, 'data', None)
+    if data_cfg is None:
+        return dict(DEFAULT_AUGMENTATION_CONFIG)
+    cfg_map = {
+        'scale_range': getattr(data_cfg, 'aug_scale_range', None),
+        'scale_prob': getattr(data_cfg, 'aug_scale_prob', None),
+        'gamma_range': getattr(data_cfg, 'aug_gamma_range', None),
+        'gamma_prob': getattr(data_cfg, 'aug_gamma_prob', None),
+        'blur_sigma_range': getattr(data_cfg, 'aug_blur_sigma_range', None),
+        'blur_prob': getattr(data_cfg, 'aug_blur_prob', None),
+    }
+    merged = dict(DEFAULT_AUGMENTATION_CONFIG)
+    for k, v in cfg_map.items():
+        if v is not None:
+            merged[k] = tuple(v) if k.endswith('_range') else float(v)
+    return merged
 
 
 @dataclass
@@ -40,20 +81,36 @@ class DataLoaderBundle:
 
 def build_bhsd_transforms(
     patch_size: Tuple[int, int, int],
-    extended_aug: bool = True
+    extended_aug: bool = True,
+    foreground_prob: Optional[float] = None,
+    aug_config: Optional[Dict[str, Any]] = None,
 ) -> transforms.Compose:
     """Build 3D data augmentation pipeline for training."""
+    resolved_aug = dict(DEFAULT_AUGMENTATION_CONFIG)
+    if aug_config:
+        resolved_aug.update(aug_config)
+    fg_prob = DEFAULT_FOREGROUND_OVERSAMPLE_PROB if foreground_prob is None else float(foreground_prob)
+
     aug_list = [
         RandomRotFlip(),
     ]
     if extended_aug:
         aug_list.extend([
-            RandomScaling3D(scale_range=(0.85, 1.15), prob=0.2),
-            GammaTransform(gamma_range=(0.7, 1.5), prob=0.2),
-            GaussianBlur3D(sigma_range=(0.5, 1.0), prob=0.15),
+            RandomScaling3D(
+                scale_range=tuple(resolved_aug['scale_range']),
+                prob=float(resolved_aug['scale_prob']),
+            ),
+            GammaTransform(
+                gamma_range=tuple(resolved_aug['gamma_range']),
+                prob=float(resolved_aug['gamma_prob']),
+            ),
+            GaussianBlur3D(
+                sigma_range=tuple(resolved_aug['blur_sigma_range']),
+                prob=float(resolved_aug['blur_prob']),
+            ),
         ])
     aug_list.extend([
-        RandomCrop(patch_size),
+        RandomCrop(patch_size, foreground_prob=fg_prob),
         ToTensor()
     ])
     return transforms.Compose(aug_list)
@@ -63,8 +120,8 @@ def select_stratified_labeled_indices(
     db_train: Dataset,
     labelnum: int,
     max_samples: int,
-    num_fg_classes: int = 5,
-    strong_voxel_thresh: int = 1000,
+    num_fg_classes: int = DEFAULT_STRATIFIED_FG_CLASSES,
+    strong_voxel_thresh: int = DEFAULT_STRATIFIED_STRONG_VOXEL_THRESH,
 ) -> List[int]:
     """
     Deterministically select `labelnum` cases out of `0..max_samples-1` using
@@ -123,8 +180,12 @@ def select_stratified_labeled_indices(
             min_cases = float(new_strong.min())
             sum_covered = float(np.minimum(new_strong, target_cases_per_class).sum())
             log_vox = np.log1p(new_vox)
-            vox_balance = float(log_vox.sum() - 0.5 * np.std(log_vox))
-            score = min_cases * 1000.0 + sum_covered * 100.0 + vox_balance
+            vox_balance = float(log_vox.sum() - STRATIFIED_VOXEL_STD_PENALTY * np.std(log_vox))
+            score = (
+                min_cases * STRATIFIED_MIN_CASE_WEIGHT
+                + sum_covered * STRATIFIED_COVERAGE_WEIGHT
+                + vox_balance
+            )
             if score > best_score:
                 best_score = score
                 best_idx = idx
@@ -166,10 +227,17 @@ def resolve_labeled_unlabeled_indices(
                 f"data.labeled_indices contains index outside [0, max_samples={max_samples}): {labeled_idxs}"
             )
     elif sampling_mode == 'stratified':
+        strong_thresh_cfg = getattr(cfg.data, 'strong_voxel_thresh', None)
+        strong_thresh = (
+            DEFAULT_STRATIFIED_STRONG_VOXEL_THRESH
+            if strong_thresh_cfg is None
+            else int(strong_thresh_cfg)
+        )
         labeled_idxs = select_stratified_labeled_indices(
             db_train=db_train,
             labelnum=labelnum,
             max_samples=max_samples,
+            strong_voxel_thresh=strong_thresh,
         )
     else:
         labeled_idxs = list(range(labelnum))
@@ -197,9 +265,15 @@ def build_bhsd_dataloaders(
     Construct training and validation datasets, verify split isolation,
     assign labeled/unlabeled indices, and build DataLoaders with appropriate samplers.
     """
-    root_path = getattr(cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
+    root_path = _resolve_data_root(cfg)
     use_extended_da = bool(getattr(cfg.data, 'extended_aug', True))
-    train_transforms = build_bhsd_transforms(patch_size=patch_size, extended_aug=use_extended_da)
+    fg_prob_cfg = getattr(cfg.data, 'foreground_prob', None)
+    train_transforms = build_bhsd_transforms(
+        patch_size=patch_size,
+        extended_aug=use_extended_da,
+        foreground_prob=fg_prob_cfg,
+        aug_config=_extract_aug_config(cfg),
+    )
 
     db_train = DATASETS.build(
         dataset_name,

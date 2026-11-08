@@ -16,6 +16,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
+from data.constants import (
+    DEFAULT_CONSISTENCY_DICE_WEIGHT,
+    DEFAULT_CONSISTENCY_MSE_WEIGHT,
+    DEFAULT_FG_CONFIDENCE_MAX_THRESH,
+    DEFAULT_SUPERVISED_CE_WEIGHT,
+    DEFAULT_SUPERVISED_DICE_WEIGHT,
+)
 from methods.base_method import BaseMethod
 from methods.ssl_utils import update_ema_variables
 from losses import MaskDiceLoss, extract_multiscale_outputs, ConsistencyLoss
@@ -96,13 +103,31 @@ class MeanTeacherMethod(BaseMethod):
         self.ema_model.eval()
 
         # Modular Loss functions
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
+
+        fg_conf_cfg = getattr(self.cfg.method, 'fg_confidence_max_thresh', None)
+        cons_dice_cfg = getattr(self.cfg.method, 'consistency_dice_weight', None)
+        cons_mse_cfg = getattr(self.cfg.method, 'consistency_mse_weight', None)
+
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
         self.consistency_loss = ConsistencyLoss(
             consistency_type=self.consistency_type,
             num_classes=self.num_classes,
             is_binary=self.is_binary,
             confidence_thresh=self.confidence_thresh,
-            class_weights=self.class_weights
+            class_weights=self.class_weights,
+            fg_confidence_max_thresh=(
+                DEFAULT_FG_CONFIDENCE_MAX_THRESH if fg_conf_cfg is None else float(fg_conf_cfg)
+            ),
+            weight_dice=(
+                DEFAULT_CONSISTENCY_DICE_WEIGHT if cons_dice_cfg is None else float(cons_dice_cfg)
+            ),
+            weight_mse=(
+                DEFAULT_CONSISTENCY_MSE_WEIGHT if cons_mse_cfg is None else float(cons_mse_cfg)
+            ),
         )
 
     def get_current_consistency_weight(self, iter_num: int, epoch: float) -> float:
@@ -152,7 +177,7 @@ class MeanTeacherMethod(BaseMethod):
         lab_targets = label_batch[:self.labeled_bs]
         loss_ce = F.cross_entropy(lab_logits, lab_targets)
         loss_dice = self.dice_loss(lab_logits, lab_targets)
-        loss_sup_main = (loss_ce + loss_dice) / 2.0
+        loss_sup_main = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         # Multi-scale deep supervision on labeled samples
         loss_ds_accum = 0.0
@@ -166,7 +191,7 @@ class MeanTeacherMethod(BaseMethod):
                 aux_lab = all_student_lab[idx]
                 if aux_lab.shape[2:] != target_shape:
                     aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
-                l_stage = (F.cross_entropy(aux_lab, lab_targets) + self.dice_loss(aux_lab, lab_targets)) / 2.0
+                l_stage = self.sup_ce_weight * F.cross_entropy(aux_lab, lab_targets) + self.sup_dice_weight * self.dice_loss(aux_lab, lab_targets)
                 loss_supervised = loss_supervised + norm_w[idx] * l_stage
                 loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
         else:

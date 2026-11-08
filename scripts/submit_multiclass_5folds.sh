@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=pick_multi_5f
 #SBATCH --array=0-4%2
-#SBATCH --output=/home/u001015/experiments/logs_pick_multi_fold_%a_%j.log
-#SBATCH --error=/home/u001015/experiments/logs_pick_multi_fold_%a_%j.err
+#SBATCH --output=logs_pick_multi_fold_%a_%j.log
+#SBATCH --error=logs_pick_multi_fold_%a_%j.err
 #SBATCH --partition=gpu-queue
 #SBATCH --qos=normal
 #SBATCH --cpus-per-task=8
@@ -11,7 +11,8 @@
 #SBATCH --time=2-00:00:00
 
 # 1. Kích hoạt môi trường ảo
-source /home/u001015/.venv/nnunet/bin/activate
+VENV_DIR="${VENV_DIR:-$HOME/.venv/nnunet}"
+source "${VENV_DIR}/bin/activate"
 
 # 2. Lấy Fold ID từ Slurm Array (0, 1, 2, 3, 4)
 FOLD_ID=$SLURM_ARRAY_TASK_ID
@@ -22,7 +23,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 # 4. Thiết lập thư mục lưu logs/experiments
-mkdir -p /home/u001015/experiments
+EXP_DIR="${MEDSSL_EXP_DIR:-$HOME/experiments}"
+mkdir -p "$EXP_DIR"
 
 echo "=========================================================================="
 echo "=== BẮT ĐẦU CHẠY PICK MULTI-CLASS FOLD $FOLD_ID (Slurm Job ID: $SLURM_JOB_ID, Task: $FOLD_ID) ==="

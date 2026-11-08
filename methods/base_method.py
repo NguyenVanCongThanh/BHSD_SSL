@@ -25,7 +25,13 @@ from core.distributed import (
     is_main_process
 )
 from core.optimizers import build_optimizer, calculate_lr
-from data.dataset_bhsd import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
+from data.constants import (
+    DEFAULT_CLIP_NORM,
+    DEFAULT_PATCH_SIZE,
+    DEFAULT_VAL_STRIDE_XY,
+    DEFAULT_VAL_STRIDE_Z,
+    get_dataset_class_names,
+)
 from data.dataloader_factory import build_bhsd_dataloaders
 from utils.wandb_manager import WandbManager
 from training import GradientHandler, ValidationRunner
@@ -78,14 +84,15 @@ class BaseMethod(abc.ABC):
         if cfg_class_names:
             self.class_names = list(cfg_class_names)
         else:
-            self.class_names = BHSD_BINARY_NAMES if self.is_binary else BHSD_MULTICLASS_NAMES
+            self.class_names = get_dataset_class_names(self.dataset_name, task=self.task, num_classes=self.num_classes)
 
-        self.patch_size = tuple(getattr(self.cfg.data, 'patch_size', [32, 160, 160]))
+        self.patch_size = tuple(getattr(self.cfg.data, 'patch_size', DEFAULT_PATCH_SIZE))
         self.fold = int(getattr(self.cfg.experiment, 'fold', 0))
         self.exp_name = getattr(self.cfg.experiment, 'name', 'experiment')
 
         # Snapshot path
-        exp_dir = getattr(self.cfg.experiment, 'exp_dir', '../experiments')
+        raw_exp_dir = getattr(self.cfg.experiment, 'exp_dir', None) or os.environ.get('MEDSSL_EXP_DIR', '../experiments')
+        exp_dir = os.path.expanduser(os.path.expandvars(str(raw_exp_dir)))
         self.snapshot_path = os.path.join(exp_dir, self.exp_name, f"fold_{self.fold}")
         # All ranks reject an occupied output directory before DDP or logging starts.
         WandbManager.check_fresh_run_directory(self.cfg, self.fold)
@@ -204,8 +211,8 @@ class BaseMethod(abc.ABC):
     def validation_options(self):
         return {
             'patch_size': self.patch_size,
-            'stride_xy': int(getattr(self.cfg.logging, 'val_stride_xy', 32)),
-            'stride_z': int(getattr(self.cfg.logging, 'val_stride_z', 8)),
+            'stride_xy': int(getattr(self.cfg.logging, 'val_stride_xy', DEFAULT_VAL_STRIDE_XY)),
+            'stride_z': int(getattr(self.cfg.logging, 'val_stride_z', DEFAULT_VAL_STRIDE_Z)),
             'use_amp': bool(getattr(self.cfg.logging, 'val_amp', self.use_amp)),
             'use_gaussian': bool(getattr(self.cfg.logging, 'val_gaussian', True)),
             'use_tta': bool(getattr(self.cfg.logging, 'val_tta', False)),
@@ -389,6 +396,10 @@ class BaseMethod(abc.ABC):
 
     def apply_gradients(self, loss, iter_num):
         if getattr(self, '_gradient_handler', None) is None:
+            cfg_obj = getattr(self, 'cfg', None)
+            method_cfg = getattr(cfg_obj, 'method', None) if cfg_obj is not None else None
+            clip_norm_cfg = getattr(method_cfg, 'clip_norm', None) if method_cfg is not None else None
+            clip_norm = DEFAULT_CLIP_NORM if clip_norm_cfg is None else float(clip_norm_cfg)
             self._gradient_handler = GradientHandler(
                 optimizers=self.training_optimizers(),
                 models=self.training_models(),
@@ -396,7 +407,7 @@ class BaseMethod(abc.ABC):
                 use_amp=self.use_amp,
                 is_ddp=self.is_ddp,
                 device=self.device,
-                clip_norm=12.0,
+                clip_norm=clip_norm,
                 after_step_fn=self.after_optimizer_step
             )
         success = self._gradient_handler.apply_gradients(loss, iter_num)

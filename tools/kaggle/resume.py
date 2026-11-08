@@ -6,6 +6,7 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     """Read the source configuration and stage an owned cloud checkpoint before training."""
     import copy
     import json
+    import os
     import shutil
     import uuid
     from pathlib import Path
@@ -15,8 +16,13 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     if resume_mode not in ('same-run', 'new-run'):
         raise ValueError('Invalid resume mode')
     if '/' not in run_path:
-        run_path = ('thanhnguyen2005243-ho-chi-minh-city-university-of-technology/'
-                    'BHSD_MeanTeacher/' + run_path)
+        default_prefix = os.environ.get(
+            'MEDSSL_WANDB_RUN_PREFIX',
+            'thanhnguyen2005243-ho-chi-minh-city-university-of-technology/BHSD_MeanTeacher/',
+        )
+        if not default_prefix.endswith('/'):
+            default_prefix += '/'
+        run_path = default_prefix + run_path
     if len(run_path.split('/')) != 3:
         raise ValueError('Expected run ID or entity/project/id')
     run = wandb.Api().run(run_path)

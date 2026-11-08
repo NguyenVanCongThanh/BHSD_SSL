@@ -1,6 +1,7 @@
 """Shared model specification for training and checkpoint-based evaluation."""
 import inspect
 from core.registry import MODELS
+from data.constants import DEFAULT_PATCH_SIZE
 
 
 def model_spec_from_config(config, num_classes, legacy=False):
@@ -68,7 +69,7 @@ def model_spec_from_config(config, num_classes, legacy=False):
     kwargs.setdefault('in_channels', 1)
     kwargs['num_classes'] = num_classes
     if not legacy and 'img_shape' in explicit_params:
-        kwargs.setdefault('img_shape', tuple(config.get('data', {}).get('patch_size', (32, 160, 160))))
+        kwargs.setdefault('img_shape', tuple(config.get('data', {}).get('patch_size', DEFAULT_PATCH_SIZE)))
     return {'name': name, 'kwargs': kwargs}
 
 

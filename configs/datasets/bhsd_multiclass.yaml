@@ -10,7 +10,6 @@ data:
     - "Intraventricular"
     - "Subarachnoid"
     - "Subdural"
-  root_path: "/home/u001015/notebook/preprocessed_bhsd_pick/"
 
 experiment:
   task: "multiclass"

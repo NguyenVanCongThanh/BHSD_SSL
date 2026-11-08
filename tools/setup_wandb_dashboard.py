@@ -18,7 +18,17 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from data.constants import (
+    BHSD_BINARY_FOREGROUND_NAMES,
+    BHSD_FOREGROUND_NAMES,
+)
 
 try:
     import wandb
@@ -38,17 +48,8 @@ def check_dependencies():
             "Please install via: pip install 'wandb[workspaces]'"
         )
 
-BHSD_FOREGROUND_CLASSES = [
-    "Epidural",
-    "Intraparenchymal",
-    "Intraventricular",
-    "Subarachnoid",
-    "Subdural"
-]
-
-BHSD_BINARY_CLASSES = [
-    "Hemorrhage"
-]
+BHSD_FOREGROUND_CLASSES = list(BHSD_FOREGROUND_NAMES)
+BHSD_BINARY_CLASSES = list(BHSD_BINARY_FOREGROUND_NAMES)
 
 
 def build_overview_workspace(

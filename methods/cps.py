@@ -10,11 +10,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
+from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, resolve_ds_weights
 from utils.ramps import sigmoid_rampup
 from utils.checkpoint import get_raw_model
 from core.optimizers import build_optimizer
+
+DEFAULT_CPS_DS_WEIGHTS = [0.533, 0.267, 0.133, 0.067]
 
 
 @METHODS.register("cps")
@@ -49,6 +52,10 @@ class CPSMethod(BaseMethod):
         self.optimizer2 = build_optimizer(self.model2, self.cfg)
 
         self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
+        sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
+        self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
+        self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
 
         # Deep supervision configuration: only activate if model architecture actually supports it
         model_caps = set(getattr(get_raw_model(self.model), 'CAPABILITIES', set()))
@@ -61,14 +68,14 @@ class CPSMethod(BaseMethod):
 
         ds_cfg = getattr(self.cfg.method, 'deep_supervision', {})
         if isinstance(ds_cfg, dict) or hasattr(ds_cfg, 'weights'):
-            self.ds_weights = list(getattr(ds_cfg, 'weights', [0.533, 0.267, 0.133, 0.067]))
+            self.ds_weights = list(getattr(ds_cfg, 'weights', DEFAULT_CPS_DS_WEIGHTS))
         else:
-            self.ds_weights = [0.533, 0.267, 0.133, 0.067]
+            self.ds_weights = list(DEFAULT_CPS_DS_WEIGHTS)
 
     def _compute_multi_scale_sup_loss(self, main_lab: torch.Tensor, aux_labs: list, targets: torch.Tensor) -> Tuple[torch.Tensor, float]:
         l_ce = F.cross_entropy(main_lab, targets)
         l_dice = self.dice_loss(main_lab, targets)
-        l_main = (l_ce + l_dice) / 2.0
+        l_main = self.sup_ce_weight * l_ce + self.sup_dice_weight * l_dice
 
         if not self.ds_enabled or len(aux_labs) == 0:
             return l_main, 0.0
@@ -84,7 +91,7 @@ class CPSMethod(BaseMethod):
             aux = all_labs[idx]
             if aux.shape[2:] != target_shape:
                 aux = F.interpolate(aux, size=target_shape, mode='trilinear', align_corners=False)
-            stage_loss = (F.cross_entropy(aux, targets) + self.dice_loss(aux, targets)) / 2.0
+            stage_loss = self.sup_ce_weight * F.cross_entropy(aux, targets) + self.sup_dice_weight * self.dice_loss(aux, targets)
             total_sup = total_sup + norm_w[idx] * stage_loss
             ds_accum = ds_accum + norm_w[idx] * float(stage_loss.item())
 

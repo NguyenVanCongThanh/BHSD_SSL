@@ -8,10 +8,29 @@ import json
 import argparse
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from data.constants import BHSD_FOREGROUND_NAMES
+
 try:
     from .crawl_storage import comparison_file
 except ImportError:
     from crawl_storage import comparison_file
+
+
+def _discover_dice_keys(records):
+    """Discover `val/dice_*` metric keys preserving canonical BHSD order first."""
+    found = set()
+    for rec in records:
+        if isinstance(rec, dict):
+            found.update(k for k in rec.keys() if k.startswith("val/dice_"))
+    if not found:
+        return [f"val/dice_{name}" for name in BHSD_FOREGROUND_NAMES]
+    canonical = [f"val/dice_{name}" for name in BHSD_FOREGROUND_NAMES if f"val/dice_{name}" in found]
+    extras = sorted(k for k in found if k not in canonical)
+    return canonical + extras
 
 
 def print_summary(data):
@@ -40,16 +59,16 @@ def print_summary(data):
 
     print("\n" + "=" * 60)
     print("METRICS SUMMARY")
-    for name, r in [("Recent", r_recent), ("Previous", r_prev), ("Baseline", r_base)]:
+    runs = [("Recent", r_recent), ("Previous", r_prev), ("Baseline", r_base)]
+    dice_keys = _discover_dice_keys([r.get('summary', {}) for _, r in runs])
+    for name, r in runs:
         s = r.get('summary', {})
         print(f"\n--- {name} ({r.get('id')}) ---")
         print(f"  Best mDice:  {s.get('val/best_mDice')} (at best_iter: {s.get('best_iter')})")
         print(f"  Final mDice: {s.get('val/mDice')}")
-        print(f"  Epidural:          {s.get('val/dice_Epidural')}")
-        print(f"  Intraparenchymal:  {s.get('val/dice_Intraparenchymal')}")
-        print(f"  Intraventricular:  {s.get('val/dice_Intraventricular')}")
-        print(f"  Subarachnoid:      {s.get('val/dice_Subarachnoid')}")
-        print(f"  Subdural:          {s.get('val/dice_Subdural')}")
+        for d_key in dice_keys:
+            cls_label = f"{d_key[len('val/dice_'):]}:"
+            print(f"  {cls_label:19s} {s.get(d_key)}")
         hist = r.get('history', [])
         print(f"  Logged val steps:  {len(hist)}")
         if hist:
@@ -99,21 +118,22 @@ def print_classes(data):
         print("\n[Classes] Không có dữ liệu lịch sử per-class để hiển thị.")
         return
 
-    print("\n" + "=" * 65)
+    dice_keys = _discover_dice_keys(recent_history)
+    headers = [f"{k[len('val/dice_'):][:8]:>8}" for k in dice_keys]
+    header_line = f"{'Iter':>6} | {'mDice':>7} | " + " ".join(headers)
+    width = max(len(header_line), 40)
+
+    print("\n" + "=" * width)
     print("PER-CLASS DICE TREND (Target Recent)")
-    print("=" * 65)
-    print(f"{'Iter':>6} | {'mDice':>7} | {'Epidural':>8} {'IntraPar':>8} {'IntraVen':>8} {'SubArach':>8} {'Subdural':>8}")
-    print("-" * 65)
+    print("=" * width)
+    print(header_line)
+    print("-" * width)
 
     for h in recent_history:
         it = h.get("iter", 0)
         m = h.get("val/mDice", 0)
-        ed = h.get("val/dice_Epidural", 0)
-        ip = h.get("val/dice_Intraparenchymal", 0)
-        iv = h.get("val/dice_Intraventricular", 0)
-        sa = h.get("val/dice_Subarachnoid", 0)
-        sd = h.get("val/dice_Subdural", 0)
-        print(f"{it:6d} | {m:7.4f} | {ed:8.4f} {ip:8.4f} {iv:8.4f} {sa:8.4f} {sd:8.4f}")
+        vals = " ".join(f"{float(h.get(k, 0) or 0):8.4f}" for k in dice_keys)
+        print(f"{it:6d} | {m:7.4f} | {vals}")
 
 
 def main(mode=None, input_file=None):

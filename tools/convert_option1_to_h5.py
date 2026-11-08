@@ -151,24 +151,40 @@ def convert_dataset(input_dir, output_dir, splits_file=None, fold=0):
 
 def main():
     parser = argparse.ArgumentParser(description="Convert Option 1 nnUNet preprocessed data to HDF5 for PICK")
-    parser.add_argument("--input_dir", type=str, 
-                        default="/home/u001015/nnUNet_data/nnUNet_preprocessed/Dataset001_BHSD/nnUNetPlans_Option1_CTClip_3d_fullres",
-                        help="Path to nnUNet Option 1 preprocessed 3d_fullres directory")
-    parser.add_argument("--output_dir", type=str,
-                        default="/home/u001015/dataset/BHSD_h5",
-                        help="Path to directory where .h5 and split files will be created")
-    parser.add_argument("--splits_file", type=str,
-                        default="/home/u001015/nnUNet_data/nnUNet_preprocessed/Dataset001_BHSD/splits_multilabel.json",
-                        help="Path to splits_multilabel.json or splits_final.json")
-    parser.add_argument("--fold", type=int, default=0,
-                        help="Fold index to extract for train/val split (default: 0)")
+    parser.add_argument(
+        "--input_dir",
+        type=str,
+        default=os.environ.get("MEDSSL_OPT1_INPUT_DIR"),
+        help="Path to nnUNet Option 1 preprocessed 3d_fullres directory (or set $MEDSSL_OPT1_INPUT_DIR)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=os.environ.get("MEDSSL_H5_OUTPUT_DIR"),
+        help="Path to directory where .h5 and split files will be created (or set $MEDSSL_H5_OUTPUT_DIR)",
+    )
+    parser.add_argument(
+        "--splits_file",
+        type=str,
+        default=os.environ.get("MEDSSL_OPT1_SPLITS_FILE"),
+        help="Path to splits_multilabel.json or splits_final.json (or set $MEDSSL_OPT1_SPLITS_FILE)",
+    )
+    parser.add_argument(
+        "--fold",
+        type=int,
+        default=0,
+        help="Fold index to extract for train/val split (default: 0)",
+    )
     args = parser.parse_args()
+
+    if not args.input_dir or not args.output_dir:
+        parser.error("--input_dir and --output_dir are required (or set MEDSSL_OPT1_INPUT_DIR / MEDSSL_H5_OUTPUT_DIR).")
 
     convert_dataset(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         splits_file=args.splits_file,
-        fold=args.fold
+        fold=args.fold,
     )
 
 

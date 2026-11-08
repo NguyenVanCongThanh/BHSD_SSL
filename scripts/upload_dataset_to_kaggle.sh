@@ -4,7 +4,7 @@ set -euo pipefail
 # Script tự động đẩy Dataset preprocessed_bhsd_pick (20GB) lên Kaggle Dataset
 # ==============================================================================
 
-DATA_DIR="/home/u001015/notebook/preprocessed_bhsd_pick"
+DATA_DIR="${MEDSSL_DATA_ROOT:-$HOME/notebook/preprocessed_bhsd_pick}"
 KAGGLE_CONFIG="$HOME/.kaggle/kaggle.json"
 
 echo "=== [1/4] Kiểm tra Kaggle API Token ==="

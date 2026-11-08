@@ -16,6 +16,7 @@ import torch.distributed as dist
 from functools import lru_cache
 from scipy.ndimage import gaussian_filter
 
+from data.constants import DEFAULT_PATCH_SIZE, DEFAULT_VAL_STRIDE_XY, DEFAULT_VAL_STRIDE_Z
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
     CLASS_NAMES_BINARY,
@@ -95,9 +96,9 @@ def sliding_window_inference_3d(
     model: nn.Module,
     image: np.ndarray,
     num_classes: int,
-    patch_size: Tuple[int, int, int] = (32, 160, 160),
-    stride_z: int = 8,
-    stride_xy: int = 32,
+    patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
+    stride_z: int = DEFAULT_VAL_STRIDE_Z,
+    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
     use_amp: bool = True,
     device: Optional[torch.device] = None,
     use_gaussian: bool = True,
@@ -200,9 +201,9 @@ def evaluate_dataset_sliding_window(
     val_dataset,
     num_classes: int = 6,
     is_binary: bool = False,
-    patch_size: Tuple[int, int, int] = (32, 160, 160),
-    stride_z: int = 8,
-    stride_xy: int = 32,
+    patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
+    stride_z: int = DEFAULT_VAL_STRIDE_Z,
+    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
     use_amp: bool = True,
     device: Optional[torch.device] = None,
     log_progress: bool = True,
