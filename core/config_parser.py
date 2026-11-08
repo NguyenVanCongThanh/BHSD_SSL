@@ -337,7 +337,8 @@ KNOWN_SECTION_KEYS = {
         'ema_decay', 'ema_schedule', 'u_weight', 'temperature', 'threshold',
         'warmup_epochs', 'warmup_iters', 'min_lr', 'nesterov', 'betas', 'eps',
         'loss_name', 'aux_loss_weight', 'optimizer',
-        'feedback_steps', 'feedback_scale', 'ds_weights'
+        'feedback_steps', 'feedback_scale', 'ds_weights',
+        'loss_type', 'tversky_alpha', 'tversky_beta', 'focal_gamma', 'ds_rampdown_start'
     },
     'logging': {
         'use_wandb', 'save_wandb_model', 'wandb_project', 'wandb_entity', 'wandb_run_name',
@@ -518,6 +519,23 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         sw = method['pretrain_pseudo_switch_iter']
         if not _is_int(sw) or sw < 0:
             raise ValueError(f"method.pretrain_pseudo_switch_iter must be non-negative integer, got {sw}")
+    if 'loss_type' in method and method['loss_type'] is not None:
+        lt = str(method['loss_type']).lower()
+        if lt not in ('ce_dice', 'focal_tversky'):
+            raise ValueError(f"method.loss_type must be 'ce_dice' or 'focal_tversky', got '{method['loss_type']}'")
+    for t_key in ('tversky_alpha', 'tversky_beta'):
+        if t_key in method and method[t_key] is not None:
+            tv = method[t_key]
+            if not (_is_finite_number(tv) and 0.0 <= tv <= 1.0):
+                raise ValueError(f"method.{t_key} must be in [0.0, 1.0], got {tv}")
+    if 'focal_gamma' in method and method['focal_gamma'] is not None:
+        fg = method['focal_gamma']
+        if not (_is_finite_number(fg) and fg >= 0.0):
+            raise ValueError(f"method.focal_gamma must be non-negative finite float, got {fg}")
+    if 'ds_rampdown_start' in method and method['ds_rampdown_start'] is not None:
+        ds_r = method['ds_rampdown_start']
+        if not _is_int(ds_r) or ds_r < 0:
+            raise ValueError(f"method.ds_rampdown_start must be non-negative integer, got {ds_r}")
 
 
 def load_config(

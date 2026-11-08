@@ -166,7 +166,8 @@ class TestPhase1Contracts(unittest.TestCase):
             'configs/experiments/bhsd_pick_fold0.yaml',
             'configs/experiments/bhsd_mt_nnunet_fold0.yaml',
             'configs/experiments/bhsd_cps_fold0.yaml',
-            'configs/experiments/bhsd_supervised_fold0.yaml'
+            'configs/experiments/bhsd_supervised_fold0.yaml',
+            'configs/experiments/bhsd_supervised_vnet_opt1_v2_fold0.yaml'
         ]
         for p in presets:
             cfg = load_config(config_path=p)
@@ -198,6 +199,22 @@ class TestPhase1Contracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_config({'experiment': {'task': 'invalid_task'}})
 
+        # Invalid loss_type
+        with self.assertRaises(ValueError):
+            validate_config({'method': {'loss_type': 'invalid_loss'}})
+
+        # Invalid tversky_alpha out of range
+        with self.assertRaises(ValueError):
+            validate_config({'method': {'tversky_alpha': 1.5}})
+
+        # Invalid focal_gamma negative
+        with self.assertRaises(ValueError):
+            validate_config({'method': {'focal_gamma': -1.0}})
+
+        # Invalid ds_rampdown_start negative
+        with self.assertRaises(ValueError):
+            validate_config({'method': {'ds_rampdown_start': -100}})
+
     def test_r02_mean_teacher_model_builder_clean_spec(self):
         cfg = load_config(method_config='mean_teacher', dataset_config='bhsd_multiclass')
         spec = model_spec_from_config(cfg, cfg.data.num_classes)
@@ -211,7 +228,8 @@ class TestPhase1Contracts(unittest.TestCase):
             'configs/experiments/bhsd_pick_fold0.yaml',
             'configs/experiments/bhsd_mt_nnunet_fold0.yaml',
             'configs/experiments/bhsd_cps_fold0.yaml',
-            'configs/experiments/bhsd_supervised_fold0.yaml'
+            'configs/experiments/bhsd_supervised_fold0.yaml',
+            'configs/experiments/bhsd_supervised_vnet_opt1_v2_fold0.yaml'
         ]
         for p in presets:
             cfg = load_config(config_path=p)
