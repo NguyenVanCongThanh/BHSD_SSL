@@ -8,7 +8,25 @@ def build_supervised_notebook(
     max_samples: int = 154,
     setting: str = "opt1_nnunet",
 ):
-    if setting == "vnet":
+    if setting in ("vnet", "vnet_opt1"):
+        model_name = "vnet"
+        batch_size = 4
+        labeled_bs = 4
+        max_iter = 25000
+        val_stride_xy = 32
+        val_stride_z = 8
+        patch_size_eval = ["28", "256", "256"]
+        config_file = "configs/experiments/bhsd_supervised_vnet_opt1_fold0.yaml"
+        arch_desc = (
+            "- **Kiến trúc 7-Stage Anisotropic Residual V-Net (Option 1 Design)**: Sử dụng mô hình V-Net 3D 7 stages (`vnet`) "
+            "với Residual connections, InstanceNorm3d, LeakyReLU, kernel anisotropic (1, 3, 3) ở 2 tầng đầu bảo toàn chi tiết trục Z, "
+            "patch size [28, 256, 256], tích hợp **Deep Supervision** đa tầng chuẩn nnU-Net v2 (1 main head + 5 auxiliary heads) "
+            "để so sánh 1:1 tuyệt đối với baseline 7-Stage nnU-Net 3D.\n"
+        )
+        extra_cli_lines = [
+            '    "--model", "vnet",\n',
+        ]
+    elif setting in ("vnet_legacy", "vnet_5stage"):
         model_name = "vnet_single"
         batch_size = 4
         labeled_bs = 4
@@ -18,7 +36,7 @@ def build_supervised_notebook(
         patch_size_eval = ["28", "256", "256"]
         config_file = "configs/experiments/bhsd_supervised_fold0.yaml"
         arch_desc = (
-            "- **Kiến trúc V-Net Baseline Supervised**: Huấn luyện có giám sát 100% dữ liệu với mô hình V-Net 3D.\n"
+            "- **Kiến trúc V-Net Baseline Supervised (5-Stage Legacy)**: Huấn luyện có giám sát 100% dữ liệu với mô hình V-Net 3D cổ điển.\n"
         )
         extra_cli_lines = [
             '    "--model", "vnet_single",\n',
@@ -352,23 +370,54 @@ def build_supervised_notebook(
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", choices=["multiclass", "binary"], default="binary")
-    parser.add_argument("--setting", default="opt1_nnunet")
+    parser.add_argument("--task", choices=["multiclass", "binary"], default=os.environ.get("BHSD_TASK", "binary"))
+    parser.add_argument("--setting", default=os.environ.get("BHSD_SETTING", "all"), help="'opt1_nnunet', 'vnet', or 'all' to build both")
     parser.add_argument("--labelnum", type=int, default=154)
     parser.add_argument("--max_samples", type=int, default=154)
+    parser.add_argument("--output", default=None)
     args, _ = parser.parse_known_args()
 
-    nb = build_supervised_notebook(
-        task=args.task,
-        labelnum=args.labelnum,
-        max_samples=args.max_samples,
-        setting=args.setting
-    )
-    target = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
     os.makedirs("scripts", exist_ok=True)
-    with open(target, "w", encoding="utf-8") as f:
-        json.dump(nb, f, indent=1, ensure_ascii=False)
-    print(f"Updated {target} (task={args.task}, setting={args.setting}) successfully.")
+
+    if args.setting in ("all", "default"):
+        nb_nnunet = build_supervised_notebook(
+            task=args.task,
+            labelnum=args.labelnum,
+            max_samples=args.max_samples,
+            setting="opt1_nnunet"
+        )
+        target_nnunet = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
+        with open(target_nnunet, "w", encoding="utf-8") as f:
+            json.dump(nb_nnunet, f, indent=1, ensure_ascii=False)
+        print(f"Updated {target_nnunet} (task={args.task}, setting=opt1_nnunet) successfully.")
+
+        nb_vnet = build_supervised_notebook(
+            task=args.task,
+            labelnum=args.labelnum,
+            max_samples=args.max_samples,
+            setting="vnet"
+        )
+        target_vnet = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
+        with open(target_vnet, "w", encoding="utf-8") as f:
+            json.dump(nb_vnet, f, indent=1, ensure_ascii=False)
+        print(f"Updated {target_vnet} (task={args.task}, setting=vnet) successfully.")
+    else:
+        nb = build_supervised_notebook(
+            task=args.task,
+            labelnum=args.labelnum,
+            max_samples=args.max_samples,
+            setting=args.setting
+        )
+        if args.output:
+            target = args.output
+        elif args.setting in ("vnet", "vnet_opt1"):
+            target = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
+        else:
+            target = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
+
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(nb, f, indent=1, ensure_ascii=False)
+        print(f"Updated {target} (task={args.task}, setting={args.setting}) successfully.")
 
 if __name__ == "__main__":
     main()
