@@ -505,7 +505,10 @@ def build_mean_teacher_notebook(
                 "        \"--profile\"\n",
                 "    ]\n",
                 "    print(f\"[*] Chạy đánh giá:\\n{' '.join(eval_cmd)}\\n\", flush=True)\n",
-                "    subprocess.run(eval_cmd, check=True)\n",
+                "    try:\n",
+                "        subprocess.run(eval_cmd, check=True)\n",
+                "    except Exception as e:\n",
+                "        print(f\"[!] Cảnh báo: Đánh giá bằng evaluate.py gặp lỗi nhưng không ảnh hưởng tới kết quả huấn luyện: {e}\", flush=True)\n",
                 "else:\n",
                 "    print(f\"[!] Chưa tìm thấy checkpoint tại {best_pth}. Hãy kiểm tra lại thư mục snapshot.\", flush=True)"
             ]

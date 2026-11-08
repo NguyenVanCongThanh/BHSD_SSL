@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 
 # Ensure wandb mock is available when wandb package is not installed
 if 'wandb' not in sys.modules or not hasattr(sys.modules['wandb'], 'Api'):
-    sys.modules['wandb'] = MagicMock()
+    mock_wandb = MagicMock()
+    mock_wandb.__spec__ = MagicMock()
+    sys.modules['wandb'] = mock_wandb
 
 from methods.base_method import BaseMethod
 from utils.wandb_manager import WandbManager
@@ -24,6 +26,9 @@ def manager():
     obj.artifact_keep_versions = 2
     obj.cache_cleanup_interval = 5
     obj._confirmed_uploads = 0
+    obj.async_upload = False
+    obj._upload_queue = None
+    obj._upload_thread = None
     return obj
 
 

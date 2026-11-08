@@ -91,6 +91,15 @@ def main():
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
+    # Single checkpoint evaluation: inspect checkpoint metadata first if available
+    saved_config = None
+    if args.checkpoint and os.path.exists(args.checkpoint):
+        try:
+            ckpt_peek = torch.load(args.checkpoint, map_location='cpu', weights_only=True)
+            saved_config = ckpt_peek.get('config')
+        except Exception:
+            saved_config = None
+
     # Load dataset config
     cfg = load_config(dataset_config=args.dataset,
                       cli_args=['--task', args.task] if args.task else None)
@@ -99,7 +108,14 @@ def main():
     is_binary = (task == 'binary')
     num_classes = 2 if is_binary else int(getattr(cfg.data, 'num_classes', getattr(cfg.experiment, 'num_classes', 6)))
     root_path = args.root_path or getattr(cfg.data, 'root_path', '/home/u001015/notebook/preprocessed_bhsd_pick/')
-    patch_size = tuple(args.patch_size) if args.patch_size else tuple(getattr(cfg.data, 'patch_size', [32, 160, 160]))
+
+    # Auto-resolve patch_size: CLI explicit > Checkpoint saved config > YAML cfg > fallback
+    if args.patch_size:
+        patch_size = tuple(args.patch_size)
+    elif saved_config and isinstance(saved_config.get('data'), dict) and saved_config['data'].get('patch_size'):
+        patch_size = tuple(saved_config['data']['patch_size'])
+    else:
+        patch_size = tuple(getattr(cfg.data, 'patch_size', [32, 160, 160]))
     class_names = getattr(cfg.data, 'class_names', None)
     if class_names is None:
         class_names = CLASS_NAMES_BINARY if is_binary else CLASS_NAMES_MULTICLASS
