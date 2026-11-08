@@ -10,111 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import MODELS
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, n_stages: int, n_filters_in: int, n_filters_out: int, normalization: str = 'groupnorm'):
-        super(ConvBlock, self).__init__()
-
-        ops = []
-        for i in range(n_stages):
-            input_channel = n_filters_in if i == 0 else n_filters_out
-            ops.append(nn.Conv3d(input_channel, n_filters_out, 3, padding=1))
-            if normalization == 'batchnorm':
-                ops.append(nn.BatchNorm3d(n_filters_out))
-            elif normalization == 'groupnorm':
-                ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
-            elif normalization == 'instancenorm':
-                ops.append(nn.InstanceNorm3d(n_filters_out))
-            elif normalization != 'none':
-                raise ValueError(f"Unsupported normalization: {normalization}")
-            ops.append(nn.ReLU(inplace=True))
-
-        self.conv = nn.Sequential(*ops)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
-
-
-class ResidualConvBlock(nn.Module):
-    def __init__(self, n_stages: int, n_filters_in: int, n_filters_out: int, normalization: str = 'groupnorm'):
-        super(ResidualConvBlock, self).__init__()
-
-        ops = []
-        for i in range(n_stages):
-            input_channel = n_filters_in if i == 0 else n_filters_out
-            ops.append(nn.Conv3d(input_channel, n_filters_out, 3, padding=1))
-            if normalization == 'batchnorm':
-                ops.append(nn.BatchNorm3d(n_filters_out))
-            elif normalization == 'groupnorm':
-                ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
-            elif normalization == 'instancenorm':
-                ops.append(nn.InstanceNorm3d(n_filters_out))
-            elif normalization != 'none':
-                raise ValueError(f"Unsupported normalization: {normalization}")
-
-            if i != n_stages - 1:
-                ops.append(nn.ReLU(inplace=True))
-
-        self.conv = nn.Sequential(*ops)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.relu(self.conv(x) + x)
-
-
-class DownsamplingConvBlock(nn.Module):
-    def __init__(self, n_filters_in: int, n_filters_out: int, stride: int = 2, normalization: str = 'groupnorm'):
-        super(DownsamplingConvBlock, self).__init__()
-
-        ops = []
-        ops.append(nn.Conv3d(n_filters_in, n_filters_out, stride, padding=0, stride=stride))
-        if normalization == 'batchnorm':
-            ops.append(nn.BatchNorm3d(n_filters_out))
-        elif normalization == 'groupnorm':
-            ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
-        elif normalization == 'instancenorm':
-            ops.append(nn.InstanceNorm3d(n_filters_out))
-        elif normalization != 'none':
-            raise ValueError(f"Unsupported normalization: {normalization}")
-        ops.append(nn.ReLU(inplace=True))
-
-        self.conv = nn.Sequential(*ops)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
-
-
-class UpsamplingFunction(nn.Module):
-    def __init__(self, n_filters_in: int, n_filters_out: int, stride: int = 2, normalization: str = 'groupnorm', mode_upsampling: int = 1):
-        super(UpsamplingFunction, self).__init__()
-
-        ops = []
-        if mode_upsampling == 0:
-            ops.append(nn.ConvTranspose3d(n_filters_in, n_filters_out, stride, padding=0, stride=stride))
-        elif mode_upsampling == 1:
-            ops.append(nn.Upsample(scale_factor=stride, mode="trilinear", align_corners=True))
-            ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=3, padding=1))
-        elif mode_upsampling == 2:
-            ops.append(nn.Upsample(scale_factor=stride, mode="nearest"))
-            ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=3, padding=1))
-        else:
-            raise ValueError(f"Unsupported mode_upsampling: {mode_upsampling}")
-
-        if normalization == 'batchnorm':
-            ops.append(nn.BatchNorm3d(n_filters_out))
-        elif normalization == 'groupnorm':
-            ops.append(nn.GroupNorm(num_groups=min(16, n_filters_out), num_channels=n_filters_out))
-        elif normalization == 'instancenorm':
-            ops.append(nn.InstanceNorm3d(n_filters_out))
-        elif normalization != 'none':
-            raise ValueError(f"Unsupported normalization: {normalization}")
-        ops.append(nn.ReLU(inplace=True))
-
-        self.conv = nn.Sequential(*ops)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+from models.blocks import (
+    ConvBlock,
+    ResidualConvBlock,
+    DownsamplingConvBlock,
+    UpsamplingFunction,
+)
 
 
 class LeFeDEncoder(nn.Module):
