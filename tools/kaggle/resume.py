@@ -54,9 +54,13 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
         raise ValueError('Resume requires the original GPU/world size')
     prefix = f"{exp['name']}_fold{exp['fold']}_{checkpoint_kind}:"
     candidates = [a for a in run.logged_artifacts() if a.name.startswith(prefix)]
-    if not candidates:
+    artifact = max(candidates, key=lambda a: int(a.name.rsplit(':v', 1)[1])) if candidates else None
+
+    # If not on W&B, check if HF storage might have it
+    run_name = getattr(run, 'name', None)
+    if not artifact and not run_name:
         raise FileNotFoundError(f'No {checkpoint_kind} checkpoint uploaded by this run')
-    artifact = max(candidates, key=lambda a: int(a.name.rsplit(':v', 1)[1]))
+
     source_name = exp['name']
     if resume_mode == 'new-run':
         exp['name'] = f"{source_name}_resume_{uuid.uuid4().hex[:8]}"
@@ -65,11 +69,32 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     target = destination / 'checkpoint_latest.pth'
     if target.exists():
         raise FileExistsError(f'Refusing to replace an existing checkpoint: {target}')
-    downloaded = Path(artifact.download(root=str(destination / 'resume_download')))
-    files = list(downloaded.rglob('*.pth'))
-    if len(files) != 1:
-        raise RuntimeError('Expected exactly one checkpoint file in artifact')
-    shutil.copy2(files[0], target)
+
+    staged = False
+    # Attempt restoration via Hugging Face Hub first if run has a valid name
+    if run_name:
+        try:
+            from utils.hf_storage import HFStorageManager
+            hf_mgr = HFStorageManager()
+            if hf_mgr.enabled:
+                hf_cand = "checkpoint_latest.pth" if checkpoint_kind == 'latest' else "best_model.pth"
+                hf_res = hf_mgr.restore_checkpoint(hf_cand, str(destination), run_name=run_name)
+                if hf_res and Path(hf_res).exists():
+                    shutil.copy2(hf_res, target)
+                    staged = True
+                    print(f"[RESUME] Checkpoint successfully restored from Hugging Face: {run_name}/{hf_cand}", flush=True)
+        except Exception:
+            pass
+
+    # Fallback to W&B logged artifacts
+    if not staged:
+        if not artifact:
+            raise FileNotFoundError(f'No {checkpoint_kind} checkpoint uploaded by this run')
+        downloaded = Path(artifact.download(root=str(destination / 'resume_download')))
+        files = list(downloaded.rglob('*.pth'))
+        if len(files) != 1:
+            raise RuntimeError('Expected exactly one checkpoint file in artifact')
+        shutil.copy2(files[0], target)
     entity, project, run_id = run_path.split('/')
     exp.update(resume=True, resume_policy='latest', exp_dir=str(exp_dir))
     cfg['data']['root_path'] = str(data_root)
@@ -78,8 +103,10 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
                           use_wandb=True, wandb_mode='online', wandb_required=True)
     if resume_mode == 'new-run':
         cfg['logging']['wandb_run_name'] = None
+    art_name = artifact.name if artifact else f"{checkpoint_kind}_from_hf"
+    art_meta = artifact.metadata if artifact else {}
     cfg['logging']['resume_source'] = {
-        'run': run_path, 'artifact': artifact.name, 'metadata': artifact.metadata,
+        'run': run_path, 'artifact': art_name, 'metadata': art_meta,
         'mode': resume_mode,
     }
     allowed_top_level = {'experiment', 'data', 'model', 'method', 'logging'}
@@ -92,9 +119,9 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     from core.config_parser import load_config
     load_config(config_path=str(config_path))
     (destination / 'resume_source.json').write_text(json.dumps({
-        'run': run_path, 'artifact': artifact.name, 'metadata': artifact.metadata,
+        'run': run_path, 'artifact': art_name, 'metadata': art_meta,
     }, indent=2), encoding='utf-8')
-    print(f'[RESUME] {run_path}: {artifact.name}; metadata={artifact.metadata}', flush=True)
+    print(f'[RESUME] {run_path}: {art_name}; metadata={art_meta}', flush=True)
     print(f'[RESUME] W&B mode: {resume_mode}; source history is preserved.', flush=True)
     args = ['--config', str(config_path), '--resume']
     if num_gpus >= 2:

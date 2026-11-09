@@ -32,7 +32,11 @@ method:
 
 logging:
   use_wandb: false          # Toggle Weights & Biases experiment tracking
-  save_wandb_model: true    # Auto-upload checkpoints (.pth) to W&B Cloud Artifacts
+  save_wandb_model: true    # Toggle cloud checkpoint upload
+  artifact_backend: "huggingface" # "huggingface" (0 byte quota on W&B) | "wandb" | "both"
+  use_hf_storage: true      # Upload checkpoints to Hugging Face Model Hub (Free & unlimited)
+  hf_repo_id: "NguyenVanCongThanh/BHSD_checkpoints" # Hugging Face Model repository
+  hf_private: true          # Create private repo if not exists
   wandb_project: "PICK_BHSD"
   wandb_entity: null        # W&B team/username (leave null for default account)
   wandb_run_name: null      # Custom run name (defaults to {exp_name}_{method}_fold{fold})

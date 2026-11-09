@@ -24,6 +24,12 @@ experiment_data/
 # Regenerable per-case EDA fingerprints and profiles
 /notebooks/eda_cache/
 
+# Environment & Secret variables
+.env
+.env.local
+.env.*
+!.env.example
+
 # Auto-generated notebook build artifacts
 scripts/*.ipynb
 

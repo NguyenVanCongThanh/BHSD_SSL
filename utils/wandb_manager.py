@@ -52,7 +52,24 @@ class WandbManager:
         self._upload_queue = None
         self._upload_thread = None
 
+        self.artifact_backend = getattr(cfg.logging, 'artifact_backend', None)
+        self.use_hf_storage = bool(getattr(cfg.logging, 'use_hf_storage', False) or self.artifact_backend in ('huggingface', 'both'))
+        if self.artifact_backend is None:
+            self.artifact_backend = 'huggingface' if self.use_hf_storage else 'wandb'
+
         from core.distributed import is_main_process
+        self.hf_manager = None
+        if self.use_hf_storage and is_main_process():
+            repo_id = getattr(cfg.logging, 'hf_repo_id', None)
+            private = bool(getattr(cfg.logging, 'hf_private', True))
+            try:
+                from utils.hf_storage import HFStorageManager
+                self.hf_manager = HFStorageManager(repo_id=repo_id, private=private)
+                if not self.hf_manager.enabled:
+                    self.hf_manager = None
+            except Exception as e:
+                logging.warning(f"[W&B / HF] Failed to initialize HFStorageManager: {e}")
+
         if self.enabled and self.mode != "disabled" and is_main_process():
             self.check_fresh_run_directory(cfg, self.fold)
             self._init_wandb()
@@ -293,6 +310,22 @@ class WandbManager:
         """Serialize and commit artifact with wait and prune in background thread."""
         if not self.enabled or self.run is None:
             return
+
+        hf_url = None
+        if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
+            path_in_repo = f"{self.run_name}/{target_filename}"
+            hf_url = self.hf_manager.upload_checkpoint(
+                file_path=staging_file,
+                path_in_repo=path_in_repo,
+                commit_message=f"Checkpoint {name} ({', '.join(aliases)})",
+                async_upload=False
+            )
+            if hf_url:
+                try:
+                    self.run.summary[f"hf_{name}"] = hf_url
+                except Exception:
+                    pass
+
         import wandb
         artifact = wandb.Artifact(
             name=name,
@@ -300,6 +333,15 @@ class WandbManager:
             description=description,
             metadata=metadata or {}
         )
+        if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
+            artifact.add_reference(hf_url)
+            self.run.log_artifact(artifact, aliases=aliases)
+            logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
+            self._confirmed_uploads += 1
+            if self._confirmed_uploads % self.cache_cleanup_interval == 0:
+                self._cleanup_artifact_cache()
+            return
+
         artifact.add_file(staging_file, name=target_filename)
         self.run.log_artifact(artifact, aliases=aliases)
         logging.info(f"[W&B ARTIFACT] Uploading '{name}' ({artifact_type}) with aliases {aliases}...")
@@ -336,6 +378,21 @@ class WandbManager:
 
         if not self.async_upload or self._upload_queue is None:
             try:
+                hf_url = None
+                if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
+                    path_in_repo = f"{self.run_name}/{target_filename}"
+                    hf_url = self.hf_manager.upload_checkpoint(
+                        file_path=file_path,
+                        path_in_repo=path_in_repo,
+                        commit_message=f"Sync checkpoint {name} ({', '.join(aliases)})",
+                        async_upload=False
+                    )
+                    if hf_url:
+                        try:
+                            self.run.summary[f"hf_{name}"] = hf_url
+                        except Exception:
+                            pass
+
                 import wandb
                 artifact = wandb.Artifact(
                     name=name,
@@ -343,6 +400,12 @@ class WandbManager:
                     description=description,
                     metadata=metadata or {}
                 )
+                if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
+                    artifact.add_reference(hf_url)
+                    self.run.log_artifact(artifact, aliases=aliases)
+                    logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
+                    return True
+
                 artifact.add_file(file_path, name=target_filename)
                 self.run.log_artifact(artifact, aliases=aliases)
                 logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
@@ -405,6 +468,21 @@ class WandbManager:
     def _upload_and_prune_direct(self, file_path, target_filename, name, artifact_type, description, aliases, metadata):
         """Fallback synchronous upload when queue is unavailable or blocked."""
         try:
+            hf_url = None
+            if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
+                path_in_repo = f"{self.run_name}/{target_filename}"
+                hf_url = self.hf_manager.upload_checkpoint(
+                    file_path=file_path,
+                    path_in_repo=path_in_repo,
+                    commit_message=f"Direct checkpoint {name} ({', '.join(aliases)})",
+                    async_upload=False
+                )
+                if hf_url:
+                    try:
+                        self.run.summary[f"hf_{name}"] = hf_url
+                    except Exception:
+                        pass
+
             import wandb
             artifact = wandb.Artifact(
                 name=name,
@@ -412,6 +490,11 @@ class WandbManager:
                 description=description,
                 metadata=metadata or {}
             )
+            if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
+                artifact.add_reference(hf_url)
+                self.run.log_artifact(artifact, aliases=aliases)
+                return True
+
             artifact.add_file(file_path, name=target_filename)
             self.run.log_artifact(artifact, aliases=aliases)
             if self.mode == 'online':
@@ -467,9 +550,19 @@ class WandbManager:
         tag: str = "latest"
     ) -> bool:
         """
-        Download artifact from W&B Cloud Storage to local destination directory.
+        Download artifact from Hugging Face or W&B Cloud Storage to local destination directory.
         Used for auto-resuming on pre-emptible GPU instances (e.g. Slurm preemption, Kaggle timeout).
         """
+        if getattr(self, 'hf_manager', None) is not None:
+            restored = self.hf_manager.restore_checkpoint(
+                filename_or_pattern=artifact_name,
+                dest_dir=dest_dir,
+                run_name=self.run_name
+            )
+            if restored:
+                logging.info(f"[HF RESTORE] Successfully restored checkpoint from Hugging Face: {restored}")
+                return True
+
         try:
             import wandb
             api = wandb.Api()
@@ -513,6 +606,12 @@ class WandbManager:
 
     def finish(self, exit_code=0):
         """Cleanly terminate W&B run to finalize sync."""
+        if getattr(self, 'hf_manager', None) is not None:
+            try:
+                self.hf_manager.wait_for_uploads(timeout=120)
+            except Exception as e:
+                logging.warning(f"[HF FINISH] Error waiting for pending HF uploads: {e}")
+
         if not self.enabled or self.run is None:
             return
         try:
