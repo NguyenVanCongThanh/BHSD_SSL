@@ -44,6 +44,14 @@ def migrate_runs(
     api = wandb.Api()
     hf_manager = None if dry_run else HFStorageManager(repo_id=repo_id)
 
+    existing_files = set()
+    if not dry_run and hf_manager and hf_manager.enabled:
+        try:
+            existing_files = set(hf_manager.api.list_repo_files(repo_id=repo_id, repo_type="model"))
+            logging.info(f"[*] Found {len(existing_files)} existing files on Hugging Face (will auto-skip already uploaded files).")
+        except Exception as e:
+            logging.warning(f"Could not list existing HF files: {e}")
+
     total_runs = 0
     total_files = 0
     total_bytes = 0
@@ -93,6 +101,18 @@ def migrate_runs(
             for art, target_filename in items_to_migrate:
                 path_in_repo = f"{run.name}/{target_filename}"
                 size_mb = getattr(art, "size", 0) / (1024 * 1024)
+
+                # Skip if already exists on Hugging Face (allows safe cancel & resume)
+                if path_in_repo in existing_files:
+                    logging.info(f"     [SKIP] Already on Hugging Face: {path_in_repo} ({size_mb:.1f} MB)")
+                    if delete_from_wandb:
+                        try:
+                            logging.info(f"        [!] Deleting {art.name} from W&B (already safe on HF)...")
+                            art.delete(delete_aliases=True)
+                        except Exception:
+                            pass
+                    continue
+
                 logging.info(f"     -> {art.name} ({size_mb:.1f} MB) -> {path_in_repo}")
 
                 if dry_run:
@@ -121,6 +141,7 @@ def migrate_runs(
                         )
                         total_files += 1
                         total_bytes += file_size
+                        existing_files.add(path_in_repo)
 
                         if delete_from_wandb:
                             logging.info(f"        [!] Deleting {art.name} from W&B to free storage...")
