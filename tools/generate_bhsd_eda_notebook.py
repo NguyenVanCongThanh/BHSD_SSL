@@ -62,7 +62,8 @@ def show_vi(*args, **kwargs):
     return original_show(*args, **kwargs)
 plt.show = show_vi
 
-DATASET_DIR = Path(os.environ.get('BHSD_DATASET_DIR', str(Path.home()/'dataset/BHSD_fold0'))).expanduser()
+default_ds = str(Path.home()/'dataset/BHSD_fold0_optimal') if (Path.home()/'dataset/BHSD_fold0_optimal').exists() else str(Path.home()/'dataset/BHSD_fold0')
+DATASET_DIR = Path(os.environ.get('BHSD_DATASET_DIR', default_ds)).expanduser()
 RAW_DIR = Path(os.environ.get('BHSD_RAW_DIR', str(Path.home()/'dataset/BHSD/label_192/label_192'))).expanduser()
 OUT = ROOT/'notebooks'
 SEED = 42

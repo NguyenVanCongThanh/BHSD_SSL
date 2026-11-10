@@ -28,7 +28,7 @@ show_help() {
     echo "  --username, -u <name>     Cập nhật username cho tài khoản"
     echo "  --key, -k <key>           Cập nhật Kaggle API Key (KGAT_...)"
     echo "  --wandb-key, -w <key>     W&B API Key (wandb_v1_...) để đồng bộ Cloud"
-    echo "  --dataset, -d <slug>      Ghi đè dataset nguồn (Mặc định: thnhnguynvncng/bhsd-fold0)"
+    echo "  --dataset, -d <slug>      Ghi đè dataset nguồn (Mặc định: thnhnguynvncng/bhsd-fold0-optimal)"
     echo "  --test-only               Chỉ kiểm tra kết nối tài khoản mà không submit"
     echo "  --list-accounts           Xem danh sách các tài khoản đang được quản lý"
     echo "  --status                  Kiểm tra trạng thái notebook đang chạy trên Kaggle"

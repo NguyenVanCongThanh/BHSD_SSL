@@ -64,7 +64,7 @@ Danh sách tài khoản thực tế thuộc cấu hình local, không được �
 
 - **Ghi đè Dataset nguồn (nếu cần)**:
   ```bash
-  bash scripts/submit_mean_teacher_kaggle.sh --account 2 --dataset thnhnguynvncng/bhsd-fold0
+  bash scripts/submit_mean_teacher_kaggle.sh --account 2 --dataset thnhnguynvncng/bhsd-fold0-optimal
   ```
 
 - **Kiểm tra trạng thái đang chạy trên Kaggle**:
@@ -128,7 +128,7 @@ Mở file `configs/kaggle/notebooks.json` và thêm cấu hình:
       "generator_script": "tools/generate_my_method.py",
       "enable_gpu": true,
       "enable_internet": true,
-      "dataset_sources": ["thnhnguynvncng/bhsd-fold0"]
+      "dataset_sources": ["thnhnguynvncng/bhsd-fold0-optimal"]
     }
   }
 }

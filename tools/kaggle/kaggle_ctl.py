@@ -386,7 +386,7 @@ def main():
     parser_push.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
-    parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0)")
+    parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0-optimal)")
     parser_push.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để đồng bộ online")
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 

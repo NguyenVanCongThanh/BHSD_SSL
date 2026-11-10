@@ -13,7 +13,7 @@
       "enable_tpu": false,
       "enable_internet": true,
       "dataset_sources": [
-        "thnhnguynvncng/bhsd-fold0"
+        "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Semi-Supervised Segmentation 5 phân loại xuất huyết não trên Dual GPU 2x T4 với kiến trúc nnU-Net 3D"
     },
@@ -29,7 +29,7 @@
       "enable_tpu": false,
       "enable_internet": true,
       "dataset_sources": [
-        "thnhnguynvncng/bhsd-fold0"
+        "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện PICK Semi-Supervised Segmentation trên Dual GPU T4"
     },
@@ -45,7 +45,7 @@
       "enable_tpu": false,
       "enable_internet": true,
       "dataset_sources": [
-        "thnhnguynvncng/bhsd-fold0"
+        "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Supervised Baseline (100% data = 154 mẫu) với 7-Stage nnUNet3D Option 1 và Deep Supervision trên Dual GPU T4"
     },
@@ -61,7 +61,7 @@
       "enable_tpu": false,
       "enable_internet": true,
       "dataset_sources": [
-        "thnhnguynvncng/bhsd-fold0"
+        "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Supervised Baseline (100% data = 154 mẫu) với 7-Stage Anisotropic Residual V-Net Option 1 và Deep Supervision trên Dual GPU T4"
     },
@@ -77,7 +77,7 @@
       "enable_tpu": false,
       "enable_internet": true,
       "dataset_sources": [
-        "thnhnguynvncng/bhsd-fold0"
+        "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Supervised V-Net 7-Stage V2 (Patch 32x256x256, Focal Tversky Loss, DS Rampdown, 50% FG) trên Dual GPU T4"
     }

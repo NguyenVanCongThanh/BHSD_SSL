@@ -280,7 +280,8 @@ def build_tables(root, raw_root, output, workers=2):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--dataset', type=Path, default=Path.home()/'dataset/BHSD_fold0')
+    default_ds = Path.home()/'dataset/BHSD_fold0_optimal' if (Path.home()/'dataset/BHSD_fold0_optimal').exists() else Path.home()/'dataset/BHSD_fold0'
+    parser.add_argument('--dataset', type=Path, default=default_ds)
     parser.add_argument('--raw', type=Path, default=Path.home()/'dataset/BHSD/label_192/label_192')
     parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1]/'notebooks')
     parser.add_argument('--workers', type=int, default=2)
