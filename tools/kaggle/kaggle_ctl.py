@@ -125,6 +125,12 @@ def cmd_push(args):
     else:
         print("[!] W&B Cloud:   [Chưa cấu hình API Key - Sẽ chạy offline nếu không có Kaggle Secrets]")
 
+    hf_token = mgr.resolve_hf_token(acc, cli_token=getattr(args, 'hf_token', None))
+    if hf_token:
+        print(f"[*] HF Hub:      [✓ Đã nạp HF Token thành công (Token: {hf_token[:10]}...)]")
+    else:
+        print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
+
     custom_datasets = [args.dataset] if args.dataset else None
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
@@ -134,6 +140,7 @@ def cmd_push(args):
         custom_datasets=custom_datasets,
         enable_gpu=not args.no_gpu,
         wandb_key=wandb_key,
+        hf_token=hf_token,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
         resume_mode=getattr(args, "resume_mode", None)
@@ -271,6 +278,12 @@ def cmd_build(args):
     else:
         print("[!] W&B Cloud:   [Chưa cấu hình API Key - Sẽ chạy offline nếu không có Kaggle Secrets]")
 
+    hf_token = mgr.resolve_hf_token(acc, cli_token=getattr(args, 'hf_token', None))
+    if hf_token:
+        print(f"[*] HF Hub:      [✓ Đã nạp HF Token thành công (Token: {hf_token[:10]}...)]")
+    else:
+        print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
+
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
         target_username=username,
@@ -279,6 +292,7 @@ def cmd_build(args):
         custom_datasets=[args.dataset] if args.dataset else None,
         enable_gpu=not args.no_gpu,
         wandb_key=wandb_key,
+        hf_token=hf_token,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
         resume_mode=getattr(args, "resume_mode", None)
@@ -377,6 +391,7 @@ def main():
     parser_build.add_argument("--title", help="Ghi đè title của notebook")
     parser_build.add_argument("--dataset", "-d", help="Ghi đè dataset source")
     parser_build.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để cấu hình online")
+    parser_build.add_argument("--hf-token", help="Hugging Face User Access Token (hf_...) để cấu hình cloud storage")
     parser_build.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     # Subcommand: push
@@ -388,6 +403,7 @@ def main():
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
     parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0-optimal)")
     parser_push.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để đồng bộ online")
+    parser_push.add_argument("--hf-token", help="Hugging Face User Access Token (hf_...) để cấu hình cloud storage")
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):

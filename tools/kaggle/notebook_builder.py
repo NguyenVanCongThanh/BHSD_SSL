@@ -48,6 +48,7 @@ class NotebookBuilder:
                      custom_datasets: Optional[List[str]] = None,
                      enable_gpu: Optional[bool] = None,
                      wandb_key: Optional[str] = None,
+                     hf_token: Optional[str] = None,
                      resume_run: Optional[str] = None,
                      resume_checkpoint: Optional[str] = None,
                      resume_mode: Optional[str] = None) -> Path:
@@ -104,40 +105,53 @@ class NotebookBuilder:
         else:
             raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
 
-        # Tự động nạp W&B API Key vào notebook bundle (được bảo vệ trong kaggle_runs/ qua .gitignore)
-        # Đảm bảo mọi tài khoản mới hoặc cũ đều tự động đồng bộ W&B Cloud mà không phụ thuộc Kaggle Secrets
-        if wandb_key and wandb_key.strip():
+        # Tự động nạp W&B API Key và HF Token vào notebook bundle (được bảo vệ trong kaggle_runs/ qua .gitignore)
+        # Đảm bảo mọi tài khoản mới hoặc cũ đều tự động đồng bộ W&B Cloud và HF Storage mà không phụ thuộc Kaggle Secrets
+        need_inject_wb = bool(wandb_key and wandb_key.strip())
+        need_inject_hf = bool(hf_token and hf_token.strip())
+
+        if need_inject_wb or need_inject_hf:
             with target_code_path.open("r", encoding="utf-8") as stream:
                 notebook = json.load(stream)
-            injected = False
+
+            injected_wb = False
+            injected_hf = False
+
             for cell in notebook.get("cells", []):
                 if cell.get("cell_type") == "code":
                     raw_lines = cell.get("source", [])
                     lines = raw_lines if isinstance(raw_lines, list) else raw_lines.splitlines(keepends=True)
                     new_lines = []
-                    cell_matched = False
+                    cell_changed = False
                     for line in lines:
-                        if line.strip().startswith("WANDB_API_KEY ="):
+                        if need_inject_wb and not injected_wb and line.startswith('WANDB_API_KEY = ""'):
                             new_lines.append(f'WANDB_API_KEY = "{wandb_key.strip()}"\n')
-                            cell_matched = True
-                            injected = True
+                            cell_changed = True
+                            injected_wb = True
+                        elif need_inject_hf and not injected_hf and line.startswith('HF_TOKEN = ""'):
+                            new_lines.append(f'HF_TOKEN = "{hf_token.strip()}"\n')
+                            cell_changed = True
+                            injected_hf = True
                         else:
                             new_lines.append(line)
-                    if cell_matched:
+                    if cell_changed:
                         cell["source"] = new_lines
-                        break
-            if not injected:
-                # Nếu template không có biến WANDB_API_KEY, chèn thiết lập môi trường vào cell code đầu tiên
+
+            # Nếu template chưa có biến khai báo sẵn, chèn vào cell code đầu tiên
+            if (need_inject_wb and not injected_wb) or (need_inject_hf and not injected_hf):
                 for cell in notebook.get("cells", []):
                     if cell.get("cell_type") == "code":
-                        prefix = [f'import os\nos.environ["WANDB_API_KEY"] = "{wandb_key.strip()}"\n']
+                        prefix = []
+                        if need_inject_wb and not injected_wb:
+                            prefix.append(f'import os\nos.environ["WANDB_API_KEY"] = "{wandb_key.strip()}"\n')
+                        if need_inject_hf and not injected_hf:
+                            prefix.append(f'import os\nos.environ["HF_TOKEN"] = "{hf_token.strip()}"\n')
                         raw_src = cell.get("source", [])
                         lines = raw_src if isinstance(raw_src, list) else raw_src.splitlines(keepends=True)
                         cell["source"] = prefix + lines
-                        injected = True
                         break
-            if injected:
-                target_code_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
+
+            target_code_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
 
         if resume_run:
             from tools.kaggle.resume import inject_resume

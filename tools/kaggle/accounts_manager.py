@@ -147,6 +147,44 @@ class AccountsManager:
 
         return ""
 
+    def resolve_hf_token(self,
+                         account: Optional[Dict[str, Any]] = None,
+                         cli_token: Optional[str] = None) -> str:
+        """
+        Trích xuất Hugging Face Token theo thứ tự ưu tiên:
+        1. CLI override (--hf-token)
+        2. Cấu hình riêng của tài khoản trong accounts.json (account.hf_token)
+        3. Cấu hình chung default_hf_token trong accounts.json
+        4. Biến môi trường HF_TOKEN
+        5. File ~/.cache/huggingface/token máy local
+        """
+        if cli_token and str(cli_token).strip():
+            return str(cli_token).strip()
+
+        if account:
+            acc_hf = account.get("hf_token")
+            if acc_hf and str(acc_hf).strip():
+                return str(acc_hf).strip()
+
+        default_hf = self.accounts_data.get("default_hf_token")
+        if default_hf and str(default_hf).strip():
+            return str(default_hf).strip()
+
+        env_hf = os.environ.get("HF_TOKEN")
+        if env_hf and env_hf.strip():
+            return env_hf.strip()
+
+        token_file = Path.home() / ".cache" / "huggingface" / "token"
+        if token_file.exists():
+            try:
+                t = token_file.read_text().strip()
+                if t:
+                    return t
+            except Exception:
+                pass
+
+        return ""
+
     def get_executor(self, account_id_or_slug: str) -> "KaggleExecutor":
         """
         Khởi tạo KaggleExecutor trực tiếp trong RAM (Zero-file mode).

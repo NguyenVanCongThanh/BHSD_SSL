@@ -13,6 +13,7 @@
     "SimpleITK",
     "nibabel",
     "\"wandb>=0.19.10\"",
+    "huggingface_hub",
     "pyyaml"
   ],
   "metadata": {
