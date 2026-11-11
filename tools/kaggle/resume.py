@@ -80,11 +80,18 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
                 hf_cand = "checkpoint_latest.pth" if checkpoint_kind == 'latest' else "best_model.pth"
                 hf_res = hf_mgr.restore_checkpoint(hf_cand, str(destination), run_name=run_name)
                 if hf_res and Path(hf_res).exists():
-                    shutil.copy2(hf_res, target)
+                    if Path(hf_res).resolve() != target.resolve():
+                        shutil.copy2(hf_res, target)
                     staged = True
                     print(f"[RESUME] Checkpoint successfully restored from Hugging Face: {run_name}/{hf_cand}", flush=True)
-        except Exception:
-            pass
+                # Also restore best_model.pth if resuming latest to preserve best evaluation metric
+                if checkpoint_kind == 'latest':
+                    try:
+                        hf_mgr.restore_checkpoint("best_model.pth", str(destination), run_name=run_name)
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[RESUME WARNING] HF restore attempt encountered: {e}", flush=True)
 
     # Fallback to W&B logged artifacts
     if not staged:
@@ -141,7 +148,7 @@ def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
     from pathlib import Path
     repo_root = Path(__file__).resolve().parents[2]
     code = 'from pathlib import Path\n'
-    for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py'):
+    for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py', 'utils/hf_storage.py'):
         source = (repo_root / relative_path).read_text(encoding='utf-8')
         code += f'Path({relative_path!r}).write_text({source!r}, encoding="utf-8")\n'
     code += inspect.getsource(prepare_resume) + '\n'
