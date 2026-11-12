@@ -65,6 +65,8 @@ def main():
         cli_overrides.extend(['--experiment.task', known_args.task])
         if known_args.task == 'binary':
             cli_overrides.extend(['--experiment.num_classes', '2'])
+        elif known_args.task == 'multiclass':
+            cli_overrides.extend(['--experiment.num_classes', '6'])
     if known_args.resume is not None and known_args.resume:
         cli_overrides.extend(['--experiment.resume', 'true'])
 

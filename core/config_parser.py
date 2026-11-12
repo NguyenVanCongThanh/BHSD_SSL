@@ -779,16 +779,19 @@ def load_config(
         _deep_update(merged_dict, overrides_copy)
 
     # Task & classes synchronization
+    cli_exp_nc = early_overrides.get('experiment', {}).get('num_classes')
+    cli_data_nc = early_overrides.get('data', {}).get('num_classes')
     if task_override:
         merged_dict.setdefault('data', {})['task'] = task_override
         merged_dict.setdefault('experiment', {})['task'] = task_override
         if task_override == 'binary':
-            merged_dict['data'].setdefault('num_classes', 2)
-            if merged_dict['data'].get('class_names') is None or len(merged_dict['data']['class_names']) != 2:
+            if cli_data_nc is None:
+                merged_dict['data']['num_classes'] = 2
+            if merged_dict['data'].get('class_names') is None or len(merged_dict['data']['class_names']) != merged_dict['data'].get('num_classes', 2):
                 merged_dict['data']['class_names'] = ['background', 'hemorrhage']
 
     # Track whether user/CLI explicitly specified experiment.num_classes or experiment.task
-    user_exp_nc = early_overrides.get('experiment', {}).get('num_classes') or exp_dict.get('experiment', {}).get('num_classes')
+    user_exp_nc = cli_exp_nc if task_override else (cli_exp_nc or exp_dict.get('experiment', {}).get('num_classes'))
     user_exp_task = (
         early_overrides.get('experiment', {}).get('task') or
         early_overrides.get('task') or
