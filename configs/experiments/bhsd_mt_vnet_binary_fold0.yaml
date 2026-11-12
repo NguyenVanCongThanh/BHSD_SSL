@@ -26,8 +26,6 @@ model:
 method:
   name: "mean_teacher"
   base_lr: 0.01
-  momentum: 0.9
-  weight_decay: 0.0001
   lr_scheduler: "poly"
   poly_power: 0.7
   max_iteration: 12000
@@ -64,8 +62,7 @@ data:
 logging:
   val_interval: 200
   save_interval: 1000
-  val_stride_xy: 32
-  val_stride_z: 8
+  val_step_size: 0.5
   val_eval_space: "preprocessed"
   val_gaussian: true
   val_amp: true

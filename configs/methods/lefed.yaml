@@ -15,8 +15,6 @@ method:
   name: "lefed"
   max_iteration: 12000
   base_lr: 0.01
-  momentum: 0.9
-  weight_decay: 0.0001
   consistency: 1.0
   consistency_rampup: 40.0
   feedback_steps: 3
@@ -32,6 +30,4 @@ data:
 logging:
   val_interval: 500
   save_interval: 1000
-  val_stride_xy: 32
-  val_stride_z: 8
   use_wandb: false

@@ -31,8 +31,10 @@ from core.config_parser import load_config
 from data.constants import (
     DEFAULT_DATA_ROOT,
     DEFAULT_PATCH_SIZE,
-    DEFAULT_VAL_STRIDE_XY,
-    DEFAULT_VAL_STRIDE_Z,
+    DEFAULT_VAL_STEP_SIZE,
+    get_dataset_class_names,
+    resolve_sliding_window_strides,
+)
     get_dataset_class_names,
 )
 from evaluation.benchmark import benchmark_5folds
@@ -74,8 +76,9 @@ def main():
     parser.add_argument('--model', type=str, default=None, help='Model architecture (required for legacy checkpoints without config)')
     parser.add_argument('--fold', type=int, default=0, help='Fold to evaluate (used if evaluating single checkpoint)')
     parser.add_argument('--gpu', type=str, default='auto', help='GPU ID')
-    parser.add_argument('--stride_xy', type=int, default=DEFAULT_VAL_STRIDE_XY, help='XY stride for sliding window')
-    parser.add_argument('--stride_z', type=int, default=DEFAULT_VAL_STRIDE_Z, help='Z stride for sliding window')
+    parser.add_argument('--stride_xy', type=int, default=None, help='XY stride for sliding window (default: derived from patch_size and --step_size)')
+    parser.add_argument('--stride_z', type=int, default=None, help='Z stride for sliding window (default: derived from patch_size and --step_size)')
+    parser.add_argument('--step_size', type=float, default=DEFAULT_VAL_STEP_SIZE, help='Relative step size (1 - overlap) when explicit strides are omitted (default: 0.5 = 50%% overlap)')
     parser.add_argument('--no_gaussian', action='store_true', help='Disable Gaussian weighting in sliding window (default: Gaussian enabled)')
     parser.add_argument('--use_tta', action='store_true', help='Enable 3D Test-Time Augmentation (flips across spatial axes, nnUNet standard)')
     parser.add_argument('--profile', action='store_true', help='Measure computational complexity (FLOPs, params, latency, VRAM)')
@@ -133,6 +136,10 @@ def main():
     if class_names is None:
         class_names = get_dataset_class_names(dataset_name, task=task, num_classes=num_classes)
 
+    stride_z, stride_xy = resolve_sliding_window_strides(
+        patch_size, stride_z=args.stride_z, stride_xy=args.stride_xy, step_size=args.step_size
+    )
+
     if args.exp_dir:
         # 5-fold benchmark aggregation
         benchmark_5folds(
@@ -142,8 +149,8 @@ def main():
             task=task,
             model_name=args.model,
             device=device,
-            stride_z=args.stride_z,
-            stride_xy=args.stride_xy,
+            stride_z=stride_z,
+            stride_xy=stride_xy,
             patch_size=patch_size,
             dataset_name=dataset_name,
             class_names=class_names,
@@ -157,7 +164,8 @@ def main():
             compute_surface=args.surface_metrics,
             eval_space=args.eval_space,
             raw_gt_dir=args.raw_gt_dir,
-            on_missing=args.on_missing
+            on_missing=args.on_missing,
+            step_size=args.step_size,
         )
     elif args.checkpoint:
         # Single checkpoint evaluation
@@ -190,12 +198,12 @@ def main():
             num_classes=num_classes,
             is_binary=is_binary,
             patch_size=patch_size,
-            stride_z=args.stride_z,
-            stride_xy=args.stride_xy,
+            stride_z=stride_z,
+            stride_xy=stride_xy,
             device=device,
             use_gaussian=not args.no_gaussian,
             use_tta=args.use_tta, use_amp=not args.no_amp, details_sink=details, compute_surface=args.surface_metrics,
-            eval_space=args.eval_space, raw_gt_dir=args.raw_gt_dir
+            eval_space=args.eval_space, raw_gt_dir=args.raw_gt_dir, step_size=args.step_size
         )
 
         fg_names = class_names[1:] if len(class_names) > 1 else class_names
@@ -204,6 +212,8 @@ def main():
         print(f"Single Checkpoint Evaluation Result:")
         print(f"Dataset:    {dataset_name.upper()} | Model: {actual_model} | Fold: {args.fold}")
         print(f"Mean Dice:  {mdice:.4f}")
+        if details.get('macro_positive_dice') is not None:
+            print(f"Macro Pos:  {details['macro_positive_dice']:.4f}")
         print(f"Per-Class:  {summary_str}")
         print("=" * 65)
         for row in details['per_class']:

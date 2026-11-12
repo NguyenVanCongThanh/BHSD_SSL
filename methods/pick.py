@@ -60,7 +60,12 @@ class PICKMethod(BaseMethod):
         dice_w = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
         ce_w = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
         self.dice_ce_loss = DiceCELoss(
-            nclass=self.num_classes, weight_dice=dice_w, weight_ce=ce_w, include_background=False
+            nclass=self.num_classes,
+            weight_dice=dice_w,
+            weight_ce=ce_w,
+            include_background=False,
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
         )
 
         pt_init = getattr(self.cfg.method, 'pretrain_pseudo_thresh_init', None)

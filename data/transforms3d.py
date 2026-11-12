@@ -2,7 +2,7 @@
 3D Volumetric Data Augmentation Transforms for CT Scans.
 """
 
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,6 +17,9 @@ from data.constants import (
 
 class RandomRotFlip(object):
     """Randomly rotate (90 deg) and flip the 3D volume along spatial dimensions."""
+    def __init__(self, mirror_z: bool = False):
+        self.mirror_z = bool(mirror_z)
+
     def __call__(self, sample: Dict) -> Dict:
         image, label = sample['image'], sample['label']
         # Random rotation in axial plane (Y, X)
@@ -24,13 +27,66 @@ class RandomRotFlip(object):
         image = np.rot90(image, k, axes=(1, 2))
         label = np.rot90(label, k, axes=(1, 2))
 
-        # Random flip along Y or X axis
-        axis = np.random.randint(1, 3)
-        image = np.flip(image, axis=axis).copy()
-        label = np.flip(label, axis=axis).copy()
+        if self.mirror_z:
+            # Independent mirroring across all 3 axes (nnU-Net 3D MirrorTransform)
+            for axis in (0, 1, 2):
+                if np.random.rand() < 0.5:
+                    image = np.flip(image, axis=axis)
+                    label = np.flip(label, axis=axis)
+            image = image.copy()
+            label = label.copy()
+        else:
+            # Legacy random flip along Y or X axis
+            axis = np.random.randint(1, 3)
+            image = np.flip(image, axis=axis).copy()
+            label = np.flip(label, axis=axis).copy()
 
         sample['image'] = image
         sample['label'] = label
+        return sample
+
+
+class RandomAxialRotate3D(object):
+    """
+    Continuous in-plane (Y, X) rotation matching nnU-Net's dummy-2D rotation on anisotropic CT.
+    Rotates image slices with bilinear interpolation (fill=min) and labels with nearest-neighbor.
+    """
+    def __init__(
+        self,
+        deg_range: Tuple[float, float] = (-180.0, 180.0),
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["rotation_prob"],
+        pad_to_min: bool = True,
+    ):
+        self.deg_range = deg_range
+        self.prob = prob
+        self.pad_to_min = pad_to_min
+
+    def __call__(self, sample: Dict) -> Dict:
+        if np.random.rand() < self.prob:
+            from scipy.ndimage import rotate
+            angle = float(np.random.uniform(self.deg_range[0], self.deg_range[1]))
+            image, label = sample['image'], sample['label']
+            cval = float(image.min()) if self.pad_to_min else 0.0
+            rot_img = rotate(
+                image,
+                angle=angle,
+                axes=(1, 2),
+                reshape=False,
+                order=1,
+                mode='constant',
+                cval=cval,
+            )
+            rot_lbl = rotate(
+                label,
+                angle=angle,
+                axes=(1, 2),
+                reshape=False,
+                order=0,
+                mode='constant',
+                cval=0,
+            )
+            sample['image'] = rot_img.astype(image.dtype, copy=False)
+            sample['label'] = rot_lbl.astype(label.dtype, copy=False)
         return sample
 
 
@@ -47,11 +103,13 @@ class RandomCrop(object):
         foreground_prob: float = DEFAULT_FOREGROUND_OVERSAMPLE_PROB,
         jitter_z: int = DEFAULT_CROP_JITTER_Z,
         jitter_xy: int = DEFAULT_CROP_JITTER_XY,
+        pad_to_min: bool = False,
     ):
         self.output_size = output_size
         self.foreground_prob = foreground_prob
         self.jitter_z = int(jitter_z)
         self.jitter_xy = int(jitter_xy)
+        self.pad_to_min = bool(pad_to_min)
 
     def __call__(self, sample: Dict) -> Dict:
         image, label = sample['image'], sample['label']
@@ -65,7 +123,8 @@ class RandomCrop(object):
             pad_z = (pz // 2, pz - pz // 2)
             pad_y = (py // 2, py - py // 2)
             pad_x = (px // 2, px - px // 2)
-            image = np.pad(image, [pad_z, pad_y, pad_x], mode='constant', constant_values=0)
+            pad_val = float(image.min()) if self.pad_to_min else 0
+            image = np.pad(image, [pad_z, pad_y, pad_x], mode='constant', constant_values=pad_val)
             label = np.pad(label, [pad_z, pad_y, pad_x], mode='constant', constant_values=0)
             z, y, x = image.shape
 
@@ -166,15 +225,18 @@ class RandomScaling3D(object):
         self,
         scale_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["scale_range"],
         prob: float = DEFAULT_AUGMENTATION_CONFIG["scale_prob"],
+        pad_to_min: bool = False,
     ):
         self.scale_range = scale_range
         self.prob = prob
+        self.pad_to_min = bool(pad_to_min)
 
     def __call__(self, sample: Dict) -> Dict:
         if np.random.rand() < self.prob:
             scale = np.random.uniform(self.scale_range[0], self.scale_range[1])
             image, label = sample['image'], sample['label']
             orig_shape = image.shape  # (Z, Y, X)
+            pad_val = float(image.min()) if self.pad_to_min else 0.0
 
             # Convert to torch tensor for fast 3D GPU/CPU trilinear/nearest interpolation
             img_t = torch.from_numpy(image).unsqueeze(0).unsqueeze(0).float()
@@ -195,7 +257,7 @@ class RandomScaling3D(object):
             elif sz < oz:
                 pad_z1 = (oz - sz) // 2
                 pad_z2 = oz - sz - pad_z1
-                scaled_img = F.pad(scaled_img, (0, 0, 0, 0, pad_z1, pad_z2), mode='constant', value=0)
+                scaled_img = F.pad(scaled_img, (0, 0, 0, 0, pad_z1, pad_z2), mode='constant', value=pad_val)
                 scaled_lbl = F.pad(scaled_lbl, (0, 0, 0, 0, pad_z1, pad_z2), mode='constant', value=0)
 
             # Handle Y
@@ -206,7 +268,7 @@ class RandomScaling3D(object):
             elif sy < oy:
                 pad_y1 = (oy - sy) // 2
                 pad_y2 = oy - sy - pad_y1
-                scaled_img = F.pad(scaled_img, (0, 0, pad_y1, pad_y2, 0, 0), mode='constant', value=0)
+                scaled_img = F.pad(scaled_img, (0, 0, pad_y1, pad_y2, 0, 0), mode='constant', value=pad_val)
                 scaled_lbl = F.pad(scaled_lbl, (0, 0, pad_y1, pad_y2, 0, 0), mode='constant', value=0)
 
             # Handle X
@@ -217,7 +279,7 @@ class RandomScaling3D(object):
             elif sx < ox:
                 pad_x1 = (ox - sx) // 2
                 pad_x2 = ox - sx - pad_x1
-                scaled_img = F.pad(scaled_img, (pad_x1, pad_x2, 0, 0, 0, 0), mode='constant', value=0)
+                scaled_img = F.pad(scaled_img, (pad_x1, pad_x2, 0, 0, 0, 0), mode='constant', value=pad_val)
                 scaled_lbl = F.pad(scaled_lbl, (pad_x1, pad_x2, 0, 0, 0, 0), mode='constant', value=0)
 
             sample['image'] = scaled_img.squeeze(0).squeeze(0).numpy()
@@ -251,46 +313,133 @@ class GaussianBlur3D(object):
 class GammaTransform(object):
     """
     Non-linear intensity transformation via exponential gamma (I_new = I^gamma).
-    Enriches contrast around diverse lesion densities (e.g. hyperdense EDH vs isodense subacute SDH).
-    Normalized to preserve foreground range.
+    Supports nnU-Net inverted gamma and mean/std retention (retain_stats).
     """
     def __init__(
         self,
         gamma_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["gamma_range"],
         prob: float = DEFAULT_AUGMENTATION_CONFIG["gamma_prob"],
         retain_stats: bool = True,
+        invert_image: bool = False,
     ):
         self.gamma_range = gamma_range
         self.prob = prob
         self.retain_stats = retain_stats
+        self.invert_image = invert_image
 
     def __call__(self, sample: Dict) -> Dict:
         if np.random.rand() < self.prob:
-            img = sample['image']
+            img = sample['image'].astype(np.float32, copy=False)
             gamma = np.random.uniform(self.gamma_range[0], self.gamma_range[1])
-            mn, mx = img.min(), img.max()
+            mn, mx = float(img.min()), float(img.max())
             rng = mx - mn
             if rng > 1e-4:
-                # Scale to [0, 1]
-                norm_img = (img - mn) / rng
-                # Apply gamma
-                gamma_img = np.power(np.clip(norm_img, 0, 1), gamma)
-                # Rescale back to original intensity range
-                sample['image'] = (gamma_img * rng) + mn
+                orig_mean = float(img.mean())
+                orig_std = float(img.std())
+                norm_img = np.clip((img - mn) / rng, 0.0, 1.0)
+                if self.invert_image:
+                    gamma_img = 1.0 - np.power(1.0 - norm_img, gamma)
+                else:
+                    gamma_img = np.power(norm_img, gamma)
+                out = (gamma_img * rng) + mn
+                if self.retain_stats:
+                    new_std = float(out.std())
+                    if new_std > 1e-6:
+                        out = (out - float(out.mean())) / new_std * orig_std + orig_mean
+                sample['image'] = out.astype(sample['image'].dtype, copy=False)
         return sample
 
 
 class GaussianNoise(object):
-    """Add subtle Gaussian noise to image."""
-    def __init__(self, mean: float = 0.0, std: float = 0.02, prob: float = 0.3):
+    """Add zero-mean Gaussian noise to image (fixed std or sampled from std_range)."""
+    def __init__(
+        self,
+        mean: float = 0.0,
+        std: float = 0.02,
+        prob: float = 0.3,
+        std_range: Optional[Tuple[float, float]] = None,
+    ):
         self.mean = mean
         self.std = std
+        self.prob = prob
+        self.std_range = std_range
+
+    def __call__(self, sample: Dict) -> Dict:
+        if np.random.rand() < self.prob:
+            sigma = (
+                float(np.random.uniform(self.std_range[0], self.std_range[1]))
+                if self.std_range is not None
+                else float(self.std)
+            )
+            if sigma > 0.0:
+                noise = np.random.normal(self.mean, sigma, size=sample['image'].shape)
+                sample['image'] = (sample['image'] + noise).astype(sample['image'].dtype, copy=False)
+        return sample
+
+
+class MultiplicativeBrightness3D(object):
+    """Scale intensities multiplicatively matching nnU-Net BrightnessMultiplicativeTransform."""
+    def __init__(
+        self,
+        multiplier_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["brightness_range"],
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["brightness_prob"],
+    ):
+        self.multiplier_range = multiplier_range
         self.prob = prob
 
     def __call__(self, sample: Dict) -> Dict:
         if np.random.rand() < self.prob:
-            noise = np.random.normal(self.mean, self.std, size=sample['image'].shape)
-            sample['image'] = sample['image'] + noise
+            factor = float(np.random.uniform(self.multiplier_range[0], self.multiplier_range[1]))
+            sample['image'] = (sample['image'] * factor).astype(sample['image'].dtype, copy=False)
+        return sample
+
+
+class ContrastTransform3D(object):
+    """Adjust image contrast around volume mean while optionally preserving [min, max] range."""
+    def __init__(
+        self,
+        contrast_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["contrast_range"],
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["contrast_prob"],
+        preserve_range: bool = True,
+    ):
+        self.contrast_range = contrast_range
+        self.prob = prob
+        self.preserve_range = preserve_range
+
+    def __call__(self, sample: Dict) -> Dict:
+        if np.random.rand() < self.prob:
+            img = sample['image']
+            factor = float(np.random.uniform(self.contrast_range[0], self.contrast_range[1]))
+            mn = float(img.mean())
+            out = (img - mn) * factor + mn
+            if self.preserve_range:
+                out = np.clip(out, float(img.min()), float(img.max()))
+            sample['image'] = out.astype(img.dtype, copy=False)
+        return sample
+
+
+class SimulateLowResolution3D(object):
+    """Simulate lower in-plane (Y, X) resolution matching nnU-Net dummy-2D resampling."""
+    def __init__(
+        self,
+        zoom_range: Tuple[float, float] = DEFAULT_AUGMENTATION_CONFIG["lowres_scale_range"],
+        prob: float = DEFAULT_AUGMENTATION_CONFIG["lowres_prob"],
+    ):
+        self.zoom_range = zoom_range
+        self.prob = prob
+
+    def __call__(self, sample: Dict) -> Dict:
+        if np.random.rand() < self.prob:
+            img = sample['image']
+            z, y, x = img.shape
+            zoom = float(np.random.uniform(self.zoom_range[0], self.zoom_range[1]))
+            target_y = max(1, int(round(y * zoom)))
+            target_x = max(1, int(round(x * zoom)))
+            if target_y < y or target_x < x:
+                img_t = torch.from_numpy(img).unsqueeze(1).float()  # (Z, 1, Y, X)
+                down = F.interpolate(img_t, size=(target_y, target_x), mode='nearest')
+                up = F.interpolate(down, size=(y, x), mode='bilinear', align_corners=False)
+                sample['image'] = up.squeeze(1).numpy().astype(img.dtype, copy=False)
         return sample
 
 

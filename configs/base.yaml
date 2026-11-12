@@ -18,6 +18,8 @@ data:
   labeled_bs: 2             # Global labeled count; remaining samples are unlabeled
   labelnum: 15              # Number of labeled samples (e.g. 15 for ~10% or 30 for ~20%)
   max_samples: 2200         # Upper bound of sample pool
+  foreground_prob: 0.50     # nnU-Net foreground oversampling probability
+  aug_preset: "nnunet"      # "nnunet" (full CT pipeline) or "legacy"
 
 model:
   name: "vnet"              # "vnet", "unet3d", "unetr", "vnet_single"
@@ -26,9 +28,13 @@ model:
 method:
   name: "pick"              # "pick", "supervised", "mean_teacher", "cps", "bcp"
   base_lr: 0.01
-  momentum: 0.9
-  weight_decay: 0.0001
+  momentum: 0.99
+  nesterov: true
+  weight_decay: 0.00003
   clip_norm: 12.0
+  batch_dice: true
+  ds_zero_lowest_scale: true
+  ds_downsample_target: true
 
 logging:
   use_wandb: false          # Toggle Weights & Biases experiment tracking
@@ -44,8 +50,9 @@ logging:
   resume_source: null      # Source run/artifact provenance for continued training
   wandb_id: null            # Specific Run ID to attach to (optional, defaults to auto-resolved)
   val_interval: 500
-  val_stride_xy: 32
-  val_stride_z: 8
+  val_step_size: 0.5        # Relative sliding-window step size (0.5 = 50% overlap, nnU-Net default)
+  val_stride_xy: null       # Optional explicit override; null derives from patch_size * val_step_size
+  val_stride_z: null        # Optional explicit override; null derives from patch_size * val_step_size
   wandb_mode: "online"     # online | offline | disabled; WANDB_MODE env overrides
   wandb_required: false    # Fail rather than degrade on initialization/log failures
   save_interval: 1000      # Periodic checkpoint save interval (aligned with cloud sync)

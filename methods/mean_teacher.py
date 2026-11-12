@@ -27,7 +27,7 @@ from methods.base_method import BaseMethod
 from methods.ssl_utils import update_ema_variables
 from losses import MaskDiceLoss, extract_multiscale_outputs, ConsistencyLoss
 from utils.ramps import sigmoid_rampup
-from losses.deep_supervision import resolve_ds_weights
+from losses.deep_supervision import downsample_target_for_ds, resolve_ds_weights
 from utils.checkpoint import get_raw_model
 
 
@@ -112,7 +112,12 @@ class MeanTeacherMethod(BaseMethod):
         cons_dice_cfg = getattr(self.cfg.method, 'consistency_dice_weight', None)
         cons_mse_cfg = getattr(self.cfg.method, 'consistency_mse_weight', None)
 
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=False)
+        self.dice_loss = MaskDiceLoss(
+            nclass=self.num_classes,
+            include_background=False,
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
+        )
         self.consistency_loss = ConsistencyLoss(
             consistency_type=self.consistency_type,
             num_classes=self.num_classes,
@@ -128,6 +133,8 @@ class MeanTeacherMethod(BaseMethod):
             weight_mse=(
                 DEFAULT_CONSISTENCY_MSE_WEIGHT if cons_mse_cfg is None else float(cons_mse_cfg)
             ),
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
         )
 
     def get_current_consistency_weight(self, iter_num: int, epoch: float) -> float:
@@ -183,15 +190,28 @@ class MeanTeacherMethod(BaseMethod):
         loss_ds_accum = 0.0
         if self.ds_enabled and len(student_aux) > 0:
             all_student_lab = [lab_logits] + [aux[:self.labeled_bs] for aux in student_aux]
-            norm_w = resolve_ds_weights(len(all_student_lab), self.ds_weights)
+            norm_w = resolve_ds_weights(
+                len(all_student_lab),
+                self.ds_weights,
+                zero_lowest_scale=self.ds_zero_lowest_scale,
+            )
             loss_supervised = norm_w[0] * loss_sup_main
             target_shape = lab_targets.shape[1:]
 
             for idx in range(1, len(all_student_lab)):
+                if norm_w[idx] <= 0.0:
+                    continue
                 aux_lab = all_student_lab[idx]
-                if aux_lab.shape[2:] != target_shape:
-                    aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
-                l_stage = self.sup_ce_weight * F.cross_entropy(aux_lab, lab_targets) + self.sup_dice_weight * self.dice_loss(aux_lab, lab_targets)
+                if self.ds_downsample_target and aux_lab.shape[2:] != target_shape:
+                    stage_target = downsample_target_for_ds(lab_targets, aux_lab.shape[2:])
+                else:
+                    if aux_lab.shape[2:] != target_shape:
+                        aux_lab = F.interpolate(aux_lab, size=target_shape, mode='trilinear', align_corners=False)
+                    stage_target = lab_targets
+                l_stage = (
+                    self.sup_ce_weight * F.cross_entropy(aux_lab, stage_target)
+                    + self.sup_dice_weight * self.dice_loss(aux_lab, stage_target)
+                )
                 loss_supervised = loss_supervised + norm_w[idx] * l_stage
                 loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
         else:
@@ -203,9 +223,15 @@ class MeanTeacherMethod(BaseMethod):
         if self.ds_enabled and self.ds_consistency and len(student_aux) > 0 and len(teacher_aux) == len(student_aux):
             all_student = [student_logits] + student_aux
             all_teacher = [teacher_logits] + teacher_aux
-            norm_w = resolve_ds_weights(len(all_student), self.ds_weights)
+            norm_w = resolve_ds_weights(
+                len(all_student),
+                self.ds_weights,
+                zero_lowest_scale=self.ds_zero_lowest_scale,
+            )
             loss_consistency = norm_w[0] * loss_cons_main
             for idx in range(1, len(all_student)):
+                if norm_w[idx] <= 0.0:
+                    continue
                 loss_consistency = loss_consistency + norm_w[idx] * self.consistency_loss(all_student[idx], all_teacher[idx])
         else:
             loss_consistency = loss_cons_main

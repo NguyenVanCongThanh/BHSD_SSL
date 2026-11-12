@@ -16,7 +16,11 @@ import torch.distributed as dist
 from functools import lru_cache
 from scipy.ndimage import gaussian_filter
 
-from data.constants import DEFAULT_PATCH_SIZE, DEFAULT_VAL_STRIDE_XY, DEFAULT_VAL_STRIDE_Z
+from data.constants import (
+    DEFAULT_PATCH_SIZE,
+    DEFAULT_VAL_STEP_SIZE,
+    resolve_sliding_window_strides,
+)
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
     CLASS_NAMES_BINARY,
@@ -97,12 +101,13 @@ def sliding_window_inference_3d(
     image: np.ndarray,
     num_classes: int,
     patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
-    stride_z: int = DEFAULT_VAL_STRIDE_Z,
-    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
+    stride_z: Optional[int] = None,
+    stride_xy: Optional[int] = None,
     use_amp: bool = True,
     device: Optional[torch.device] = None,
     use_gaussian: bool = True,
-    use_tta: bool = False
+    use_tta: bool = False,
+    step_size: float = DEFAULT_VAL_STEP_SIZE,
 ) -> np.ndarray:
     """
     Run 3D sliding-window inference on a single 3D volume.
@@ -112,12 +117,13 @@ def sliding_window_inference_3d(
         image: 3D numpy array of shape (Z, Y, X).
         num_classes: Number of segmentation classes (2 for binary, 6 for multiclass).
         patch_size: Patch dimensions (pz, py, px).
-        stride_z: Stride along slice (Z) dimension.
-        stride_xy: Stride along axial (Y, X) dimensions.
+        stride_z: Stride along slice (Z) dimension. When None, derived from patch_size and step_size.
+        stride_xy: Stride along axial (Y, X) dimensions. When None, derived from patch_size and step_size.
         use_amp: If True, uses torch.cuda.amp.autocast() for FP16 speedup.
         device: Torch device (defaults to cuda if available).
         use_gaussian: If True, weights overlapping patches with 3D Gaussian importance mask (nnUNet standard).
         use_tta: If True, applies 3D Test-Time Augmentation (flips across X, Y, Z axes).
+        step_size: Relative step size (1 - overlap) when stride_z/stride_xy are not given (default 0.5 = 50% overlap).
         
     Returns:
         np.ndarray: Predicted discrete segmentation map of shape (Z, Y, X) with class integers.
@@ -129,6 +135,9 @@ def sliding_window_inference_3d(
         raise ValueError('Expected a nonempty 3D image')
     if len(patch_size) != 3 or any(size <= 0 for size in patch_size):
         raise ValueError('Patch dimensions must be positive')
+    stride_z, stride_xy = resolve_sliding_window_strides(
+        patch_size, stride_z=stride_z, stride_xy=stride_xy, step_size=step_size
+    )
     if not 0 < stride_z <= patch_size[0] or not 0 < stride_xy <= min(patch_size[1:]):
         raise ValueError('Strides must be positive and no larger than patch dimensions to cover every voxel')
     z, y, x = image.shape
@@ -202,8 +211,8 @@ def evaluate_dataset_sliding_window(
     num_classes: int = 6,
     is_binary: bool = False,
     patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
-    stride_z: int = DEFAULT_VAL_STRIDE_Z,
-    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
+    stride_z: Optional[int] = None,
+    stride_xy: Optional[int] = None,
     use_amp: bool = True,
     device: Optional[torch.device] = None,
     log_progress: bool = True,
@@ -218,6 +227,7 @@ def evaluate_dataset_sliding_window(
     compute_surface=False,
     eval_space: str = 'preprocessed',
     raw_gt_dir: Optional[str] = None,
+    step_size: float = DEFAULT_VAL_STEP_SIZE,
 ) -> Union[Tuple[float, List[float]], Tuple[float, List[float], List[Dict[str, Any]]]]:
     """
     Run 3D sliding window inference across a full validation dataset.
@@ -301,11 +311,14 @@ def evaluate_dataset_sliding_window(
 
     num_my_cases = len(my_indices)
 
+    stride_z, stride_xy = resolve_sliding_window_strides(
+        patch_size, stride_z=stride_z, stride_xy=stride_xy, step_size=step_size
+    )
     if log_progress:
         dist_info = f" | Multi-GPU: Rank {rank}/{world_size} evaluating {num_my_cases}/{total_cases} cases" if world_size > 1 else ""
         logging.info(
             f"  [Validation] Evaluating {total_cases} cases "
-            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, amp={use_amp}, gaussian={use_gaussian}, tta={use_tta}){dist_info}..."
+            f"(patch={patch_size}, stride_xy={stride_xy}, stride_z={stride_z}, step_size={step_size}, amp={use_amp}, gaussian={use_gaussian}, tta={use_tta}){dist_info}..."
         )
 
     for step_i, case_idx in enumerate(my_indices):
@@ -329,7 +342,8 @@ def evaluate_dataset_sliding_window(
             use_amp=use_amp,
             device=device,
             use_gaussian=use_gaussian,
-            use_tta=use_tta
+            use_tta=use_tta,
+            step_size=step_size,
         )
 
         meta = sample.get('metadata', {})
@@ -406,7 +420,7 @@ def evaluate_dataset_sliding_window(
     if details_sink is not None:
         details_sink.update(aggregate_segmentation_stats(stats))
         details_sink['inference'] = {'patch_size': list(patch_size), 'stride_xy': stride_xy,
-            'stride_z': stride_z, 'amp': use_amp, 'gaussian': use_gaussian, 'tta': use_tta, 'surface_metrics': compute_surface,
+            'stride_z': stride_z, 'step_size': step_size, 'amp': use_amp, 'gaussian': use_gaussian, 'tta': use_tta, 'surface_metrics': compute_surface,
             'eval_space': eval_space}
         details_sink['visual_cohort'] = chosen
 

@@ -50,7 +50,12 @@ class LeFeDMethod(BaseMethod):
             self.class_weights = None
 
         # Supervised loss (exclude background from Dice for multi-class)
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, include_background=self.is_binary)
+        self.dice_loss = MaskDiceLoss(
+            nclass=self.num_classes,
+            include_background=self.is_binary,
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
+        )
 
     def get_current_consistency_weight(self, epoch: float) -> float:
         if self.consistency_rampup <= 0:

@@ -13,6 +13,7 @@ from core.registry import METHODS
 from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, resolve_ds_weights
+from losses.deep_supervision import downsample_target_for_ds
 from utils.ramps import sigmoid_rampup
 from utils.checkpoint import get_raw_model
 from core.optimizers import build_optimizer
@@ -51,7 +52,7 @@ class CPSMethod(BaseMethod):
 
         self.optimizer2 = build_optimizer(self.model2, self.cfg)
 
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, batch_dice=self.batch_dice, ddp=self.is_ddp)
         sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
         sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
         self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
@@ -82,16 +83,25 @@ class CPSMethod(BaseMethod):
 
         all_labs = [main_lab] + aux_labs
         num_scales = len(all_labs)
-        norm_w = resolve_ds_weights(num_scales, self.ds_weights)
+        norm_w = resolve_ds_weights(num_scales, self.ds_weights, zero_lowest_scale=self.ds_zero_lowest_scale)
 
         total_sup = norm_w[0] * l_main
         ds_accum = 0.0
         target_shape = targets.shape[1:]
         for idx in range(1, num_scales):
+            if norm_w[idx] <= 0.0:
+                continue
             aux = all_labs[idx]
-            if aux.shape[2:] != target_shape:
-                aux = F.interpolate(aux, size=target_shape, mode='trilinear', align_corners=False)
-            stage_loss = self.sup_ce_weight * F.cross_entropy(aux, targets) + self.sup_dice_weight * self.dice_loss(aux, targets)
+            if self.ds_downsample_target and aux.shape[2:] != target_shape:
+                stage_target = downsample_target_for_ds(targets, aux.shape[2:])
+            else:
+                if aux.shape[2:] != target_shape:
+                    aux = F.interpolate(aux, size=target_shape, mode='trilinear', align_corners=False)
+                stage_target = targets
+            stage_loss = (
+                self.sup_ce_weight * F.cross_entropy(aux, stage_target)
+                + self.sup_dice_weight * self.dice_loss(aux, stage_target)
+            )
             total_sup = total_sup + norm_w[idx] * stage_loss
             ds_accum = ds_accum + norm_w[idx] * float(stage_loss.item())
 

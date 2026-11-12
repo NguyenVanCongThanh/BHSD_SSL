@@ -24,6 +24,8 @@ class DiceCELoss(nn.Module):
         weight_ce: float = 1.0,
         smooth: float = 1e-5,
         include_background: bool = False,
+        batch_dice: bool = False,
+        ddp: Optional[bool] = None,
     ):
         super().__init__()
         self.nclass = nclass
@@ -32,7 +34,9 @@ class DiceCELoss(nn.Module):
         self.dice_loss = MaskDiceLoss(
             nclass=nclass,
             smooth=smooth,
-            include_background=include_background
+            include_background=include_background,
+            batch_dice=batch_dice,
+            ddp=ddp,
         )
 
     def forward(

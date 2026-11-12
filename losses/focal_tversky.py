@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import LOSSES
-from losses.dice import expand_spatial_mask
+from losses.dice import expand_spatial_mask, reduce_batch_stats
 
 
 @LOSSES.register("focal_loss")
@@ -98,6 +98,8 @@ class TverskyLoss(nn.Module):
         beta: float = 0.7,
         smooth: float = 1e-5,
         include_background: bool = False,
+        batch_dice: bool = False,
+        ddp: Optional[bool] = None,
     ):
         super().__init__()
         self.nclass = int(nclass)
@@ -105,6 +107,8 @@ class TverskyLoss(nn.Module):
         self.beta = float(beta)
         self.smooth = float(smooth)
         self.include_background = bool(include_background)
+        self.batch_dice = bool(batch_dice)
+        self.ddp = ddp
 
     def forward(
         self,
@@ -134,7 +138,10 @@ class TverskyLoss(nn.Module):
         fp = (probs * (1.0 - one_hot)).sum(dim=dims)
         fn = ((1.0 - probs) * one_hot).sum(dim=dims)
 
-        tversky_index = (tp + self.smooth) / (tp + self.alpha * fp + self.beta * fn + self.smooth)
+        if self.batch_dice:
+            tp, fp, fn = reduce_batch_stats(tp, fp, fn, ddp=self.ddp)
+
+        tversky_index = (tp + self.smooth) / (tp + self.alpha * fp + self.beta * fn + self.smooth).clamp_min(1e-8)
         loss = 1.0 - tversky_index
 
         start_cls = 0 if self.include_background else 1
@@ -158,6 +165,8 @@ class FocalTverskyLoss(nn.Module):
         weight_focal: float = 1.0,
         smooth: float = 1e-5,
         include_background: bool = False,
+        batch_dice: bool = False,
+        ddp: Optional[bool] = None,
     ):
         super().__init__()
         self.tversky = TverskyLoss(
@@ -166,6 +175,8 @@ class FocalTverskyLoss(nn.Module):
             beta=beta,
             smooth=smooth,
             include_background=include_background,
+            batch_dice=batch_dice,
+            ddp=ddp,
         )
         self.focal = FocalLoss(gamma=gamma)
         self.weight_tversky = float(weight_tversky)

@@ -14,7 +14,7 @@ from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE
 from methods.base_method import BaseMethod
 from models.outputs import extract_multiscale_outputs
 from losses import MaskDiceLoss
-from losses.deep_supervision import resolve_ds_weights
+from losses.deep_supervision import downsample_target_for_ds, resolve_ds_weights
 
 
 @METHODS.register("supervised")
@@ -25,7 +25,11 @@ class SupervisedMethod(BaseMethod):
     """
     def __init__(self, model: nn.Module, cfg):
         super(SupervisedMethod, self).__init__(model, cfg)
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(
+            nclass=self.num_classes,
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
+        )
         sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
         sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
         self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
@@ -64,6 +68,8 @@ class SupervisedMethod(BaseMethod):
                 gamma=focal_gamma,
                 weight_tversky=self.sup_dice_weight,
                 weight_focal=self.sup_ce_weight,
+                batch_dice=self.batch_dice,
+                ddp=self.is_ddp,
             )
         else:
             self.focal_tversky_loss = None
@@ -95,7 +101,13 @@ class SupervisedMethod(BaseMethod):
         loss_ds_accum = 0.0
         if self.ds_enabled and len(aux_logits) > 0:
             all_logits = [main_logits] + aux_logits
-            norm_w = list(resolve_ds_weights(len(all_logits), self.ds_weights))
+            norm_w = list(
+                resolve_ds_weights(
+                    len(all_logits),
+                    self.ds_weights,
+                    zero_lowest_scale=self.ds_zero_lowest_scale,
+                )
+            )
 
             # Optional deep supervision decay/rampdown in late iterations
             if self.ds_rampdown_start is not None and iter_num >= int(self.ds_rampdown_start):
@@ -111,9 +123,13 @@ class SupervisedMethod(BaseMethod):
                 if norm_w[idx] <= 0.0:
                     continue
                 aux_pred = all_logits[idx]
-                if aux_pred.shape[2:] != target_shape:
-                    aux_pred = F.interpolate(aux_pred, size=target_shape, mode='trilinear', align_corners=False)
-                l_stage = self._compute_stage_loss(aux_pred, label_batch)
+                if self.ds_downsample_target and aux_pred.shape[2:] != target_shape:
+                    stage_target = downsample_target_for_ds(label_batch, aux_pred.shape[2:])
+                else:
+                    if aux_pred.shape[2:] != target_shape:
+                        aux_pred = F.interpolate(aux_pred, size=target_shape, mode='trilinear', align_corners=False)
+                    stage_target = label_batch
+                l_stage = self._compute_stage_loss(aux_pred, stage_target)
                 total_loss = total_loss + norm_w[idx] * l_stage
                 loss_ds_accum = loss_ds_accum + norm_w[idx] * float(l_stage.item())
         else:

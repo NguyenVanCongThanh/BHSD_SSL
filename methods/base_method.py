@@ -28,9 +28,9 @@ from core.optimizers import build_optimizer, calculate_lr
 from data.constants import (
     DEFAULT_CLIP_NORM,
     DEFAULT_PATCH_SIZE,
-    DEFAULT_VAL_STRIDE_XY,
-    DEFAULT_VAL_STRIDE_Z,
+    DEFAULT_VAL_STEP_SIZE,
     get_dataset_class_names,
+    resolve_sliding_window_strides,
 )
 from data.dataloader_factory import build_bhsd_dataloaders
 from utils.wandb_manager import WandbManager
@@ -135,6 +135,10 @@ class BaseMethod(abc.ABC):
         if self.use_amp and is_main_process():
             logging.info("[AMP] Mixed precision (FP16) training enabled with torch.cuda.amp.GradScaler.")
 
+        self.batch_dice = bool(getattr(self.cfg.method, 'batch_dice', False))
+        self.ds_zero_lowest_scale = bool(getattr(self.cfg.method, 'ds_zero_lowest_scale', False))
+        self.ds_downsample_target = bool(getattr(self.cfg.method, 'ds_downsample_target', False))
+
         # Setup components
         self.setup_dataloaders()
         self.setup_optimizer()
@@ -209,10 +213,18 @@ class BaseMethod(abc.ABC):
             self.use_wandb = False
 
     def validation_options(self):
+        step_size = float(getattr(self.cfg.logging, 'val_step_size', DEFAULT_VAL_STEP_SIZE))
+        stride_z, stride_xy = resolve_sliding_window_strides(
+            self.patch_size,
+            stride_z=getattr(self.cfg.logging, 'val_stride_z', None),
+            stride_xy=getattr(self.cfg.logging, 'val_stride_xy', None),
+            step_size=step_size,
+        )
         return {
             'patch_size': self.patch_size,
-            'stride_xy': int(getattr(self.cfg.logging, 'val_stride_xy', DEFAULT_VAL_STRIDE_XY)),
-            'stride_z': int(getattr(self.cfg.logging, 'val_stride_z', DEFAULT_VAL_STRIDE_Z)),
+            'stride_xy': stride_xy,
+            'stride_z': stride_z,
+            'step_size': step_size,
             'use_amp': bool(getattr(self.cfg.logging, 'val_amp', self.use_amp)),
             'use_gaussian': bool(getattr(self.cfg.logging, 'val_gaussian', True)),
             'use_tta': bool(getattr(self.cfg.logging, 'val_tta', False)),

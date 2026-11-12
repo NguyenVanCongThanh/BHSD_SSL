@@ -26,11 +26,16 @@ from data.constants import (
 from data.samplers import TwoStreamBatchSampler, DistributedTwoStreamBatchSampler
 from data.transforms3d import (
     RandomRotFlip,
+    RandomAxialRotate3D,
     RandomCrop,
     ToTensor,
     RandomScaling3D,
     GaussianBlur3D,
+    GaussianNoise,
     GammaTransform,
+    MultiplicativeBrightness3D,
+    ContrastTransform3D,
+    SimulateLowResolution3D,
 )
 
 DEFAULT_STRATIFIED_FG_CLASSES = len(BHSD_FOREGROUND_NAMES)
@@ -61,11 +66,22 @@ def _extract_aug_config(cfg: Config) -> Dict[str, Any]:
         'gamma_prob': getattr(data_cfg, 'aug_gamma_prob', None),
         'blur_sigma_range': getattr(data_cfg, 'aug_blur_sigma_range', None),
         'blur_prob': getattr(data_cfg, 'aug_blur_prob', None),
+        'rotation_prob': getattr(data_cfg, 'aug_rotation_prob', None),
+        'noise_prob': getattr(data_cfg, 'aug_noise_prob', None),
+        'brightness_prob': getattr(data_cfg, 'aug_brightness_prob', None),
+        'contrast_prob': getattr(data_cfg, 'aug_contrast_prob', None),
+        'lowres_prob': getattr(data_cfg, 'aug_lowres_prob', None),
+        'mirror_z': getattr(data_cfg, 'aug_mirror_z', None),
     }
     merged = dict(DEFAULT_AUGMENTATION_CONFIG)
     for k, v in cfg_map.items():
         if v is not None:
-            merged[k] = tuple(v) if k.endswith('_range') else float(v)
+            if k == 'mirror_z':
+                merged[k] = bool(v)
+            elif k.endswith('_range'):
+                merged[k] = tuple(v)
+            else:
+                merged[k] = float(v)
     return merged
 
 
@@ -84,12 +100,72 @@ def build_bhsd_transforms(
     extended_aug: bool = True,
     foreground_prob: Optional[float] = None,
     aug_config: Optional[Dict[str, Any]] = None,
+    aug_preset: str = "legacy",
 ) -> transforms.Compose:
-    """Build 3D data augmentation pipeline for training."""
+    """Build 3D data augmentation pipeline for training ('legacy' or 'nnunet')."""
+    preset = str(aug_preset or "legacy").strip().lower()
+    if preset not in ("legacy", "nnunet"):
+        raise ValueError(f"Unsupported aug_preset {aug_preset!r}; expected 'legacy' or 'nnunet'")
     resolved_aug = dict(DEFAULT_AUGMENTATION_CONFIG)
     if aug_config:
         resolved_aug.update(aug_config)
     fg_prob = DEFAULT_FOREGROUND_OVERSAMPLE_PROB if foreground_prob is None else float(foreground_prob)
+
+    if preset == "nnunet":
+        mirror_z = bool(resolved_aug.get('mirror_z', True))
+        aug_list = [RandomRotFlip(mirror_z=mirror_z)]
+        if extended_aug:
+            deg = float(resolved_aug.get('rotation_deg', 180.0))
+            aug_list.extend([
+                RandomAxialRotate3D(
+                    deg_range=(-deg, deg),
+                    prob=float(resolved_aug['rotation_prob']),
+                    pad_to_min=True,
+                ),
+                RandomScaling3D(
+                    scale_range=tuple(resolved_aug['scale_range']),
+                    prob=float(resolved_aug['scale_prob']),
+                    pad_to_min=True,
+                ),
+            ])
+        aug_list.append(RandomCrop(patch_size, foreground_prob=fg_prob, pad_to_min=True))
+        if extended_aug:
+            aug_list.extend([
+                GaussianNoise(
+                    std_range=tuple(resolved_aug['noise_std_range']),
+                    prob=float(resolved_aug['noise_prob']),
+                ),
+                GaussianBlur3D(
+                    sigma_range=tuple(resolved_aug['blur_sigma_range']),
+                    prob=float(resolved_aug['blur_prob']),
+                ),
+                MultiplicativeBrightness3D(
+                    multiplier_range=tuple(resolved_aug['brightness_range']),
+                    prob=float(resolved_aug['brightness_prob']),
+                ),
+                ContrastTransform3D(
+                    contrast_range=tuple(resolved_aug['contrast_range']),
+                    prob=float(resolved_aug['contrast_prob']),
+                ),
+                SimulateLowResolution3D(
+                    zoom_range=tuple(resolved_aug['lowres_scale_range']),
+                    prob=float(resolved_aug['lowres_prob']),
+                ),
+                GammaTransform(
+                    gamma_range=tuple(resolved_aug['gamma_range']),
+                    prob=float(resolved_aug['invert_gamma_prob']),
+                    retain_stats=True,
+                    invert_image=True,
+                ),
+                GammaTransform(
+                    gamma_range=tuple(resolved_aug['gamma_range']),
+                    prob=float(resolved_aug['gamma_prob']),
+                    retain_stats=True,
+                    invert_image=False,
+                ),
+            ])
+        aug_list.append(ToTensor())
+        return transforms.Compose(aug_list)
 
     aug_list = [
         RandomRotFlip(),
@@ -268,11 +344,13 @@ def build_bhsd_dataloaders(
     root_path = _resolve_data_root(cfg)
     use_extended_da = bool(getattr(cfg.data, 'extended_aug', True))
     fg_prob_cfg = getattr(cfg.data, 'foreground_prob', None)
+    aug_preset = str(getattr(cfg.data, 'aug_preset', 'legacy') or 'legacy').lower()
     train_transforms = build_bhsd_transforms(
         patch_size=patch_size,
         extended_aug=use_extended_da,
         foreground_prob=fg_prob_cfg,
         aug_config=_extract_aug_config(cfg),
+        aug_preset=aug_preset,
     )
 
     db_train = DATASETS.build(

@@ -10,7 +10,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from core.distributed import AllGatherGrad, get_world_size, is_dist_avail_and_initialized
 from core.registry import LOSSES
+
+
+def reduce_batch_stats(*tensors: torch.Tensor, ddp: Optional[bool] = None):
+    """Aggregate per-sample statistics [N, ...] across mini-batch and optional DDP ranks."""
+    use_ddp = (
+        is_dist_avail_and_initialized() and get_world_size() > 1
+        if ddp is None
+        else bool(ddp) and is_dist_avail_and_initialized() and get_world_size() > 1
+    )
+    reduced = []
+    for tensor in tensors:
+        if use_ddp:
+            tensor = AllGatherGrad.apply(tensor).sum(dim=0, dtype=torch.float32)
+        reduced.append(tensor.sum(dim=0, keepdim=True))
+    return tuple(reduced) if len(reduced) > 1 else reduced[0]
 
 
 def expand_spatial_mask(mask, target):
@@ -69,11 +85,15 @@ class MaskDiceLoss(nn.Module):
         class_weights: Optional[Union[Sequence[float], np.ndarray, torch.Tensor]] = None,
         smooth: float = 1e-5,
         include_background: bool = False,
+        batch_dice: bool = False,
+        ddp: Optional[bool] = None,
     ):
         super().__init__()
         self.nclass = nclass
         self.smooth = float(smooth)
         self.include_background = include_background
+        self.batch_dice = bool(batch_dice)
+        self.ddp = ddp
 
         if class_weights is None:
             weights = torch.ones((1, nclass), dtype=torch.float32)
@@ -132,7 +152,10 @@ class MaskDiceLoss(nn.Module):
             inter = inter.sum(dim=2)
             union = union.sum(dim=2)
 
-        dice = (2.0 * inter + self.smooth) / (union + self.smooth)
+        if self.batch_dice:
+            inter, union = reduce_batch_stats(inter, union, ddp=self.ddp)
+
+        dice = (2.0 * inter + self.smooth) / (union + self.smooth).clamp_min(1e-8)
 
         return self._reduce_dice(dice)
 

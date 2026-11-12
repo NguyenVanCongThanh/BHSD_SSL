@@ -20,8 +20,6 @@ method:
   name: "mean_teacher"
   max_iteration: 12000
   base_lr: 0.01
-  momentum: 0.9
-  weight_decay: 0.0001
   lr_scheduler: "poly"                # Polynomial decay: lr = base_lr * (1 - iter/max_iter)^power
   poly_power: 0.7                     # Slower decay power factor (0.7) to sustain supervised gradients in late phase
   ema_decay: 0.999                    # Target EMA decay
@@ -49,8 +47,6 @@ data:
 logging:
   val_interval: 200
   save_interval: 1000
-  val_stride_xy: 32
-  val_stride_z: 8
   val_eval_space: "preprocessed"       # Fast periodic validation on .h5; independent evaluate.py supports --eval_space native
   use_wandb: false
   val_visualize: true

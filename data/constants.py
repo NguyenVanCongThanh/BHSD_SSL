@@ -4,7 +4,7 @@ Single Source of Truth for class names, labels, dataset specs, and baseline defa
 across training, augmentation, losses, validation, and tooling.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 # BHSD (Brain Hemorrhage Segmentation Dataset) - 6 classes
@@ -100,11 +100,12 @@ def get_foreground_class_names(
 DEFAULT_DATA_ROOT = "~/notebook/preprocessed_bhsd_pick/"
 DEFAULT_EXP_DIR = "~/experiments"
 DEFAULT_PATCH_SIZE = (32, 160, 160)
-DEFAULT_VAL_STRIDE_XY = 32
-DEFAULT_VAL_STRIDE_Z = 8
+DEFAULT_VAL_STEP_SIZE = 0.5
+DEFAULT_VAL_STRIDE_XY = 80
+DEFAULT_VAL_STRIDE_Z = 16
 DEFAULT_CLIP_NORM = 12.0
 
-DEFAULT_FOREGROUND_OVERSAMPLE_PROB = 0.33
+DEFAULT_FOREGROUND_OVERSAMPLE_PROB = 0.50
 DEFAULT_CROP_JITTER_Z = 4
 DEFAULT_CROP_JITTER_XY = 16
 DEFAULT_AUGMENTATION_CONFIG: Dict[str, object] = {
@@ -114,7 +115,46 @@ DEFAULT_AUGMENTATION_CONFIG: Dict[str, object] = {
     "gamma_prob": 0.2,
     "blur_sigma_range": (0.5, 1.0),
     "blur_prob": 0.15,
+    "rotation_prob": 0.2,
+    "rotation_deg": 180.0,
+    "noise_std_range": (0.0, 0.1),
+    "noise_prob": 0.1,
+    "brightness_range": (0.75, 1.25),
+    "brightness_prob": 0.15,
+    "contrast_range": (0.75, 1.25),
+    "contrast_prob": 0.15,
+    "lowres_scale_range": (0.5, 1.0),
+    "lowres_prob": 0.25,
+    "invert_gamma_prob": 0.1,
+    "mirror_z": True,
 }
+
+
+def resolve_sliding_window_strides(
+    patch_size: Tuple[int, int, int],
+    stride_z: Optional[int] = None,
+    stride_xy: Optional[int] = None,
+    step_size: float = DEFAULT_VAL_STEP_SIZE,
+) -> Tuple[int, int]:
+    """
+    Resolve concrete (stride_z, stride_xy) from explicit strides or fractional step_size.
+    Default step_size=0.5 matches nnU-Net's 50% sliding-window overlap (tile_step_size=0.5).
+    """
+    if len(patch_size) != 3 or any(int(s) <= 0 for s in patch_size):
+        raise ValueError(f"Patch dimensions must be 3 positive integers, got {patch_size}")
+    step = float(step_size)
+    if not (0.0 < step <= 1.0):
+        raise ValueError(f"Sliding-window step_size must be in (0.0, 1.0], got {step_size}")
+
+    pz, py, px = (int(patch_size[0]), int(patch_size[1]), int(patch_size[2]))
+    resolved_z = max(1, int(round(pz * step))) if stride_z is None else int(stride_z)
+    resolved_xy = max(1, int(round(min(py, px) * step))) if stride_xy is None else int(stride_xy)
+
+    if not 0 < resolved_z <= pz or not 0 < resolved_xy <= min(py, px):
+        raise ValueError(
+            f"Strides ({resolved_z}, {resolved_xy}) must be positive and no larger than patch dimensions {patch_size} to cover every voxel"
+        )
+    return resolved_z, resolved_xy
 
 DEFAULT_SUPERVISED_CE_WEIGHT = 0.5
 DEFAULT_SUPERVISED_DICE_WEIGHT = 0.5

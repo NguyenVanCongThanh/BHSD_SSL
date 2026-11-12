@@ -10,28 +10,41 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def compute_ds_weights(num_scales: int) -> List[float]:
+def compute_ds_weights(num_scales: int, zero_lowest_scale: bool = False) -> List[float]:
     """
     Compute normalized exponential decay weights according to nnU-Net rule:
     w_i = 2^(-i) / sum(2^(-k))
-    Example for 4 scales (scale 1.0, 0.5, 0.25, 0.125):
-    [0.5333, 0.2667, 0.1333, 0.0667]
+    When zero_lowest_scale=True and num_scales >= 3, zeroes the coarsest decoder output
+    (matching nnU-Net's weights[-1] = 0 policy).
     """
     if num_scales <= 1:
         return [1.0]
     raw = [1.0 / (2 ** i) for i in range(num_scales)]
+    if zero_lowest_scale and num_scales >= 3:
+        raw[-1] = 0.0
     total = sum(raw)
     return [w / total for w in raw]
 
 
-def resolve_ds_weights(num_scales, weights=None):
+def resolve_ds_weights(num_scales, weights=None, zero_lowest_scale: bool = False):
     """Configured weights cover main plus every auxiliary head; never silently ignored."""
     if weights is None:
-        return compute_ds_weights(num_scales)
+        return compute_ds_weights(num_scales, zero_lowest_scale=zero_lowest_scale)
     import math
     if len(weights) != num_scales or not all(math.isfinite(w) and w >= 0 for w in weights) or sum(weights) <= 0:
         raise ValueError(f'Deep supervision requires {num_scales} finite nonnegative weights (main + aux) with positive sum')
     return [float(w / sum(weights)) for w in weights]
+
+
+def downsample_target_for_ds(target: torch.Tensor, spatial_size: Tuple[int, ...]) -> torch.Tensor:
+    """Downsample segmentation label map to native auxiliary prediction resolution (nnU-Net style)."""
+    if target.shape[-len(spatial_size):] == tuple(spatial_size):
+        return target
+    if target.dim() == len(spatial_size) + 1:
+        t_in = target.unsqueeze(1).float()
+        out = F.interpolate(t_in, size=spatial_size, mode='nearest')
+        return out.squeeze(1).to(dtype=target.dtype)
+    return F.interpolate(target.float(), size=spatial_size, mode='nearest').to(dtype=target.dtype)
 
 
 from models.outputs import NON_AUX_KEYS, extract_multiscale_outputs

@@ -155,6 +155,13 @@ SECTION_MAPPING = {
     'aug_gamma_prob': 'data',
     'aug_blur_sigma_range': 'data',
     'aug_blur_prob': 'data',
+    'aug_preset': 'data',
+    'aug_rotation_prob': 'data',
+    'aug_noise_prob': 'data',
+    'aug_brightness_prob': 'data',
+    'aug_contrast_prob': 'data',
+    'aug_lowres_prob': 'data',
+    'aug_mirror_z': 'data',
     
     # Method section
     'method': 'method',
@@ -184,6 +191,9 @@ SECTION_MAPPING = {
     'min_lr': 'method',
     'min-lr': 'method',
     'nesterov': 'method',
+    'batch_dice': 'method',
+    'ds_zero_lowest_scale': 'method',
+    'ds_downsample_target': 'method',
     
     # Experiment section
     'exp': 'experiment',
@@ -224,6 +234,7 @@ SECTION_MAPPING = {
     'log_interval': 'logging',
     'val_interval': 'logging',
     'save_interval': 'logging',
+    'val_step_size': 'logging',
     'val_stride_xy': 'logging',
     'val_stride_z': 'logging',
     'val_amp': 'logging',
@@ -321,7 +332,9 @@ KNOWN_SECTION_KEYS = {
         'pin_memory', 'drop_last', 'train_split', 'val_split', 'test_split',
         'extended_aug', 'foreground_prob', 'strong_voxel_thresh',
         'aug_scale_range', 'aug_scale_prob', 'aug_gamma_range', 'aug_gamma_prob',
-        'aug_blur_sigma_range', 'aug_blur_prob'
+        'aug_blur_sigma_range', 'aug_blur_prob',
+        'aug_preset', 'aug_rotation_prob', 'aug_noise_prob', 'aug_brightness_prob',
+        'aug_contrast_prob', 'aug_lowres_prob', 'aug_mirror_z'
     },
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
@@ -338,13 +351,14 @@ KNOWN_SECTION_KEYS = {
         'warmup_epochs', 'warmup_iters', 'min_lr', 'nesterov', 'betas', 'eps',
         'loss_name', 'aux_loss_weight', 'optimizer',
         'feedback_steps', 'feedback_scale', 'ds_weights',
-        'loss_type', 'tversky_alpha', 'tversky_beta', 'focal_gamma', 'ds_rampdown_start'
+        'loss_type', 'tversky_alpha', 'tversky_beta', 'focal_gamma', 'ds_rampdown_start',
+        'batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target'
     },
     'logging': {
         'use_wandb', 'save_wandb_model', 'wandb_project', 'wandb_entity', 'wandb_run_name',
         'wandb_id', 'wandb_mode', 'wandb_required', 'wandb_resume_new_run', 'resume_source',
         'use_hf_storage', 'hf_repo_id', 'hf_private', 'artifact_backend',
-        'val_interval', 'val_stride_xy',
+        'val_interval', 'val_step_size', 'val_stride_xy',
         'val_stride_z', 'log_interval', 'save_interval', 'artifact_interval',
         'epoch_artifact_interval', 'artifact_keep_versions', 'artifact_cache_size',
         'artifact_cache_cleanup_interval', 'artifact_async_upload',
@@ -407,6 +421,15 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         raise ValueError('logging.hf_repo_id must be string or null')
     if 'artifact_backend' in logging_cfg and logging_cfg['artifact_backend'] not in ('huggingface', 'wandb', 'both', None):
         raise ValueError("logging.artifact_backend must be 'huggingface', 'wandb', 'both', or null")
+    if 'val_step_size' in logging_cfg and logging_cfg['val_step_size'] is not None:
+        vss = logging_cfg['val_step_size']
+        if not (_is_finite_number(vss) and 0.0 < vss <= 1.0):
+            raise ValueError(f"logging.val_step_size must be in (0.0, 1.0], got {vss}")
+    for stride_key in ('val_stride_xy', 'val_stride_z'):
+        if stride_key in logging_cfg and logging_cfg[stride_key] is not None:
+            sv = logging_cfg[stride_key]
+            if not _is_int(sv) or sv < 1:
+                raise ValueError(f"logging.{stride_key} must be a positive integer or null, got {sv}")
 
     # 1. Data invariants
     if 'batch_size' in data:
@@ -462,7 +485,17 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         svt = data['strong_voxel_thresh']
         if not _is_int(svt) or svt < 0:
             raise ValueError(f"data.strong_voxel_thresh must be non-negative integer, got {svt}")
-    for prob_key in ('aug_scale_prob', 'aug_gamma_prob', 'aug_blur_prob'):
+    if 'aug_preset' in data and data['aug_preset'] is not None:
+        ap = str(data['aug_preset']).lower()
+        if ap not in ('legacy', 'nnunet'):
+            raise ValueError(f"data.aug_preset must be 'legacy' or 'nnunet', got {data['aug_preset']!r}")
+    if 'aug_mirror_z' in data and data['aug_mirror_z'] is not None and not isinstance(data['aug_mirror_z'], bool):
+        raise ValueError(f"data.aug_mirror_z must be boolean or null, got {data['aug_mirror_z']!r}")
+    for prob_key in (
+        'aug_scale_prob', 'aug_gamma_prob', 'aug_blur_prob',
+        'aug_rotation_prob', 'aug_noise_prob', 'aug_brightness_prob',
+        'aug_contrast_prob', 'aug_lowres_prob',
+    ):
         if prob_key in data and data[prob_key] is not None:
             pv = data[prob_key]
             if not (_is_finite_number(pv) and 0.0 <= pv <= 1.0):
@@ -545,6 +578,9 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
         ds_r = method['ds_rampdown_start']
         if not _is_int(ds_r) or ds_r < 0:
             raise ValueError(f"method.ds_rampdown_start must be non-negative integer, got {ds_r}")
+    for bool_key in ('batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target'):
+        if bool_key in method and method[bool_key] is not None and not isinstance(method[bool_key], bool):
+            raise ValueError(f"method.{bool_key} must be boolean or null, got {method[bool_key]!r}")
 
 
 def load_config(

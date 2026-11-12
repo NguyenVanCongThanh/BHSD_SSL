@@ -15,9 +15,9 @@ from tqdm import tqdm
 from core.registry import DATASETS
 from data.constants import (
     DEFAULT_PATCH_SIZE,
-    DEFAULT_VAL_STRIDE_XY,
-    DEFAULT_VAL_STRIDE_Z,
+    DEFAULT_VAL_STEP_SIZE,
     get_dataset_class_names,
+    resolve_sliding_window_strides,
 )
 from evaluation.metrics import (
     CLASS_NAMES_MULTICLASS,
@@ -40,8 +40,8 @@ def benchmark_5folds(
     task: str = "multiclass",
     model_name: Optional[str] = None,
     device: Optional[torch.device] = None,
-    stride_z: int = DEFAULT_VAL_STRIDE_Z,
-    stride_xy: int = DEFAULT_VAL_STRIDE_XY,
+    stride_z: Optional[int] = None,
+    stride_xy: Optional[int] = None,
     use_amp: bool = True,
     patch_size: Tuple[int, int, int] = DEFAULT_PATCH_SIZE,
     dataset_cls=None,
@@ -58,6 +58,7 @@ def benchmark_5folds(
     eval_space: str = 'preprocessed',
     raw_gt_dir: Optional[str] = None,
     folds: Optional[List[int]] = None,
+    step_size: float = DEFAULT_VAL_STEP_SIZE,
 ) -> Dict:
     """
     Run Out-of-Fold (OOF) 5-fold benchmark evaluation.
@@ -88,6 +89,10 @@ def benchmark_5folds(
     """
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    stride_z, stride_xy = resolve_sliding_window_strides(
+        patch_size, stride_z=stride_z, stride_xy=stride_xy, step_size=step_size
+    )
 
     is_binary = (task.lower() == "binary")
     if num_classes is None:
@@ -280,7 +285,8 @@ def benchmark_5folds(
         "metric_policy": METRIC_POLICY,
         "oof_case_metrics": agg_oof,
         "inference": {"patch_size": list(patch_size), "stride_z": stride_z,
-                      "stride_xy": stride_xy, "gaussian": use_gaussian, "tta": use_tta},
+                      "stride_xy": stride_xy, "step_size": step_size,
+                      "gaussian": use_gaussian, "tta": use_tta},
         "per_class_means": per_class_means,
         "per_class_stds": per_class_stds,
         "fold_results": fold_results
@@ -292,6 +298,8 @@ def benchmark_5folds(
     print("=" * 70)
     print(f"Dataset: {dataset_name.upper()} | Model: {model_name} | Task: {task.upper()}")
     print(f"Mean fold Dice: {overall_mean:.4f} ± {overall_std:.4f}")
+    if agg_oof.get('macro_positive_dice') is not None:
+        print(f"OOF Macro Pos Dice: {agg_oof['macro_positive_dice']:.4f}")
     print("-" * 70)
     for c_idx, name in enumerate(fg_class_names):
         if c_idx < len(per_class_means):

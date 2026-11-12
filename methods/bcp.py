@@ -29,7 +29,7 @@ class BCPMethod(BaseMethod):
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 0.5))
         if self.u_weight < 0:
             raise ValueError('u_weight must be nonnegative')
-        self.dice_loss = MaskDiceLoss(nclass=self.num_classes)
+        self.dice_loss = MaskDiceLoss(nclass=self.num_classes, batch_dice=self.batch_dice, ddp=self.is_ddp)
         sup_ce_cfg = getattr(self.cfg.method, 'sup_ce_weight', None)
         sup_dice_cfg = getattr(self.cfg.method, 'sup_dice_weight', None)
         self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)

@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import LOSSES
+from losses.dice import reduce_batch_stats
 from data.constants import (
     DEFAULT_CONSISTENCY_DICE_WEIGHT,
     DEFAULT_CONSISTENCY_MSE_WEIGHT,
@@ -25,7 +26,9 @@ def compute_soft_dice_consistency(
     num_classes: int = 6,
     is_binary: bool = False,
     conf_mask: Optional[torch.Tensor] = None,
-    smooth: float = DEFAULT_SMOOTH
+    smooth: float = DEFAULT_SMOOTH,
+    batch_dice: bool = False,
+    ddp: Optional[bool] = None,
 ) -> torch.Tensor:
     """
     Continuous Probability-to-Probability Soft Dice Consistency on Foregrounds.
@@ -43,7 +46,10 @@ def compute_soft_dice_consistency(
     intersection = torch.sum(fg_s * fg_t, dim=dims)
     cardinality = torch.sum(fg_s ** 2 + fg_t ** 2, dim=dims)
 
-    dice_score = (2.0 * intersection + smooth) / (cardinality + smooth)
+    if batch_dice:
+        intersection, cardinality = reduce_batch_stats(intersection, cardinality, ddp=ddp)
+
+    dice_score = (2.0 * intersection + smooth) / (cardinality + smooth).clamp_min(1e-8)
     return 1.0 - torch.mean(dice_score)
 
 
@@ -65,6 +71,8 @@ class ConsistencyLoss(nn.Module):
         weight_mse: float = DEFAULT_CONSISTENCY_MSE_WEIGHT,
         eps: float = DEFAULT_EPS,
         smooth: float = DEFAULT_SMOOTH,
+        batch_dice: bool = False,
+        ddp: Optional[bool] = None,
     ):
         super(ConsistencyLoss, self).__init__()
         self.consistency_type = str(consistency_type).lower()
@@ -77,6 +85,8 @@ class ConsistencyLoss(nn.Module):
         self.weight_mse = float(weight_mse)
         self.eps = float(eps)
         self.smooth = float(smooth)
+        self.batch_dice = bool(batch_dice)
+        self.ddp = ddp
 
     def forward(
         self,
@@ -102,13 +112,15 @@ class ConsistencyLoss(nn.Module):
         # 1. Pure Continuous Soft Dice on Foreground Classes
         if self.consistency_type == 'dice':
             return compute_soft_dice_consistency(
-                student_prob, teacher_prob, self.num_classes, self.is_binary, conf_mask=conf_mask, smooth=self.smooth
+                student_prob, teacher_prob, self.num_classes, self.is_binary,
+                conf_mask=conf_mask, smooth=self.smooth, batch_dice=self.batch_dice, ddp=self.ddp,
             )
 
         # 2. Hybrid Consistency: Soft Dice + Class-balanced Channel MSE
         elif self.consistency_type == 'hybrid':
             loss_dice = compute_soft_dice_consistency(
-                student_prob, teacher_prob, self.num_classes, self.is_binary, conf_mask=conf_mask, smooth=self.smooth
+                student_prob, teacher_prob, self.num_classes, self.is_binary,
+                conf_mask=conf_mask, smooth=self.smooth, batch_dice=self.batch_dice, ddp=self.ddp,
             )
             sq_diff = (student_prob - teacher_prob) ** 2
             if conf_mask is not None:

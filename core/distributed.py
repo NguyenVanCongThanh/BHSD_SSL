@@ -94,3 +94,25 @@ def reduce_tensor(tensor: torch.Tensor, average: bool = True) -> torch.Tensor:
     if average:
         rt /= get_world_size()
     return rt
+
+
+class AllGatherGrad(torch.autograd.Function):
+    """Differentiable all-gather across DDP ranks (used for global batch Dice)."""
+
+    @staticmethod
+    def forward(ctx, tensor: torch.Tensor) -> torch.Tensor:
+        world_size = get_world_size()
+        if world_size <= 1:
+            return tensor.unsqueeze(0)
+        gathered = [torch.zeros_like(tensor) for _ in range(world_size)]
+        dist.all_gather(gathered, tensor.contiguous())
+        return torch.stack(gathered, dim=0)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        world_size = get_world_size()
+        if world_size <= 1:
+            return grad_output.squeeze(0)
+        grad = grad_output.contiguous()
+        dist.all_reduce(grad, op=dist.ReduceOp.SUM)
+        return grad[get_rank()]
