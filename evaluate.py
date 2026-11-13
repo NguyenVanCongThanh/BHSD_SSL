@@ -35,8 +35,6 @@ from data.constants import (
     get_dataset_class_names,
     resolve_sliding_window_strides,
 )
-    get_dataset_class_names,
-)
 from evaluation.benchmark import benchmark_5folds
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import format_dice_summary
