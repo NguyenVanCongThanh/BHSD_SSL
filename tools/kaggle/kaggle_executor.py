@@ -170,9 +170,9 @@ class KaggleExecutor:
         else:
             auth = (username, key)
 
+        full_slug = meta.get("id") or meta.get("slug")
         payload = {
-            "id": meta.get("id"),
-            "slug": meta.get("id", "").split("/")[-1],
+            "slug": full_slug,
             "newTitle": meta.get("title"),
             "text": code_text,
             "language": meta.get("language", "python"),
@@ -186,6 +186,9 @@ class KaggleExecutor:
             "competitionDataSources": meta.get("competition_sources", []),
             "modelDataSources": meta.get("model_sources", [])
         }
+        id_no = meta.get("id_no")
+        if id_no and str(id_no).isdigit():
+            payload["id"] = int(id_no)
 
         resp = requests.post(
             "https://www.kaggle.com/api/v1/kernels/push",
