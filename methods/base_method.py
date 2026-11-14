@@ -104,6 +104,9 @@ class BaseMethod(abc.ABC):
             # Distributed Data Parallel mode
             local_rank = int(os.environ.get('LOCAL_RANK', 0))
             self.model = self.model.to(self.device)
+            if bool(getattr(cfg.experiment, 'use_sync_bn', False)):
+                self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+                logging.info('[Model] Converted BatchNorm layers to SyncBatchNorm for DDP.')
             is_pick = str(getattr(cfg.method, 'name', '')).lower() == 'pick'
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,
@@ -184,10 +187,12 @@ class BaseMethod(abc.ABC):
         base_lr = float(getattr(self.cfg.method, 'base_lr', 0.01))
         poly_power = float(getattr(self.cfg.method, 'poly_power', 0.9))
         warmup_iters = int(getattr(self.cfg.method, 'warmup_iters', 0))
+        lr_max_iter_cfg = getattr(self.cfg.method, 'lr_max_iteration', None)
+        lr_max_iterations = int(lr_max_iter_cfg) if lr_max_iter_cfg is not None else max_iterations
 
         current_lr = calculate_lr(
             iter_num=iter_num,
-            max_iterations=max_iterations,
+            max_iterations=lr_max_iterations,
             base_lr=base_lr,
             scheduler_type=scheduler_type,
             poly_power=poly_power,

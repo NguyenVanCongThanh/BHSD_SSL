@@ -169,6 +169,8 @@ SECTION_MAPPING = {
     'pre_max_iteration': 'method',
     'self_max_iteration': 'method',
     'max_iteration': 'method',
+    'lr_max_iteration': 'method',
+    'lr-max-iteration': 'method',
     'base_lr': 'method',
     'lr_scheduler': 'method',
     'poly_power': 'method',
@@ -211,6 +213,8 @@ SECTION_MAPPING = {
     'phase': 'experiment',
     'pretrain_checkpoint': 'experiment',
     'ddp': 'experiment',
+    'use_sync_bn': 'experiment',
+    'use-sync-bn': 'experiment',
 
     # Model section
     'model': 'model',
@@ -323,7 +327,8 @@ def _resolve_config_path(category: str, identifier: str) -> Optional[str]:
 KNOWN_SECTION_KEYS = {
     'experiment': {
         'name', 'task', 'num_classes', 'fold', 'seed', 'deterministic', 'exp_dir',
-        'resume', 'resume_policy', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode', 'ddp'
+        'resume', 'resume_policy', 'amp', 'phase', 'pretrain_checkpoint', 'debug', 'test_mode', 'ddp',
+        'use_sync_bn'
     },
     'data': {
         'name', 'root_path', 'patch_size', 'batch_size', 'labeled_bs', 'labelnum',
@@ -338,7 +343,7 @@ KNOWN_SECTION_KEYS = {
     },
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
-        'max_iteration', 'pre_max_iteration', 'self_max_iteration', 'consistency',
+        'max_iteration', 'lr_max_iteration', 'pre_max_iteration', 'self_max_iteration', 'consistency',
         'consistency_rampup', 'consistency_rampdown_start', 'consistency_min_factor',
         'consistency_type', 'bg_consistency_weight', 'confidence_thresh',
         'fg_confidence_max_thresh', 'consistency_dice_weight', 'consistency_mse_weight',
