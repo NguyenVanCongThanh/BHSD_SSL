@@ -1,0 +1,35 @@
+# Experiment Preset: BHSD Multi-Class SWDL (Fold 0, BSPC 2026)
+experiment:
+  name: "bhsd_swdl_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "swdl_net"
+  in_channels: 1
+  n_filters: 16
+  normalization: "groupnorm"
+  has_dropout: false
+
+method:
+  name: "swdl"
+  base_lr: 0.01
+  max_iteration: 15000
+  consistency: 1.0
+  consistency_rampup: 40.0
+  feedback_steps: 3
+  feedback_scale: 0.001
+
+data:
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+
+logging:
+  val_step_size: 0.5

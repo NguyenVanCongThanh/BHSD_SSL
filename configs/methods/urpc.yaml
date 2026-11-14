@@ -1,0 +1,25 @@
+# Uncertainty Rectified Pyramid Consistency (URPC) Configuration for BHSD (MedIA 2022)
+experiment:
+  name: "BHSD_urpc_5folds"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+
+model:
+  name: "nnunet3d"
+  in_channels: 1
+  base_filters: 32
+  deep_supervision: true
+
+method:
+  name: "urpc"
+  max_iteration: 12000
+  base_lr: 0.01
+  momentum: 0.99
+  weight_decay: 0.00003
+  consistency: 1.0
+  consistency_rampup: 40.0
+
+logging:
+  val_interval: 500
+  save_interval: 1000

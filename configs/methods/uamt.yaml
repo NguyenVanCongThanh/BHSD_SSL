@@ -1,0 +1,32 @@
+# Uncertainty-Aware Mean Teacher (UA-MT) Configuration for BHSD (MICCAI 2019 Standard)
+experiment:
+  name: "BHSD_uamt_5folds"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+
+model:
+  name: "vnet"
+  in_channels: 1
+
+method:
+  name: "uamt"
+  max_iteration: 12000
+  base_lr: 0.01
+  momentum: 0.99
+  weight_decay: 0.00003
+  ema_decay: 0.99
+  consistency: 1.0
+  consistency_rampup: 4000.0
+  mc_t: 8                    # T=8 Monte Carlo passes through Teacher
+  mc_noise_std: 0.1
+  mc_noise_clamp: 0.2
+  uncertainty_min_ratio: 0.75
+  uncertainty_max_ratio: 1.0
+  perturb_student: true
+  student_noise_std: 0.02
+  student_intensity_scale: 0.05
+
+logging:
+  val_interval: 500
+  save_interval: 1000

@@ -9,6 +9,10 @@ from methods.mean_teacher import MeanTeacherMethod
 from methods.cps import CPSMethod
 from methods.bcp import BCPMethod
 from methods.lefed import LeFeDMethod
+from methods.uamt import UAMTMethod
+from methods.swdl import SWDLMethod
+from methods.fixmatch import FixMatchMethod
+from methods.urpc import URPCMethod
 from methods.ssl_utils import extract_logits, split_ssl_batch, SSLBatch
 
 __all__ = [
@@ -19,8 +23,11 @@ __all__ = [
     "CPSMethod",
     "BCPMethod",
     "LeFeDMethod",
+    "UAMTMethod",
+    "SWDLMethod",
+    "FixMatchMethod",
+    "URPCMethod",
     "extract_logits",
     "split_ssl_batch",
     "SSLBatch",
 ]
-

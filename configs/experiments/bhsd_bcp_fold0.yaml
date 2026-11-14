@@ -1,0 +1,33 @@
+# Experiment Preset: BHSD Multi-Class BCP (Fold 0, 2-Stage CVPR 2023)
+experiment:
+  name: "bhsd_bcp_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet"
+  in_channels: 1
+
+method:
+  name: "bcp"
+  base_lr: 0.01
+  pre_max_iteration: 2000
+  self_max_iteration: 13000
+  mask_ratio: 0.666667
+  u_weight: 0.5
+  ema_decay: 0.99
+
+data:
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+
+logging:
+  val_step_size: 0.5

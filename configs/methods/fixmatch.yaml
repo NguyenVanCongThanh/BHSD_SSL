@@ -1,0 +1,28 @@
+# FixMatch 3D Configuration for BHSD (NeurIPS 2020 Standard)
+experiment:
+  name: "BHSD_fixmatch_5folds"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+
+model:
+  name: "vnet"
+  in_channels: 1
+
+method:
+  name: "fixmatch"
+  max_iteration: 12000
+  base_lr: 0.01
+  momentum: 0.99
+  weight_decay: 0.00003
+  conf_threshold: 0.95       # High-confidence threshold for pseudo-label filtering
+  u_weight: 1.0              # Unsupervised loss weighting
+  consistency_rampup: 4000.0 # Sigmoid rampup over first 4000 iterations
+  noise_std_range: [0.02, 0.10]
+  intensity_scale_range: [0.8, 1.2]
+  cutout_prob: 0.5
+  cutout_size_ratio: 0.25
+
+logging:
+  val_interval: 500
+  save_interval: 1000

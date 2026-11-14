@@ -1,0 +1,29 @@
+# Stratum-Wise Difference Learning (SWDL) Configuration for BHSD (BSPC 2026)
+experiment:
+  name: "BHSD_swdl_5folds"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+
+model:
+  name: "swdl_net"
+  in_channels: 1
+  n_filters: 16
+  normalization: "groupnorm"
+  has_dropout: false
+
+method:
+  name: "swdl"
+  max_iteration: 15000
+  base_lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0001
+  consistency: 1.0
+  consistency_rampup: 40.0
+  feedback_steps: 3
+  feedback_scale: 0.001
+  ds_weights: [0.8, 0.6, 0.4, 0.2, 0.1]
+
+logging:
+  val_interval: 500
+  save_interval: 1000

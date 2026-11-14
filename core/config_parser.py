@@ -352,7 +352,9 @@ KNOWN_SECTION_KEYS = {
         'loss_name', 'aux_loss_weight', 'optimizer',
         'feedback_steps', 'feedback_scale', 'ds_weights',
         'loss_type', 'tversky_alpha', 'tversky_beta', 'focal_gamma', 'ds_rampdown_start',
-        'batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target'
+        'batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target',
+        'mc_t', 'mc_noise_std', 'mc_noise_clamp', 'uncertainty_min_ratio', 'uncertainty_max_ratio',
+        'conf_threshold', 'noise_std_range', 'intensity_scale_range', 'cutout_prob', 'cutout_size_ratio'
     },
     'logging': {
         'use_wandb', 'save_wandb_model', 'wandb_project', 'wandb_entity', 'wandb_run_name',

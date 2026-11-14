@@ -1,0 +1,32 @@
+# Experiment Preset: BHSD Multi-Class UA-MT (Fold 0)
+experiment:
+  name: "bhsd_uamt_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "vnet"
+  in_channels: 1
+
+method:
+  name: "uamt"
+  base_lr: 0.01
+  max_iteration: 15000
+  ema_decay: 0.99
+  consistency: 1.0
+  consistency_rampup: 4000.0
+  mc_t: 8
+
+data:
+  patch_size: [32, 160, 160]
+  batch_size: 4
+  labeled_bs: 2
+  labelnum: 15
+
+logging:
+  val_step_size: 0.5
