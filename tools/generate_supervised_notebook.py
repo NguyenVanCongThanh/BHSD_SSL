@@ -34,15 +34,25 @@ def build_supervised_notebook(
     spec = resolve_method_setting("supervised", setting, presets=presets, default_key="opt1_nnunet")
 
     model_name = spec["model_name"]
-    batch_size = spec["batch_size"]
-    labeled_bs = spec["labeled_bs"]
-    max_iter = spec["max_iter"]
+    batch_size = int(os.environ.get("BHSD_BATCH_SIZE") or spec["batch_size"])
+    labeled_bs = int(os.environ.get("BHSD_LABELED_BS") or spec["labeled_bs"])
+    max_iter = int(os.environ.get("BHSD_MAX_ITER") or spec["max_iter"])
+    lr_max_iter = os.environ.get("BHSD_LR_MAX_ITER")
+    base_lr_override = os.environ.get("BHSD_BASE_LR")
+    use_sync_bn = os.environ.get("BHSD_USE_SYNC_BN", "").lower() in ("1", "true", "yes")
+    single_gpu = os.environ.get("BHSD_SINGLE_GPU", "").lower() in ("1", "true", "yes")
     val_stride_xy = spec["val_stride_xy"]
     val_stride_z = spec["val_stride_z"]
     patch_size_eval = spec["patch_size_eval"]
     config_file = spec["config_file"]
     arch_desc = spec["arch_desc"]
-    extra_cli_lines = spec.get("extra_cli_lines", [])
+    extra_cli_lines = list(spec.get("extra_cli_lines", []))
+    if lr_max_iter:
+        extra_cli_lines.append(f'    "--lr_max_iteration", "{int(lr_max_iter)}",')
+    if base_lr_override:
+        extra_cli_lines.append(f'    "--base_lr", "{float(base_lr_override)}",')
+    if use_sync_bn and not single_gpu:
+        extra_cli_lines.append('    "--use_sync_bn", "true",')
 
     fold_id = sup_defaults["fold_id"]
     val_interval = sup_defaults["val_interval"]
@@ -101,7 +111,8 @@ def build_supervised_notebook(
                 f"EXP_DIR = \"{exp_dir}\"\n",
                 "\n",
                 "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
-                "use_ddp = (num_gpus >= 2)\n",
+                f"FORCE_SINGLE_GPU = {single_gpu}\n",
+                "use_ddp = (num_gpus >= 2) and (not FORCE_SINGLE_GPU)\n",
                 "\n",
                 "base_args = [\n",
                 "    \"--config\", CONFIG_FILE,\n",
@@ -148,8 +159,9 @@ def build_supervised_notebook(
                 "        \"--ddp\"\n",
                 "    ] + base_args\n",
                 "else:\n",
-                "    print(\"[*] Chạy chế độ đơn GPU...\", flush=True)\n",
-                "    train_cmd = [\"python\", \"-u\", \"train.py\", \"--gpu\", \"auto\"] + base_args\n",
+                "    gpu_arg = \"0\" if FORCE_SINGLE_GPU else \"auto\"\n",
+                "    print(f\"[*] Chạy chế độ đơn GPU (--gpu {gpu_arg})...\", flush=True)\n",
+                "    train_cmd = [\"python\", \"-u\", \"train.py\", \"--gpu\", gpu_arg] + base_args\n",
                 "\n",
                 "print(\"=\" * 70, flush=True)\n",
                 "print(f\"[*] Lệnh chạy:\\n{' '.join(train_cmd)}\", flush=True)\n",

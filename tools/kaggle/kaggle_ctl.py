@@ -75,6 +75,43 @@ def cmd_account_add(args):
     print(f"\n[✓] Đã lưu thành công tài khoản ID '{args.id}' (User: {updated['username']}) vào registry.")
     print(f"    Profile cô lập đã được tạo sẵn sàng.\n")
 
+def _apply_build_env_overrides(args):
+    """Apply CLI notebook generation overrides to process environment variables."""
+    import os
+    task = getattr(args, 'task', None)
+    setting = getattr(args, 'setting', None)
+    if task:
+        os.environ["BHSD_TASK"] = task
+    if setting:
+        os.environ["BHSD_SETTING"] = setting
+    else:
+        os.environ.pop("BHSD_SETTING", None)
+    for env_key, attr_name in [
+        ("BHSD_LABELNUM", "labelnum"),
+        ("BHSD_MAX_SAMPLES", "max_samples"),
+        ("BHSD_LABELED_SAMPLING", "labeled_sampling"),
+        ("BHSD_MAX_ITER", "max_iteration"),
+        ("BHSD_LR_MAX_ITER", "lr_max_iteration"),
+        ("BHSD_BASE_LR", "base_lr"),
+        ("BHSD_BATCH_SIZE", "batch_size"),
+        ("BHSD_LABELED_BS", "labeled_bs"),
+    ]:
+        val = getattr(args, attr_name, None)
+        if val is not None:
+            os.environ[env_key] = str(val)
+        else:
+            os.environ.pop(env_key, None)
+    for env_key, attr_name in [
+        ("BHSD_USE_SYNC_BN", "use_sync_bn"),
+        ("BHSD_SINGLE_GPU", "single_gpu"),
+    ]:
+        if getattr(args, attr_name, False):
+            os.environ[env_key] = "true"
+        else:
+            os.environ.pop(env_key, None)
+    return task, setting
+
+
 def cmd_push(args):
     mgr = AccountsManager()
     builder = NotebookBuilder()
@@ -89,25 +126,7 @@ def cmd_push(args):
     executor = mgr.get_executor(account_id)
 
     notebook_type = args.notebook or "mean_teacher"
-    task = getattr(args, 'task', None)
-    setting = getattr(args, 'setting', None)
-    import os
-    if task:
-        os.environ["BHSD_TASK"] = task
-    if setting:
-        os.environ["BHSD_SETTING"] = setting
-    else:
-        os.environ.pop("BHSD_SETTING", None)
-    for env_key, attr_name in [
-        ("BHSD_LABELNUM", "labelnum"),
-        ("BHSD_MAX_SAMPLES", "max_samples"),
-        ("BHSD_LABELED_SAMPLING", "labeled_sampling"),
-    ]:
-        val = getattr(args, attr_name, None)
-        if val is not None:
-            os.environ[env_key] = str(val)
-        else:
-            os.environ.pop(env_key, None)
+    task, setting = _apply_build_env_overrides(args)
 
     print("\n" + "=" * 80)
     print(f"SUBMIT NOTEBOOK '{notebook_type.upper()}' LÊN KAGGLE")
@@ -242,25 +261,7 @@ def cmd_build(args):
     builder = NotebookBuilder()
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
-    task = getattr(args, 'task', None)
-    setting = getattr(args, 'setting', None)
-    import os
-    if task:
-        os.environ["BHSD_TASK"] = task
-    if setting:
-        os.environ["BHSD_SETTING"] = setting
-    else:
-        os.environ.pop("BHSD_SETTING", None)
-    for env_key, attr_name in [
-        ("BHSD_LABELNUM", "labelnum"),
-        ("BHSD_MAX_SAMPLES", "max_samples"),
-        ("BHSD_LABELED_SAMPLING", "labeled_sampling"),
-    ]:
-        val = getattr(args, attr_name, None)
-        if val is not None:
-            os.environ[env_key] = str(val)
-        else:
-            os.environ.pop(env_key, None)
+    task, setting = _apply_build_env_overrides(args)
 
     print("\n" + "=" * 80)
     print(f"BUILD & VALIDATE NOTEBOOK '{notebook_type.upper()}' CỤC BỘ (DRY-RUN)")
@@ -420,6 +421,20 @@ def main():
                                     help="W&B tracking mode (default same-run); requires --resume-run")
         command_parser.add_argument("--resume-checkpoint", choices=["latest", "best"],
                                     help="Checkpoint cloud để resume (mặc định latest); cần --resume-run")
+        command_parser.add_argument("--max-iteration", type=int, default=None,
+                                    help="Ghi đè số iteration tối đa (vd 9994)")
+        command_parser.add_argument("--lr-max-iteration", type=int, default=None,
+                                    help="Ghi đè max_iteration dùng riêng cho lịch LR (vd 25000)")
+        command_parser.add_argument("--base-lr", type=float, default=None,
+                                    help="Ghi đè base_lr (vd 0.01, 0.02, 0.005)")
+        command_parser.add_argument("--batch-size", type=int, default=None,
+                                    help="Ghi đè global batch_size (vd 4 hoặc 2)")
+        command_parser.add_argument("--labeled-bs", type=int, default=None,
+                                    help="Ghi đè labeled_bs (vd 4 hoặc 2)")
+        command_parser.add_argument("--use-sync-bn", action="store_true",
+                                    help="Bật SyncBatchNorm khi chạy DDP đa GPU")
+        command_parser.add_argument("--single-gpu", action="store_true",
+                                    help="Ép chạy đơn GPU (--gpu 0) thay vì DDP 2 GPU")
 
     # Subcommand: status
     parser_status = subparsers.add_parser("status", help="Kiểm tra trạng thái notebook đang chạy")
