@@ -2,7 +2,7 @@
 import inspect
 
 
-def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resume_mode="same-run"):
+def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resume_mode="same-run", max_iteration=None):
     """Read the source configuration and stage an owned cloud checkpoint before training."""
     import copy
     import json
@@ -120,6 +120,8 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     for key in list(cfg.keys()):
         if key not in allowed_top_level:
             cfg.pop(key, None)
+    if max_iteration is not None:
+        cfg.setdefault('method', {})['max_iteration'] = int(max_iteration)
     config_path = destination / 'resume_config.yaml'
     config_path.write_text(yaml.safe_dump(cfg), encoding='utf-8')
     # Fail before launching any GPU workers if the staged config is incompatible.
@@ -138,6 +140,7 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
 
 def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
     """Patch only the generated training cell; fresh builds remain byte-for-byte unchanged."""
+    import os
     marker = '# Cấu hình Anti-Deadlock'
     matches = [c for c in notebook['cells'] if c.get('cell_type') == 'code'
                and 'base_args = [' in ''.join(c['source']) and marker in ''.join(c['source'])]
@@ -147,13 +150,16 @@ def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
     # Both modes use resume_source, so both need the updated schema.
     from pathlib import Path
     repo_root = Path(__file__).resolve().parents[2]
+    max_iter_env = os.environ.get('BHSD_MAX_ITER')
+    max_iter_override = int(max_iter_env) if max_iter_env else None
     code = 'from pathlib import Path\n'
     for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py', 'utils/hf_storage.py'):
         source = (repo_root / relative_path).read_text(encoding='utf-8')
         code += f'Path({relative_path!r}).write_text({source!r}, encoding="utf-8")\n'
     code += inspect.getsource(prepare_resume) + '\n'
-    code += (f'base_args, resume_cfg = prepare_resume({run_path!r}, {checkpoint_kind!r}, '
-             f'DATA_ROOT, EXP_DIR, num_gpus, resume_mode={resume_mode!r})\n'
+    code += ('_resume_gpus = 1 if globals().get("FORCE_SINGLE_GPU", False) else num_gpus\n'
+             f'base_args, resume_cfg = prepare_resume({run_path!r}, {checkpoint_kind!r}, '
+             f'DATA_ROOT, EXP_DIR, _resume_gpus, resume_mode={resume_mode!r}, max_iteration={max_iter_override!r})\n'
              'EXP_NAME = resume_cfg["experiment"]["name"]\n'
              'FOLD_ID = resume_cfg["experiment"]["fold"]\n'
              'TASK = resume_cfg["experiment"]["task"]\n'
