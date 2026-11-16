@@ -103,6 +103,7 @@
       "task": "multiclass",
       "labelnum": 154,
       "max_samples": 154,
+      "labeled_sampling": "first",
       "fold_id": 0,
       "val_interval": 500,
       "save_interval": 100,

@@ -408,8 +408,8 @@ def main():
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):
-        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl"], default="default",
-                                    help="Cấu hình hyperparameter: 'default' (nnUNet3D), 'swdl' (VNet SWDL), 'vnet' (7-Stage Residual V-Net Concat), hoặc 'vnet_swdl' (7-Stage V-Net Add/ReLU)")
+        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl", "opt1_nnunet", "vnet_v2", "vnet_legacy"], default="default",
+                                    help="Cấu hình hyperparameter: 'default' (nnUNet3D / opt1_nnunet), 'swdl' (VNet SWDL), 'vnet' (7-Stage Residual V-Net Concat), 'vnet_swdl', 'opt1_nnunet', 'vnet_v2', hoặc 'vnet_legacy'")
         command_parser.add_argument("--labelnum", type=int, default=None,
                                     help="Số mẫu có nhãn (ví dụ: 8 cho 5%% của 154 mẫu; mặc định: 154)")
         command_parser.add_argument("--max-samples", type=int, default=None,

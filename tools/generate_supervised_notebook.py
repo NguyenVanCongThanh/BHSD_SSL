@@ -26,6 +26,7 @@ def build_supervised_notebook(
     task: str = "multiclass",
     labelnum: int = 154,
     max_samples: int = 154,
+    labeled_sampling: str = "first",
     setting: str = "opt1_nnunet",
 ):
     presets = load_notebook_presets()
@@ -102,8 +103,9 @@ def build_supervised_notebook(
                 f"SAVE_INTERVAL = {save_interval}\n",
                 f"BATCH_SIZE = {batch_size}\n",
                 f"LABELED_BS = {labeled_bs}\n",
-                f"LABELNUM = {labelnum}\n",
-                f"MAX_SAMPLES = {max_samples}\n",
+                f"LABELNUM = {int(labelnum)}\n",
+                f"MAX_SAMPLES = {int(max_samples)}\n",
+                f"LABELED_SAMPLING = \"{labeled_sampling}\"\n",
                 f"PATCH_SIZE_EVAL = {patch_size_eval}\n",
                 "\n",
                 "RUN_TIMESTAMP = datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n",
@@ -125,6 +127,7 @@ def build_supervised_notebook(
                 "    \"--root_path\", str(DATA_ROOT),\n",
                 "    \"--labelnum\", str(LABELNUM),\n",
                 "    \"--max_samples\", str(MAX_SAMPLES),\n",
+                "    \"--labeled_sampling\", str(LABELED_SAMPLING),\n",
                 "    \"--batch_size\", str(BATCH_SIZE),\n",
                 "    \"--labeled_bs\", str(LABELED_BS),\n",
                 "    \"--max_iteration\", str(MAX_ITER),\n",
@@ -224,9 +227,14 @@ def main():
     defaults = load_notebook_presets()["supervised"]["defaults"]
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", choices=["multiclass", "binary"], default=os.environ.get("BHSD_TASK", "binary"))
-    parser.add_argument("--setting", default=os.environ.get("BHSD_SETTING", "all"), help="'opt1_nnunet', 'vnet', or 'all' to build both")
-    parser.add_argument("--labelnum", type=int, default=defaults["labelnum"])
-    parser.add_argument("--max_samples", type=int, default=defaults["max_samples"])
+    parser.add_argument("--setting", default=os.environ.get("BHSD_SETTING", "all"), help="'opt1_nnunet', 'vnet', 'vnet_v2', 'vnet_legacy', or 'all' to build all")
+    parser.add_argument("--labelnum", type=int, default=int(os.environ.get("BHSD_LABELNUM") or defaults["labelnum"]))
+    parser.add_argument("--max_samples", type=int, default=int(os.environ.get("BHSD_MAX_SAMPLES") or defaults["max_samples"]))
+    parser.add_argument(
+        "--labeled_sampling",
+        choices=["first", "stratified"],
+        default=os.environ.get("BHSD_LABELED_SAMPLING") or defaults.get("labeled_sampling", "first"),
+    )
     parser.add_argument("--output", default=None)
     args, _ = parser.parse_known_args()
 
@@ -237,39 +245,55 @@ def main():
             task=args.task,
             labelnum=args.labelnum,
             max_samples=args.max_samples,
+            labeled_sampling=args.labeled_sampling,
             setting="opt1_nnunet",
         )
         target_nnunet = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
         with open(target_nnunet, "w", encoding="utf-8") as f:
             json.dump(nb_nnunet, f, indent=1, ensure_ascii=False)
-        print(f"Updated {target_nnunet} (task={args.task}, setting=opt1_nnunet) successfully.")
+        print(
+            f"Updated {target_nnunet} (task={args.task}, setting=opt1_nnunet, "
+            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
+            f"labeled_sampling={args.labeled_sampling}) successfully."
+        )
 
         nb_vnet = build_supervised_notebook(
             task=args.task,
             labelnum=args.labelnum,
             max_samples=args.max_samples,
+            labeled_sampling=args.labeled_sampling,
             setting="vnet",
         )
         target_vnet = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
         with open(target_vnet, "w", encoding="utf-8") as f:
             json.dump(nb_vnet, f, indent=1, ensure_ascii=False)
-        print(f"Updated {target_vnet} (task={args.task}, setting=vnet) successfully.")
+        print(
+            f"Updated {target_vnet} (task={args.task}, setting=vnet, "
+            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
+            f"labeled_sampling={args.labeled_sampling}) successfully."
+        )
 
         nb_vnet_v2 = build_supervised_notebook(
             task=args.task,
             labelnum=args.labelnum,
             max_samples=args.max_samples,
+            labeled_sampling=args.labeled_sampling,
             setting="vnet_v2",
         )
         target_vnet_v2 = "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb"
         with open(target_vnet_v2, "w", encoding="utf-8") as f:
             json.dump(nb_vnet_v2, f, indent=1, ensure_ascii=False)
-        print(f"Updated {target_vnet_v2} (task={args.task}, setting=vnet_v2) successfully.")
+        print(
+            f"Updated {target_vnet_v2} (task={args.task}, setting=vnet_v2, "
+            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
+            f"labeled_sampling={args.labeled_sampling}) successfully."
+        )
     else:
         nb = build_supervised_notebook(
             task=args.task,
             labelnum=args.labelnum,
             max_samples=args.max_samples,
+            labeled_sampling=args.labeled_sampling,
             setting=args.setting,
         )
         if args.output:
@@ -283,7 +307,11 @@ def main():
 
         with open(target, "w", encoding="utf-8") as f:
             json.dump(nb, f, indent=1, ensure_ascii=False)
-        print(f"Updated {target} (task={args.task}, setting={args.setting}) successfully.")
+        print(
+            f"Updated {target} (task={args.task}, setting={args.setting}, "
+            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
+            f"labeled_sampling={args.labeled_sampling}) successfully."
+        )
 
 
 if __name__ == "__main__":

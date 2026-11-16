@@ -294,6 +294,21 @@ class TestRefactorContracts(unittest.TestCase):
         ]
         self.assertEqual(len(marker_matches), 1)
 
+        sup_nb = build_supervised_notebook(
+            task="binary",
+            labelnum=8,
+            max_samples=154,
+            labeled_sampling="stratified",
+            setting="vnet_v2",
+        )
+        sup_code = "\n".join(
+            "".join(c["source"]) for c in sup_nb["cells"] if c["cell_type"] == "code"
+        )
+        self.assertIn("LABELNUM = 8", sup_code)
+        self.assertIn("MAX_SAMPLES = 154", sup_code)
+        self.assertIn('LABELED_SAMPLING = "stratified"', sup_code)
+        self.assertIn('"--labeled_sampling", str(LABELED_SAMPLING)', sup_code)
+
 
 if __name__ == "__main__":
     unittest.main()
