@@ -181,6 +181,9 @@ class TestNNUNetAlignment(unittest.TestCase):
             "configs/experiments/bhsd_supervised_vnet_opt1_fold0.yaml",
             "configs/experiments/bhsd_supervised_vnet_opt1_v2_fold0.yaml",
             "configs/experiments/bhsd_supervised_nnunet_opt1_fold0.yaml",
+            "configs/experiments/bhsd_supervised_vnet7_plain_fold0.yaml",
+            "configs/experiments/bhsd_supervised_vnet5_plain_fold0.yaml",
+            "configs/experiments/bhsd_supervised_vnet5_res_fold0.yaml",
             "configs/experiments/bhsd_mt_nnunet_fold0.yaml",
             "configs/experiments/bhsd_pick_fold0.yaml",
         ]

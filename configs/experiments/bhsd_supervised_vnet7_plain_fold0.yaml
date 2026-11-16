@@ -1,0 +1,43 @@
+# Experiment Preset: BHSD Binary Supervised with 7-Stage Anisotropic Plain V-Net (has_residual=false)
+# Controlled Ablation (9,500 iters): isolates intra-block residual shortcuts from 7-stage V-Net Option 1 topology.
+
+experiment:
+  name: "bhsd_supervised_vnet7_plain_fold0"
+  task: "binary"
+  num_classes: 2
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_binary"
+
+model:
+  name: "vnet"
+  in_channels: 1
+  base_filters: 32
+  num_stages: 7
+  has_dropout: false
+  has_residual: false
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+
+method:
+  name: "supervised"
+  base_lr: 0.01
+  max_iteration: 9500
+  deep_supervision: true
+
+data:
+  patch_size: [28, 256, 256]
+  batch_size: 4
+  labeled_bs: 4
+  labelnum: 154
+  max_samples: 154
+  labeled_sampling: "first"
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  val_step_size: 0.5

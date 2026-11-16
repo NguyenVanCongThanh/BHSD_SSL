@@ -80,6 +80,54 @@
         "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Supervised V-Net 7-Stage V2 (Patch 32x256x256, Focal Tversky Loss, DS Rampdown, 50% FG) trên Dual GPU T4"
+    },
+    "supervised_vnet7_plain": {
+      "slug": "kaggle-bhsd-supervised-vnet7-plain-dual-gpu",
+      "title": "kaggle_bhsd_supervised_vnet7_plain_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_vnet7_plain_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0-optimal"
+      ],
+      "description": "Huấn luyện Supervised 7-Stage Plain V-Net (has_residual=false, Patch 28x256x256) trên Dual GPU T4"
+    },
+    "supervised_vnet5_plain": {
+      "slug": "kaggle-bhsd-supervised-vnet5-plain-dual-gpu",
+      "title": "kaggle_bhsd_supervised_vnet5_plain_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_vnet5_plain_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0-optimal"
+      ],
+      "description": "Huấn luyện Supervised 5-Stage Classic Plain V-Net (has_residual=false, Patch 32x192x192) trên Dual GPU T4"
+    },
+    "supervised_vnet5_res": {
+      "slug": "kaggle-bhsd-supervised-vnet5-res-dual-gpu",
+      "title": "kaggle_bhsd_supervised_vnet5_res_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_vnet5_res_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0-optimal"
+      ],
+      "description": "Huấn luyện Supervised 5-Stage Classic Residual V-Net (has_residual=true, Patch 32x192x192) trên Dual GPU T4"
     }
   }
 }

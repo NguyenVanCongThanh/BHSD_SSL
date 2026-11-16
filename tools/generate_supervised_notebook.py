@@ -42,12 +42,29 @@ def build_supervised_notebook(
     base_lr_override = os.environ.get("BHSD_BASE_LR")
     use_sync_bn = os.environ.get("BHSD_USE_SYNC_BN", "").lower() in ("1", "true", "yes")
     single_gpu = os.environ.get("BHSD_SINGLE_GPU", "").lower() in ("1", "true", "yes")
+    patch_size_override = os.environ.get("BHSD_PATCH_SIZE", "").strip()
+    has_residual_override = os.environ.get("BHSD_HAS_RESIDUAL", "").strip().lower()
+    normalization_override = os.environ.get("BHSD_NORMALIZATION", "").strip()
     val_stride_xy = spec["val_stride_xy"]
     val_stride_z = spec["val_stride_z"]
-    patch_size_eval = spec["patch_size_eval"]
+    patch_size_eval = list(spec["patch_size_eval"])
     config_file = spec["config_file"]
     arch_desc = spec["arch_desc"]
     extra_cli_lines = list(spec.get("extra_cli_lines", []))
+    if patch_size_override:
+        cleaned = patch_size_override.strip("[]() ")
+        parts = [int(p.strip()) for p in cleaned.split(",") if p.strip()]
+        if len(parts) != 3 or any(p <= 0 for p in parts):
+            raise ValueError(f"BHSD_PATCH_SIZE must have 3 positive integers, got {patch_size_override!r}")
+        pz, py, px = parts
+        patch_size_eval = [str(pz), str(py), str(px)]
+        val_stride_z = max(1, pz // 2)
+        val_stride_xy = max(1, min(py, px) // 2)
+        extra_cli_lines.append(f'    "--data.patch_size", "[{pz},{py},{px}]",')
+    if has_residual_override in ("true", "false"):
+        extra_cli_lines.append(f'    "--model.has_residual", "{has_residual_override}",')
+    if normalization_override:
+        extra_cli_lines.append(f'    "--model.normalization", "{normalization_override}",')
     if lr_max_iter:
         extra_cli_lines.append(f'    "--lr_max_iteration", "{int(lr_max_iter)}",')
     if base_lr_override:
@@ -221,13 +238,29 @@ def build_supervised_notebook(
     return build_notebook_envelope(cells, presets=presets)
 
 
+SETTING_NOTEBOOK_TARGETS = {
+    "opt1_nnunet": "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb",
+    "vnet": "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb",
+    "vnet_v2": "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb",
+    "vnet7_plain": "scripts/kaggle_bhsd_supervised_vnet7_plain_dual_gpu.ipynb",
+    "vnet5_plain": "scripts/kaggle_bhsd_supervised_vnet5_plain_dual_gpu.ipynb",
+    "vnet5_res": "scripts/kaggle_bhsd_supervised_vnet5_res_dual_gpu.ipynb",
+}
+
+
 def main():
     import argparse
 
-    defaults = load_notebook_presets()["supervised"]["defaults"]
+    presets = load_notebook_presets()
+    defaults = presets["supervised"]["defaults"]
+    aliases = presets["supervised"].get("aliases", {})
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", choices=["multiclass", "binary"], default=os.environ.get("BHSD_TASK", "binary"))
-    parser.add_argument("--setting", default=os.environ.get("BHSD_SETTING", "all"), help="'opt1_nnunet', 'vnet', 'vnet_v2', 'vnet_legacy', or 'all' to build all")
+    parser.add_argument(
+        "--setting",
+        default=os.environ.get("BHSD_SETTING", "all"),
+        help="'opt1_nnunet', 'vnet', 'vnet_v2', 'vnet7_plain', 'vnet5_plain', 'vnet5_res', 'vnet_legacy', or 'all'",
+    )
     parser.add_argument("--labelnum", type=int, default=int(os.environ.get("BHSD_LABELNUM") or defaults["labelnum"]))
     parser.add_argument("--max_samples", type=int, default=int(os.environ.get("BHSD_MAX_SAMPLES") or defaults["max_samples"]))
     parser.add_argument(
@@ -241,67 +274,36 @@ def main():
     os.makedirs("scripts", exist_ok=True)
 
     if args.setting in ("all", "default"):
-        nb_nnunet = build_supervised_notebook(
-            task=args.task,
-            labelnum=args.labelnum,
-            max_samples=args.max_samples,
-            labeled_sampling=args.labeled_sampling,
-            setting="opt1_nnunet",
-        )
-        target_nnunet = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
-        with open(target_nnunet, "w", encoding="utf-8") as f:
-            json.dump(nb_nnunet, f, indent=1, ensure_ascii=False)
-        print(
-            f"Updated {target_nnunet} (task={args.task}, setting=opt1_nnunet, "
-            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
-            f"labeled_sampling={args.labeled_sampling}) successfully."
-        )
-
-        nb_vnet = build_supervised_notebook(
-            task=args.task,
-            labelnum=args.labelnum,
-            max_samples=args.max_samples,
-            labeled_sampling=args.labeled_sampling,
-            setting="vnet",
-        )
-        target_vnet = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
-        with open(target_vnet, "w", encoding="utf-8") as f:
-            json.dump(nb_vnet, f, indent=1, ensure_ascii=False)
-        print(
-            f"Updated {target_vnet} (task={args.task}, setting=vnet, "
-            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
-            f"labeled_sampling={args.labeled_sampling}) successfully."
-        )
-
-        nb_vnet_v2 = build_supervised_notebook(
-            task=args.task,
-            labelnum=args.labelnum,
-            max_samples=args.max_samples,
-            labeled_sampling=args.labeled_sampling,
-            setting="vnet_v2",
-        )
-        target_vnet_v2 = "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb"
-        with open(target_vnet_v2, "w", encoding="utf-8") as f:
-            json.dump(nb_vnet_v2, f, indent=1, ensure_ascii=False)
-        print(
-            f"Updated {target_vnet_v2} (task={args.task}, setting=vnet_v2, "
-            f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
-            f"labeled_sampling={args.labeled_sampling}) successfully."
-        )
+        for setting_key, target_path in SETTING_NOTEBOOK_TARGETS.items():
+            nb = build_supervised_notebook(
+                task=args.task,
+                labelnum=args.labelnum,
+                max_samples=args.max_samples,
+                labeled_sampling=args.labeled_sampling,
+                setting=setting_key,
+            )
+            with open(target_path, "w", encoding="utf-8") as f:
+                json.dump(nb, f, indent=1, ensure_ascii=False)
+            print(
+                f"Updated {target_path} (task={args.task}, setting={setting_key}, "
+                f"labelnum={args.labelnum}, max_samples={args.max_samples}, "
+                f"labeled_sampling={args.labeled_sampling}) successfully."
+            )
     else:
+        canonical = aliases.get(args.setting, args.setting)
         nb = build_supervised_notebook(
             task=args.task,
             labelnum=args.labelnum,
             max_samples=args.max_samples,
             labeled_sampling=args.labeled_sampling,
-            setting=args.setting,
+            setting=canonical,
         )
         if args.output:
             target = args.output
-        elif args.setting in ("vnet_v2", "vnet_enhanced"):
-            target = "scripts/kaggle_bhsd_supervised_vnet_v2_dual_gpu.ipynb"
-        elif args.setting in ("vnet", "vnet_opt1"):
-            target = "scripts/kaggle_bhsd_supervised_vnet_dual_gpu.ipynb"
+        elif canonical in SETTING_NOTEBOOK_TARGETS:
+            target = SETTING_NOTEBOOK_TARGETS[canonical]
+        elif canonical == "vnet_legacy":
+            target = "scripts/kaggle_bhsd_supervised_vnet_legacy_dual_gpu.ipynb"
         else:
             target = "scripts/kaggle_bhsd_supervised_dual_gpu.ipynb"
 

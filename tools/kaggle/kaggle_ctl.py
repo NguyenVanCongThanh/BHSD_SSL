@@ -95,6 +95,9 @@ def _apply_build_env_overrides(args):
         ("BHSD_BASE_LR", "base_lr"),
         ("BHSD_BATCH_SIZE", "batch_size"),
         ("BHSD_LABELED_BS", "labeled_bs"),
+        ("BHSD_PATCH_SIZE", "patch_size"),
+        ("BHSD_HAS_RESIDUAL", "has_residual"),
+        ("BHSD_NORMALIZATION", "normalization"),
     ]:
         val = getattr(args, attr_name, None)
         if val is not None:
@@ -385,7 +388,7 @@ def main():
 
     # Subcommand: build
     parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")
-    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2')")
+    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
     parser_build.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_build.add_argument("--username", "-u", default="dry_run_user", help="Username giả định để build metadata")
     parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
@@ -398,7 +401,7 @@ def main():
     # Subcommand: push
     parser_push = subparsers.add_parser("push", help="Đẩy notebook lên Kaggle")
     parser_push.add_argument("--account", "-a", default="1", help="Tài khoản để submit (ID '1', '2' hoặc slug 'thanh', 'khanh')")
-    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2')")
+    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
     parser_push.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
@@ -408,8 +411,8 @@ def main():
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):
-        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl", "opt1_nnunet", "vnet_v2", "vnet_legacy"], default="default",
-                                    help="Cấu hình hyperparameter: 'default' (nnUNet3D / opt1_nnunet), 'swdl' (VNet SWDL), 'vnet' (7-Stage Residual V-Net Concat), 'vnet_swdl', 'opt1_nnunet', 'vnet_v2', hoặc 'vnet_legacy'")
+        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl", "opt1_nnunet", "vnet_v2", "vnet_legacy", "vnet7_plain", "vnet5_plain", "vnet5_res"], default="default",
+                                    help="Cấu hình hyperparameter: 'default', 'swdl', 'vnet', 'vnet_swdl', 'opt1_nnunet', 'vnet_v2', 'vnet_legacy', 'vnet7_plain', 'vnet5_plain', hoặc 'vnet5_res'")
         command_parser.add_argument("--labelnum", type=int, default=None,
                                     help="Số mẫu có nhãn (ví dụ: 8 cho 5%% của 154 mẫu; mặc định: 154)")
         command_parser.add_argument("--max-samples", type=int, default=None,
@@ -435,6 +438,12 @@ def main():
                                     help="Bật SyncBatchNorm khi chạy DDP đa GPU")
         command_parser.add_argument("--single-gpu", action="store_true",
                                     help="Ép chạy đơn GPU (--gpu 0) thay vì DDP 2 GPU")
+        command_parser.add_argument("--patch-size", default=None,
+                                    help="Ghi đè data.patch_size và patch_size eval (vd: 32,192,192)")
+        command_parser.add_argument("--has-residual", choices=["true", "false"], default=None,
+                                    help="Ghi đè model.has_residual (true/false)")
+        command_parser.add_argument("--normalization", choices=["batchnorm", "instancenorm", "groupnorm", "none"], default=None,
+                                    help="Ghi đè model.normalization (dành cho 5-stage V-Net)")
 
     # Subcommand: status
     parser_status = subparsers.add_parser("status", help="Kiểm tra trạng thái notebook đang chạy")
@@ -445,7 +454,7 @@ def main():
     # Subcommand: log
     parser_log = subparsers.add_parser("log", help="Kéo riêng file log văn bản từ Kaggle về (nhẹ, nhanh, không tải checkpoint)")
     parser_log.add_argument("--account", "-a", default="1", help="Tài khoản (ID hoặc slug, mặc định: 1)")
-    parser_log.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2')")
+    parser_log.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
     parser_log.add_argument("--kernel", "-k", help="Định danh kernel đầy đủ (username/slug)")
     parser_log.add_argument("--output", "-o", help="Đường dẫn file đích để lưu log (mặc định: logs/<kernel_slug>.log)")
     parser_log.add_argument("--tail", "-t", type=int, default=25, help="Số dòng cuối cần in ra màn hình sau khi tải (mặc định: 25, 0 để tắt)")

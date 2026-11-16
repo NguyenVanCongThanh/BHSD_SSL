@@ -19,6 +19,7 @@ from unittest.mock import patch
 import torch
 
 from core.config_parser import load_config, validate_config
+from core.model_builder import build_model_from_spec, model_spec_from_config
 from data.constants import (
     BHSD_BINARY_NAMES,
     BHSD_MULTICLASS_NAMES,
@@ -142,6 +143,36 @@ class TestRefactorContracts(unittest.TestCase):
             self.assertEqual(m_vn.state_dict()[key].shape, m_vn_explicit.state_dict()[key].shape)
         self.assertAlmostEqual(m_vn_custom.dropout.p, 0.35)
         self.assertEqual(m_vn_custom.enc5.conv1.out_channels, 64)
+
+        from models.backbones.vnet import VNet
+        m_v7_default = VNet(in_channels=1, num_classes=2, num_stages=7, base_filters=16)
+        m_v7_plain = VNet(in_channels=1, num_classes=2, num_stages=7, base_filters=16, has_residual=False)
+        self.assertTrue(m_v7_default.has_residual)
+        self.assertFalse(m_v7_plain.has_residual)
+        self.assertIsNotNone(m_v7_default.model.enc1.shortcut)
+        self.assertIsNone(m_v7_plain.model.enc1.shortcut)
+        self.assertLess(sum(p.numel() for p in m_v7_plain.parameters()), sum(p.numel() for p in m_v7_default.parameters()))
+        x_small = torch.randn(1, 1, 16, 64, 64)
+        out_plain = m_v7_plain(x_small)
+        self.assertEqual(out_plain.shape, (1, 2, 16, 64, 64))
+
+        m_v5_default = VNet(in_channels=1, num_classes=2, num_stages=5)
+        m_v5_res = VNet(in_channels=1, num_classes=2, num_stages=5, has_residual=True)
+        self.assertFalse(m_v5_default.has_residual)
+        self.assertTrue(m_v5_res.has_residual)
+        self.assertEqual(m_v5_res(x_small).shape, (1, 2, 16, 64, 64))
+
+        for cfg_rel, exp_7stage, exp_res in [
+            ("configs/experiments/bhsd_supervised_vnet7_plain_fold0.yaml", True, False),
+            ("configs/experiments/bhsd_supervised_vnet5_plain_fold0.yaml", False, False),
+            ("configs/experiments/bhsd_supervised_vnet5_res_fold0.yaml", False, True),
+        ]:
+            cfg = load_config(config_path=str(REPO_ROOT / cfg_rel))
+            spec = model_spec_from_config(cfg.to_dict(), cfg.data.num_classes)
+            built = build_model_from_spec(spec)
+            self.assertEqual(built.is_7stage, exp_7stage, msg=cfg_rel)
+            self.assertEqual(built.has_residual, exp_res, msg=cfg_rel)
+            self.assertEqual(cfg.method.max_iteration, 9500, msg=cfg_rel)
 
     def test_base_method_clip_norm_and_dummy_subclass(self):
         class DummyMethod(BaseMethod):
@@ -269,6 +300,9 @@ class TestRefactorContracts(unittest.TestCase):
             build_mean_teacher_notebook(setting="vnet_swdl"),
             build_supervised_notebook(setting="opt1_nnunet"),
             build_supervised_notebook(setting="vnet"),
+            build_supervised_notebook(setting="vnet7_plain"),
+            build_supervised_notebook(setting="vnet5_plain"),
+            build_supervised_notebook(setting="vnet5_res"),
             build_supervised_notebook(setting="vnet_legacy"),
             build_notebook_dict(),
         ]
@@ -308,6 +342,26 @@ class TestRefactorContracts(unittest.TestCase):
         self.assertIn("MAX_SAMPLES = 154", sup_code)
         self.assertIn('LABELED_SAMPLING = "stratified"', sup_code)
         self.assertIn('"--labeled_sampling", str(LABELED_SAMPLING)', sup_code)
+
+        with patch.dict(
+            os.environ,
+            {
+                "BHSD_PATCH_SIZE": "32,160,160",
+                "BHSD_HAS_RESIDUAL": "true",
+                "BHSD_NORMALIZATION": "instancenorm",
+            },
+            clear=False,
+        ):
+            custom_nb = build_supervised_notebook(task="binary", setting="vnet5_plain")
+            custom_code = "\n".join(
+                "".join(c["source"]) for c in custom_nb["cells"] if c["cell_type"] == "code"
+            )
+            self.assertIn("PATCH_SIZE_EVAL = ['32', '160', '160']", custom_code)
+            self.assertIn('"--stride_xy", "80"', custom_code)
+            self.assertIn('"--stride_z", "16"', custom_code)
+            self.assertIn('"--data.patch_size", "[32,160,160]"', custom_code)
+            self.assertIn('"--model.has_residual", "true"', custom_code)
+            self.assertIn('"--model.normalization", "instancenorm"', custom_code)
 
 
 if __name__ == "__main__":

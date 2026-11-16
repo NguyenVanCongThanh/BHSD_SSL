@@ -56,7 +56,7 @@ class VNet(nn.Module):
         num_stages: int = 5,
         normalization: str = "batchnorm",
         has_dropout: bool = True,
-        has_residual: bool = False,
+        has_residual: Optional[bool] = None,
         deep_supervision: bool = False,
         anisotropic_kernels: bool = True,
         use_strided_conv: bool = True,
@@ -72,12 +72,15 @@ class VNet(nn.Module):
         self.num_stages = num_stages
         if num_stages == 7 or base_filters is not None:
             bf = base_filters if base_filters is not None else max(32, n_filters * 2)
+            res_flag = True if has_residual is None else bool(has_residual)
+            self.has_residual = res_flag
             self.model = VNet7Stage(
                 in_channels=in_channels,
                 num_classes=num_classes,
                 base_filters=bf,
                 num_stages=7,
                 has_dropout=has_dropout,
+                has_residual=res_flag,
                 deep_supervision=deep_supervision,
                 anisotropic_kernels=anisotropic_kernels,
                 use_strided_conv=use_strided_conv,
@@ -91,6 +94,8 @@ class VNet(nn.Module):
             )
             self.is_7stage = True
         else:
+            res_flag = False if has_residual is None else bool(has_residual)
+            self.has_residual = res_flag
             legacy_drop = LEGACY_DROPOUT_PROB if dropout_prob is None else dropout_prob
             self.encoder = VNetEncoder(
                 n_channels=in_channels,
@@ -98,7 +103,7 @@ class VNet(nn.Module):
                 n_filters=n_filters,
                 normalization=normalization,
                 has_dropout=has_dropout,
-                has_residual=has_residual,
+                has_residual=res_flag,
                 dropout_prob=legacy_drop,
             )
             self.decoder = VNetDecoder(
@@ -107,7 +112,7 @@ class VNet(nn.Module):
                 n_filters=n_filters,
                 normalization=normalization,
                 has_dropout=has_dropout,
-                has_residual=has_residual,
+                has_residual=res_flag,
                 dropout_prob=legacy_drop,
             )
             self.is_7stage = False

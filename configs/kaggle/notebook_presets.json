@@ -112,7 +112,10 @@
     "aliases": {
       "vnet_opt1": "vnet",
       "vnet_5stage": "vnet_legacy",
-      "vnet_enhanced": "vnet_v2"
+      "vnet_enhanced": "vnet_v2",
+      "vnet7_no_res": "vnet7_plain",
+      "vnet5_no_res": "vnet5_plain",
+      "vnet5_residual": "vnet5_res"
     },
     "settings": {
       "opt1_nnunet": {
@@ -162,13 +165,55 @@
         "batch_size": 4,
         "labeled_bs": 4,
         "max_iter": 25000,
-        "val_stride_xy": 128,
-        "val_stride_z": 14,
-        "patch_size_eval": ["28", "256", "256"],
+        "val_stride_xy": 80,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "160", "160"],
         "config_file": "configs/experiments/bhsd_supervised_fold0.yaml",
         "arch_desc": "- **Kiến trúc V-Net Baseline Supervised (5-Stage Legacy)**: Huấn luyện có giám sát 100% dữ liệu với mô hình V-Net 3D cổ điển.\n",
         "extra_cli_lines": [
           "    \"--model\", \"vnet_single\",\n"
+        ]
+      },
+      "vnet7_plain": {
+        "model_name": "vnet",
+        "batch_size": 4,
+        "labeled_bs": 4,
+        "max_iter": 9500,
+        "val_stride_xy": 128,
+        "val_stride_z": 14,
+        "patch_size_eval": ["28", "256", "256"],
+        "config_file": "configs/experiments/bhsd_supervised_vnet7_plain_fold0.yaml",
+        "arch_desc": "- **Kiến trúc 7-Stage Anisotropic Plain V-Net (`has_residual=false`)**: Biến thể V-Net 7 stages tắt đường cộng phần dư nội khối (plain 2-conv blocks, InstanceNorm3d, LeakyReLU, kernel anisotropic (1, 3, 3) ở 2 tầng đầu, Deep Supervision) để ablation trực tiếp tác động của residual shortcut.\n",
+        "extra_cli_lines": [
+          "    \"--model\", \"vnet\",\n"
+        ]
+      },
+      "vnet5_plain": {
+        "model_name": "vnet",
+        "batch_size": 4,
+        "labeled_bs": 4,
+        "max_iter": 9500,
+        "val_stride_xy": 96,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "192", "192"],
+        "config_file": "configs/experiments/bhsd_supervised_vnet5_plain_fold0.yaml",
+        "arch_desc": "- **Kiến trúc 5-Stage Classic Plain V-Net (`has_residual=false`)**: V-Net 5 stages chuẩn baseline các paper SSL (BatchNorm3d, Dropout, n_filters=16, patch [32, 192, 192]).\n",
+        "extra_cli_lines": [
+          "    \"--model\", \"vnet\",\n"
+        ]
+      },
+      "vnet5_res": {
+        "model_name": "vnet",
+        "batch_size": 4,
+        "labeled_bs": 4,
+        "max_iter": 9500,
+        "val_stride_xy": 96,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "192", "192"],
+        "config_file": "configs/experiments/bhsd_supervised_vnet5_res_fold0.yaml",
+        "arch_desc": "- **Kiến trúc 5-Stage Classic Residual V-Net (`has_residual=true`)**: V-Net 5 stages bật residual block theo tinh thần Milletari et al. 2016 (BatchNorm3d, Dropout, n_filters=16, patch [32, 192, 192]).\n",
+        "extra_cli_lines": [
+          "    \"--model\", \"vnet\",\n"
         ]
       }
     }

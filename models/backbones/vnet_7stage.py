@@ -45,6 +45,7 @@ class VNet7Stage(nn.Module):
         base_filters: int = 32,
         num_stages: int = 7,
         has_dropout: bool = False,
+        has_residual: bool = True,
         deep_supervision: bool = True,
         anisotropic_kernels: bool = True,
         use_strided_conv: bool = True,
@@ -60,6 +61,7 @@ class VNet7Stage(nn.Module):
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.num_stages = num_stages
+        self.has_residual = bool(has_residual)
         self.deep_supervision = deep_supervision
         self.anisotropic_kernels = anisotropic_kernels
         self.use_strided_conv = use_strided_conv
@@ -97,53 +99,53 @@ class VNet7Stage(nn.Module):
                 return nn.MaxPool3d(kernel_size=stride, stride=stride)
 
         # Encoder stages & Strides
-        self.enc1 = VNetResidualBlock(in_channels, f[0], kernel_size=k1, activation=self.activation)
+        self.enc1 = VNetResidualBlock(in_channels, f[0], kernel_size=k1, activation=self.activation, has_residual=self.has_residual)
         self.pool1 = _make_downsample(f[0], stride=stride1)
 
-        self.enc2 = VNetResidualBlock(f[0], f[1], kernel_size=k2, activation=self.activation)
+        self.enc2 = VNetResidualBlock(f[0], f[1], kernel_size=k2, activation=self.activation, has_residual=self.has_residual)
         self.pool2 = _make_downsample(f[1], stride=stride2)
 
-        self.enc3 = VNetResidualBlock(f[1], f[2], kernel_size=k3, activation=self.activation)
+        self.enc3 = VNetResidualBlock(f[1], f[2], kernel_size=k3, activation=self.activation, has_residual=self.has_residual)
         self.pool3 = _make_downsample(f[2], stride=stride3)
 
-        self.enc4 = VNetResidualBlock(f[2], f[3], kernel_size=k4, activation=self.activation)
+        self.enc4 = VNetResidualBlock(f[2], f[3], kernel_size=k4, activation=self.activation, has_residual=self.has_residual)
         self.pool4 = _make_downsample(f[3], stride=stride4)
 
-        self.enc5 = VNetResidualBlock(f[3], f[4], kernel_size=k5, activation=self.activation)
+        self.enc5 = VNetResidualBlock(f[3], f[4], kernel_size=k5, activation=self.activation, has_residual=self.has_residual)
         self.pool5 = _make_downsample(f[4], stride=stride5)
 
-        self.enc6 = VNetResidualBlock(f[4], f[5], kernel_size=k6, activation=self.activation)
+        self.enc6 = VNetResidualBlock(f[4], f[5], kernel_size=k6, activation=self.activation, has_residual=self.has_residual)
         self.pool6 = _make_downsample(f[5], stride=stride6)
 
-        self.bottleneck = VNetResidualBlock(f[5], f[6], kernel_size=k_btn, activation=self.activation)
+        self.bottleneck = VNetResidualBlock(f[5], f[6], kernel_size=k_btn, activation=self.activation, has_residual=self.has_residual)
 
         # Decoder stages (skip_mode = 'concat' -> in_channels = f * 2; skip_mode = 'add' -> in_channels = f)
         dec_in6 = f[5] * 2 if self.skip_mode == "concat" else f[5]
         self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=stride6, stride=stride6)
-        self.dec6 = VNetResidualBlock(dec_in6, f[5], kernel_size=k6, activation=self.activation)
+        self.dec6 = VNetResidualBlock(dec_in6, f[5], kernel_size=k6, activation=self.activation, has_residual=self.has_residual)
 
         dec_in5 = f[4] * 2 if self.skip_mode == "concat" else f[4]
         self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5)
-        self.dec5 = VNetResidualBlock(dec_in5, f[4], kernel_size=k5, activation=self.activation)
+        self.dec5 = VNetResidualBlock(dec_in5, f[4], kernel_size=k5, activation=self.activation, has_residual=self.has_residual)
 
         self.dropout = nn.Dropout3d(p=dropout_prob) if has_dropout else nn.Identity()
 
         dec4_in = f[4]
         dec_in4 = f[3] * 2 if self.skip_mode == "concat" else f[3]
         self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=stride4, stride=stride4)
-        self.dec4 = VNetResidualBlock(dec_in4, f[3], kernel_size=k4, activation=self.activation)
+        self.dec4 = VNetResidualBlock(dec_in4, f[3], kernel_size=k4, activation=self.activation, has_residual=self.has_residual)
 
         dec_in3 = f[2] * 2 if self.skip_mode == "concat" else f[2]
         self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=stride3, stride=stride3)
-        self.dec3 = VNetResidualBlock(dec_in3, f[2], kernel_size=k3, activation=self.activation)
+        self.dec3 = VNetResidualBlock(dec_in3, f[2], kernel_size=k3, activation=self.activation, has_residual=self.has_residual)
 
         dec_in2 = f[1] * 2 if self.skip_mode == "concat" else f[1]
         self.up2 = nn.ConvTranspose3d(f[2], f[1], kernel_size=stride2, stride=stride2)
-        self.dec2 = VNetResidualBlock(dec_in2, f[1], kernel_size=k2, activation=self.activation)
+        self.dec2 = VNetResidualBlock(dec_in2, f[1], kernel_size=k2, activation=self.activation, has_residual=self.has_residual)
 
         dec_in1 = f[0] * 2 if self.skip_mode == "concat" else f[0]
         self.up1 = nn.ConvTranspose3d(f[1], f[0], kernel_size=stride1, stride=stride1)
-        self.dec1 = VNetResidualBlock(dec_in1, f[0], kernel_size=k1, activation=self.activation)
+        self.dec1 = VNetResidualBlock(dec_in1, f[0], kernel_size=k1, activation=self.activation, has_residual=self.has_residual)
 
         # Final segmentation head (1x1x1 Conv)
         self.final_conv = nn.Conv3d(f[0], num_classes, kernel_size=1)
