@@ -193,11 +193,11 @@
         "batch_size": 4,
         "labeled_bs": 4,
         "max_iter": 9500,
-        "val_stride_xy": 96,
+        "val_stride_xy": 128,
         "val_stride_z": 16,
-        "patch_size_eval": ["32", "192", "192"],
+        "patch_size_eval": ["32", "256", "256"],
         "config_file": "configs/experiments/bhsd_supervised_vnet5_plain_fold0.yaml",
-        "arch_desc": "- **Kiến trúc 5-Stage Classic Plain V-Net (`has_residual=false`)**: V-Net 5 stages chuẩn baseline các paper SSL (BatchNorm3d, Dropout, n_filters=16, patch [32, 192, 192]).\n",
+        "arch_desc": "- **Kiến trúc 5-Stage Classic Plain V-Net (`has_residual=false`)**: V-Net 5 stages chuẩn baseline các paper SSL (InstanceNorm3d, no Dropout, n_filters=16, patch [32, 256, 256]).\n",
         "extra_cli_lines": [
           "    \"--model\", \"vnet\",\n"
         ]
@@ -207,11 +207,11 @@
         "batch_size": 4,
         "labeled_bs": 4,
         "max_iter": 9500,
-        "val_stride_xy": 96,
+        "val_stride_xy": 128,
         "val_stride_z": 16,
-        "patch_size_eval": ["32", "192", "192"],
+        "patch_size_eval": ["32", "256", "256"],
         "config_file": "configs/experiments/bhsd_supervised_vnet5_res_fold0.yaml",
-        "arch_desc": "- **Kiến trúc 5-Stage Classic Residual V-Net (`has_residual=true`)**: V-Net 5 stages bật residual block theo tinh thần Milletari et al. 2016 (BatchNorm3d, Dropout, n_filters=16, patch [32, 192, 192]).\n",
+        "arch_desc": "- **Kiến trúc 5-Stage Classic Residual V-Net (`has_residual=true`)**: V-Net 5 stages bật residual block theo tinh thần Milletari et al. 2016 (InstanceNorm3d, no Dropout, n_filters=16, patch [32, 256, 256]).\n",
         "extra_cli_lines": [
           "    \"--model\", \"vnet\",\n"
         ]

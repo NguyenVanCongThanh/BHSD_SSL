@@ -3,7 +3,7 @@
 Downsampling and upsampling modules (strided conv, transposed conv, trilinear, nearest).
 """
 
-from typing import Optional
+from typing import Optional, Tuple, Union
 import torch
 from torch import nn
 
@@ -19,15 +19,16 @@ class DownsamplingConvBlock(nn.Module):
         self,
         n_filters_in: int,
         n_filters_out: int,
-        stride: int = 2,
-        padding: int = 0,
+        stride: Union[int, Tuple[int, int, int]] = 2,
+        padding: Union[int, Tuple[int, int, int]] = 0,
         normalization: str = "none",
         activation: str = "relu",
         inplace: bool = False,
     ):
         super(DownsamplingConvBlock, self).__init__()
+        use_bias = str(normalization).lower() in ("none", "", "identity")
         ops = []
-        ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=padding))
+        ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=padding, bias=use_bias))
         norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
         if norm_layer is not None:
             ops.append(norm_layer)
@@ -47,15 +48,16 @@ class UpsamplingDeconvBlock(nn.Module):
         self,
         n_filters_in: int,
         n_filters_out: int,
-        stride: int = 2,
-        padding: int = 0,
+        stride: Union[int, Tuple[int, int, int]] = 2,
+        padding: Union[int, Tuple[int, int, int]] = 0,
         normalization: str = "none",
         activation: str = "relu",
         inplace: bool = False,
     ):
         super(UpsamplingDeconvBlock, self).__init__()
+        use_bias = str(normalization).lower() in ("none", "", "identity")
         ops = []
-        ops.append(nn.ConvTranspose3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=padding))
+        ops.append(nn.ConvTranspose3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=padding, bias=use_bias))
         norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
         if norm_layer is not None:
             ops.append(norm_layer)

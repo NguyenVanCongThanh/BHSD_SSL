@@ -3,11 +3,22 @@
 Standard and residual 3D convolutional blocks with sequential indexing compatibility.
 """
 
-from typing import Optional
+from typing import Optional, Tuple, Union
 import torch
 from torch import nn
 
 from .norm_act import get_activation, get_norm3d
+
+
+def _resolve_padding(
+    kernel_size: Union[int, Tuple[int, int, int]],
+    padding: Optional[Union[int, Tuple[int, int, int]]],
+) -> Union[int, Tuple[int, int, int]]:
+    if padding is not None:
+        return padding
+    if isinstance(kernel_size, int):
+        return kernel_size // 2
+    return tuple(k // 2 for k in kernel_size)
 
 
 class ConvBlock(nn.Module):
@@ -20,17 +31,27 @@ class ConvBlock(nn.Module):
         n_stages: int,
         n_filters_in: int,
         n_filters_out: int,
-        kernel_size: int = 3,
-        padding: int = 1,
+        kernel_size: Union[int, Tuple[int, int, int]] = 3,
+        padding: Optional[Union[int, Tuple[int, int, int]]] = None,
         normalization: str = "none",
         activation: str = "relu",
         inplace: bool = False,
     ):
         super(ConvBlock, self).__init__()
+        resolved_padding = _resolve_padding(kernel_size, padding)
+        use_bias = str(normalization).lower() in ("none", "", "identity")
         ops = []
         for i in range(n_stages):
             in_ch = n_filters_in if i == 0 else n_filters_out
-            ops.append(nn.Conv3d(in_ch, n_filters_out, kernel_size=kernel_size, padding=padding))
+            ops.append(
+                nn.Conv3d(
+                    in_ch,
+                    n_filters_out,
+                    kernel_size=kernel_size,
+                    padding=resolved_padding,
+                    bias=use_bias,
+                )
+            )
             norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
             if norm_layer is not None:
                 ops.append(norm_layer)
@@ -52,15 +73,27 @@ class ResidualConvBlock(nn.Module):
         n_stages: int,
         n_filters_in: int,
         n_filters_out: int,
+        kernel_size: Union[int, Tuple[int, int, int]] = 3,
+        padding: Optional[Union[int, Tuple[int, int, int]]] = None,
         normalization: str = "none",
         activation: str = "relu",
         inplace: bool = False,
     ):
         super(ResidualConvBlock, self).__init__()
+        resolved_padding = _resolve_padding(kernel_size, padding)
+        use_bias = str(normalization).lower() in ("none", "", "identity")
         ops = []
         for i in range(n_stages):
             in_ch = n_filters_in if i == 0 else n_filters_out
-            ops.append(nn.Conv3d(in_ch, n_filters_out, 3, padding=1))
+            ops.append(
+                nn.Conv3d(
+                    in_ch,
+                    n_filters_out,
+                    kernel_size=kernel_size,
+                    padding=resolved_padding,
+                    bias=use_bias,
+                )
+            )
             norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
             if norm_layer is not None:
                 ops.append(norm_layer)
@@ -69,9 +102,18 @@ class ResidualConvBlock(nn.Module):
 
         self.conv = nn.Sequential(*ops)
         self.relu = get_activation(activation, inplace=inplace)
+        if n_filters_in != n_filters_out:
+            proj = [nn.Conv3d(n_filters_in, n_filters_out, kernel_size=1, padding=0, bias=use_bias)]
+            proj_norm = get_norm3d(normalization, n_filters_out, affine=True)
+            if proj_norm is not None:
+                proj.append(proj_norm)
+            self.shortcut = nn.Sequential(*proj)
+        else:
+            self.shortcut = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.relu(self.conv(x) + x)
+        skip = self.shortcut(x) if self.shortcut is not None else x
+        return self.relu(self.conv(x) + skip)
 
 
 __all__ = ["ConvBlock", "ResidualConvBlock"]

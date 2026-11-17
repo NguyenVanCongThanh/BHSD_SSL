@@ -44,6 +44,7 @@ def build_supervised_notebook(
     single_gpu = os.environ.get("BHSD_SINGLE_GPU", "").lower() in ("1", "true", "yes")
     patch_size_override = os.environ.get("BHSD_PATCH_SIZE", "").strip()
     has_residual_override = os.environ.get("BHSD_HAS_RESIDUAL", "").strip().lower()
+    has_dropout_override = os.environ.get("BHSD_HAS_DROPOUT", "").strip().lower()
     normalization_override = os.environ.get("BHSD_NORMALIZATION", "").strip()
     val_stride_xy = spec["val_stride_xy"]
     val_stride_z = spec["val_stride_z"]
@@ -63,6 +64,8 @@ def build_supervised_notebook(
         extra_cli_lines.append(f'    "--data.patch_size", "[{pz},{py},{px}]",')
     if has_residual_override in ("true", "false"):
         extra_cli_lines.append(f'    "--model.has_residual", "{has_residual_override}",')
+    if has_dropout_override in ("true", "false"):
+        extra_cli_lines.append(f'    "--model.has_dropout", "{has_dropout_override}",')
     if normalization_override:
         extra_cli_lines.append(f'    "--model.normalization", "{normalization_override}",')
     if lr_max_iter:

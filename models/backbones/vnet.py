@@ -54,8 +54,8 @@ class VNet(nn.Module):
         n_filters: int = 16,
         base_filters: Optional[int] = None,
         num_stages: int = 5,
-        normalization: str = "batchnorm",
-        has_dropout: bool = True,
+        normalization: str = "instancenorm",
+        has_dropout: bool = False,
         has_residual: Optional[bool] = None,
         deep_supervision: bool = False,
         anisotropic_kernels: bool = True,
@@ -105,6 +105,8 @@ class VNet(nn.Module):
                 has_dropout=has_dropout,
                 has_residual=res_flag,
                 dropout_prob=legacy_drop,
+                activation=activation,
+                anisotropic_kernels=anisotropic_kernels,
             )
             self.decoder = VNetDecoder(
                 n_channels=in_channels,
@@ -114,6 +116,9 @@ class VNet(nn.Module):
                 has_dropout=has_dropout,
                 has_residual=res_flag,
                 dropout_prob=legacy_drop,
+                skip_mode=skip_mode,
+                activation=activation,
+                anisotropic_kernels=anisotropic_kernels,
             )
             self.is_7stage = False
 

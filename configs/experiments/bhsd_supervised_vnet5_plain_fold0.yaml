@@ -1,5 +1,5 @@
 # Experiment Preset: BHSD Binary Supervised with 5-Stage Classic Plain V-Net (has_residual=false)
-# Standard 5-stage SSL backbone baseline (9,500 iters) with 16x-divisible patch [32, 192, 192].
+# Standard 5-stage SSL backbone baseline (9,500 iters) with 16x-divisible patch [32, 256, 256].
 
 experiment:
   name: "bhsd_supervised_vnet5_plain_fold0"
@@ -17,8 +17,8 @@ model:
   in_channels: 1
   n_filters: 16
   num_stages: 5
-  normalization: "batchnorm"
-  has_dropout: true
+  normalization: "instancenorm"
+  has_dropout: false
   has_residual: false
 
 method:
@@ -27,7 +27,7 @@ method:
   max_iteration: 9500
 
 data:
-  patch_size: [32, 192, 192]
+  patch_size: [32, 256, 256]
   batch_size: 4
   labeled_bs: 4
   labelnum: 154

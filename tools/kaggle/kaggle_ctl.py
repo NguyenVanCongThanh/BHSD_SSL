@@ -97,6 +97,7 @@ def _apply_build_env_overrides(args):
         ("BHSD_LABELED_BS", "labeled_bs"),
         ("BHSD_PATCH_SIZE", "patch_size"),
         ("BHSD_HAS_RESIDUAL", "has_residual"),
+        ("BHSD_HAS_DROPOUT", "has_dropout"),
         ("BHSD_NORMALIZATION", "normalization"),
     ]:
         val = getattr(args, attr_name, None)
@@ -442,6 +443,8 @@ def main():
                                     help="Ghi đè data.patch_size và patch_size eval (vd: 32,192,192)")
         command_parser.add_argument("--has-residual", choices=["true", "false"], default=None,
                                     help="Ghi đè model.has_residual (true/false)")
+        command_parser.add_argument("--has-dropout", choices=["true", "false"], default=None,
+                                    help="Ghi đè model.has_dropout (true/false)")
         command_parser.add_argument("--normalization", choices=["batchnorm", "instancenorm", "groupnorm", "none"], default=None,
                                     help="Ghi đè model.normalization (dành cho 5-stage V-Net)")
 
