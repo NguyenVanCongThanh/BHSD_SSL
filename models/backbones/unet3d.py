@@ -3,6 +3,7 @@
 Reference: Çiçek et al., "3D U-Net: Learning Dense Volumetric Segmentation from Sparse Annotation", MICCAI 2016.
 """
 
+import logging
 from typing import List, Optional
 import torch
 import torch.nn as nn
@@ -70,6 +71,8 @@ class UNet3D(Module):
         **kwargs
     ):
         super(UNet3D, self).__init__()
+        if kwargs:
+            logging.warning("[UNet3D] Ignored unsupported kwargs: %s", sorted(kwargs.keys()))
         if feat_channels is None:
             feat_channels = [32, 64, 128, 256, 512]
 

@@ -7,6 +7,7 @@ Implemented following the nnU-Net design principles (Isensee et al., Nature Meth
 - Deep supervision-friendly modular layout.
 """
 
+import logging
 from typing import List, Tuple, Optional, Union, Sequence
 import torch
 import torch.nn as nn
@@ -84,6 +85,8 @@ class nnUNet3D(nn.Module):
         **kwargs
     ):
         super().__init__()
+        if kwargs:
+            logging.warning("[nnUNet3D] Ignored unsupported kwargs: %s", sorted(kwargs.keys()))
         assert num_stages in (5, 6, 7), f"num_stages must be 5, 6, or 7, got {num_stages}"
         self.in_channels = in_channels
         self.num_classes = num_classes

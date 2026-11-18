@@ -37,6 +37,45 @@ from utils.wandb_manager import WandbManager
 from training import GradientHandler, ValidationRunner
 
 
+def _count_norm_layers(model: nn.Module) -> Dict[str, int]:
+    """Count actual normalization layers instantiated inside a model."""
+    counts = {
+        "batchnorm": 0,
+        "sync_batchnorm": 0,
+        "instancenorm": 0,
+        "groupnorm": 0,
+        "layernorm": 0,
+    }
+    for module in model.modules():
+        if isinstance(module, nn.SyncBatchNorm):
+            counts["sync_batchnorm"] += 1
+        elif isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+            counts["batchnorm"] += 1
+        elif isinstance(module, (nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d)):
+            counts["instancenorm"] += 1
+        elif isinstance(module, nn.GroupNorm):
+            counts["groupnorm"] += 1
+        elif isinstance(module, nn.LayerNorm):
+            counts["layernorm"] += 1
+    return counts
+
+
+def _canonical_norm_name(name: Optional[str]) -> Optional[str]:
+    """Normalize config normalization string into a canonical key."""
+    if not name:
+        return None
+    val = str(name).strip().lower()
+    if val in ("batchnorm", "bn", "batch"):
+        return "batchnorm"
+    if val in ("instancenorm", "in", "instance"):
+        return "instancenorm"
+    if val in ("groupnorm", "gn", "group"):
+        return "groupnorm"
+    if val in ("layernorm", "ln", "layer"):
+        return "layernorm"
+    return val
+
+
 class BaseMethod(abc.ABC):
     """
     Abstract Base Class for training engines.
@@ -99,14 +138,33 @@ class BaseMethod(abc.ABC):
         if is_main_process():
             os.makedirs(self.snapshot_path, exist_ok=True)
 
+        # Inspect actual normalization layers vs configured expectation (non-invasive).
+        norm_counts = _count_norm_layers(self.model)
+        active_norms = {k: v for k, v in norm_counts.items() if v > 0}
+        logging.info('[Model] Actual normalization layers: %s', active_norms or 'none')
+        cfg_norm = _canonical_norm_name(getattr(getattr(cfg, 'model', None), 'normalization', None))
+        if cfg_norm in norm_counts and norm_counts[cfg_norm] == 0 and active_norms:
+            logging.warning(
+                '[Model] Config specifies model.normalization=%r, but model contains 0 %s layers (actual: %s).',
+                getattr(cfg.model, 'normalization', None), cfg_norm, active_norms,
+            )
+
         # Multi-GPU support (DDP vs DP Default)
         if self.is_ddp:
             # Distributed Data Parallel mode
             local_rank = int(os.environ.get('LOCAL_RANK', 0))
             self.model = self.model.to(self.device)
             if bool(getattr(cfg.experiment, 'use_sync_bn', False)):
+                bn_count = norm_counts["batchnorm"]
                 self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
-                logging.info('[Model] Converted BatchNorm layers to SyncBatchNorm for DDP.')
+                if bn_count > 0:
+                    logging.info('[Model] Converted %d BatchNorm layers to SyncBatchNorm for DDP.', bn_count)
+                else:
+                    logging.warning(
+                        '[Model] use_sync_bn=True was requested, but model has 0 BatchNorm layers (actual: %s); '
+                        'SyncBatchNorm had no effect.',
+                        active_norms or 'none',
+                    )
             is_pick = str(getattr(cfg.method, 'name', '')).lower() == 'pick'
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,

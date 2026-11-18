@@ -3,6 +3,7 @@
 Designed for 1:1 ablation comparison against 7-Stage nnU-Net 3D and SWDL variants.
 """
 
+import logging
 from typing import List, Optional, Sequence, Tuple, Union
 import torch
 from torch import nn
@@ -58,6 +59,8 @@ class VNet7Stage(nn.Module):
         **kwargs
     ):
         super().__init__()
+        if kwargs:
+            logging.warning("[VNet7Stage] Ignored unsupported kwargs: %s", sorted(kwargs.keys()))
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.num_stages = num_stages

@@ -5,6 +5,7 @@ Routes dynamically to:
   2. VNetClassic: Milletari 5-Stage V-Net (VNetEncoder + VNetDecoder, PICK baseline)
 """
 
+import logging
 from typing import List, Optional, Sequence, Tuple, Union
 import torch
 from torch import nn
@@ -71,6 +72,16 @@ class VNet(nn.Module):
         super(VNet, self).__init__()
         self.num_stages = num_stages
         if num_stages == 7 or base_filters is not None:
+            if num_stages != 7 and base_filters is not None:
+                logging.warning(
+                    "[VNet] base_filters=%r forces VNet7Stage (7 stages), overriding num_stages=%r.",
+                    base_filters, num_stages,
+                )
+            if str(normalization).strip().lower() not in ("instancenorm", "in", "instance"):
+                logging.warning(
+                    "[VNet] VNet7Stage hardcodes InstanceNorm3d and ignores normalization=%r.",
+                    normalization,
+                )
             bf = base_filters if base_filters is not None else max(32, n_filters * 2)
             res_flag = True if has_residual is None else bool(has_residual)
             self.has_residual = res_flag
@@ -94,6 +105,21 @@ class VNet(nn.Module):
             )
             self.is_7stage = True
         else:
+            if deep_supervision:
+                logging.warning("[VNet] 5-stage VNetClassic does not support deep_supervision=True; ignoring.")
+            ignored_5stage = [
+                name for name, val in (
+                    ("stage_multipliers", stage_multipliers),
+                    ("pool_strides", pool_strides),
+                    ("stage_kernels", stage_kernels),
+                )
+                if val is not None
+            ]
+            if ignored_5stage or kwargs:
+                logging.warning(
+                    "[VNet] 5-stage VNetClassic ignored unsupported parameters: %s",
+                    ignored_5stage + sorted(kwargs.keys()),
+                )
             res_flag = False if has_residual is None else bool(has_residual)
             self.has_residual = res_flag
             legacy_drop = LEGACY_DROPOUT_PROB if dropout_prob is None else dropout_prob
