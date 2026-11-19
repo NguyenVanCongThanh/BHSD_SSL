@@ -109,7 +109,7 @@ def main():
     base_lr = getattr(cfg.method, 'base_lr', None)
     lr_sched = getattr(cfg.method, 'lr_scheduler', 'poly')
     max_iter = getattr(cfg.method, 'max_iteration', None)
-    val_int = getattr(cfg.method, 'val_interval', None)
+    val_int = getattr(cfg.logging, 'val_interval', getattr(cfg.method, 'val_interval', 500))
     seed_val = getattr(cfg.experiment, 'seed', 1337)
     amp_val = bool(getattr(cfg.experiment, 'amp', False))
 
