@@ -28,22 +28,38 @@ def get_logger(
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO if is_main else logging.WARNING)
 
-    # Avoid adding duplicate handlers if already configured
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            fmt='[%(asctime)s] [%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+    formatter = logging.Formatter(
+        fmt='[%(asctime)s] [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
+    # Ensure consistent formatting even if a default StreamHandler was added earlier
+    has_console = False
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+            handler.setFormatter(formatter)
+            has_console = True
+
+    if not has_console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-        if log_file and is_main:
-            os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
-            file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    if log_file and is_main:
+        abs_log_file = os.path.abspath(log_file)
+        has_file = any(
+            isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == abs_log_file
+            for h in logger.handlers
+        )
+        if not has_file:
+            os.makedirs(os.path.dirname(abs_log_file), exist_ok=True)
+            file_handler = logging.FileHandler(abs_log_file, mode='a', encoding='utf-8')
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
+
+    # Quiet noisy third-party HTTP request logs (e.g. Hugging Face Hub httpx calls)
+    for noisy_logger in ('httpx', 'httpcore', 'urllib3'):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
     return logger
 
@@ -56,6 +72,7 @@ def format_iteration_progress_string(
     loss_dict: Dict[str, float],
     phase: str,
     vram_used: float = 0.0,
+    lr: Optional[float] = None,
 ) -> str:
     """Format console iteration progress string matching standard logging convention."""
     import time
@@ -64,8 +81,9 @@ def format_iteration_progress_string(
     eta_str = time.strftime('%Hh%Mm%Ss', time.gmtime(eta_sec)) if eta_sec < 86400 else f"{eta_sec/3600:.1f}h"
     pct = (iter_num / max_iters) * 100 if max_iters > 0 else 0.0
     losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in loss_dict.items()])
+    lr_str = f" | lr: {lr:.2e}" if lr is not None else ""
     return (
         f"[{phase}] Iter {iter_num}/{max_iters} ({pct:.1f}%) | "
         f"{sec_per_it:.2f}s/it | ETA: {eta_str} | "
-        f"{losses_str} | VRAM: {vram_used:.1f}GB"
+        f"{losses_str}{lr_str} | VRAM: {vram_used:.1f}GB"
     )

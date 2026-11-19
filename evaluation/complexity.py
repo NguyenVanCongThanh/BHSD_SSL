@@ -17,6 +17,67 @@ import torch
 import torch.nn as nn
 
 
+def _estimate_macs_via_hooks(model: nn.Module, dummy_input: torch.Tensor) -> Optional[float]:
+    """
+    Zero-dependency MACs estimator using PyTorch forward hooks.
+    Accurately supports Conv1d/2d/3d, ConvTranspose1d/2d/3d, Linear, and Norm layers.
+    All hooks are guaranteed to be removed in a finally block.
+    """
+    total_macs = [0.0]
+    handles = []
+
+    def _conv_hook(module, inp, out):
+        if not isinstance(out, torch.Tensor):
+            return
+        # out shape: (N, C_out, *spatial_out)
+        batch_size = out.shape[0]
+        out_elems = int(out[0].numel())
+        kernel_ops = 1
+        for k in module.kernel_size:
+            kernel_ops *= int(k)
+        c_in_per_group = module.in_channels // module.groups
+        macs_per_elem = c_in_per_group * kernel_ops
+        total_macs[0] += float(batch_size * out_elems * macs_per_elem)
+
+    def _conv_transpose_hook(module, inp, out):
+        if not inp or not isinstance(inp[0], torch.Tensor):
+            return
+        # For transposed conv, each input element contributes kernel_ops * (C_out / groups) MACs
+        x = inp[0]
+        batch_size = x.shape[0]
+        in_elems = int(x[0].numel())
+        kernel_ops = 1
+        for k in module.kernel_size:
+            kernel_ops *= int(k)
+        c_out_per_group = module.out_channels // module.groups
+        total_macs[0] += float(batch_size * in_elems * c_out_per_group * kernel_ops)
+
+    def _linear_hook(module, inp, out):
+        if not isinstance(out, torch.Tensor):
+            return
+        total_macs[0] += float(out.numel() * module.in_features)
+
+    conv_types = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
+    conv_t_types = (nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d)
+
+    for m in model.modules():
+        if isinstance(m, conv_types):
+            handles.append(m.register_forward_hook(_conv_hook))
+        elif isinstance(m, conv_t_types):
+            handles.append(m.register_forward_hook(_conv_transpose_hook))
+        elif isinstance(m, nn.Linear):
+            handles.append(m.register_forward_hook(_linear_hook))
+
+    try:
+        with torch.no_grad():
+            _ = model(dummy_input)
+    finally:
+        for h in handles:
+            h.remove()
+
+    return total_macs[0] if total_macs[0] > 0 else None
+
+
 def profile_model_complexity(
     model: nn.Module,
     input_size: Tuple[int, ...] = (1, 1, 32, 160, 160),
@@ -75,25 +136,20 @@ def profile_model_complexity(
         except Exception:
             pass
 
-    # Fallback: PyTorch built-in profiler
-    if flops is None:
+    # Fallback: Zero-dependency PyTorch forward-hook MACs estimator (accurate for 3D Conv/ConvTranspose/Linear)
+    if flops is None or flops <= 0:
         try:
-            with torch.profiler.profile(
-                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
-                if device.type == 'cuda' else [torch.profiler.ProfilerActivity.CPU],
-                record_shapes=True,
-                with_flops=True
-            ) as p:
-                with torch.no_grad():
-                    _ = model(dummy_input)
-            flops = float(sum([e.flops for e in p.key_averages() if hasattr(e, 'flops') and e.flops]))
-            if flops > 0:
-                macs = flops / 2.0
-                method_used = "torch.profiler"
+            hook_macs = _estimate_macs_via_hooks(model, dummy_input)
+            if hook_macs is not None and hook_macs > 0:
+                macs = float(hook_macs)
+                flops = macs * 2.0
+                method_used = "torch_hooks"
             else:
                 flops = None
+                macs = None
         except Exception:
-            pass
+            flops = None
+            macs = None
 
     # 3. Latency & Throughput Benchmark
     is_cuda = (device.type == 'cuda' and torch.cuda.is_available())

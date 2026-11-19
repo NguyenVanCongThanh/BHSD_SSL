@@ -381,7 +381,6 @@ def evaluate_dataset_sliding_window(
             prefix = f"[Rank {rank}] " if world_size > 1 else ""
             msg = f"  {prefix}[Validation Progress] Done {step_i + 1}/{num_my_cases} cases ({pct:.0f}%) | {elapsed:.1f}s"
             logging.info(msg)
-            print(msg, flush=True)
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

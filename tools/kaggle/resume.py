@@ -130,7 +130,8 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     (destination / 'resume_source.json').write_text(json.dumps({
         'run': run_path, 'artifact': art_name, 'metadata': art_meta,
     }, indent=2), encoding='utf-8')
-    print(f'[RESUME] {run_path}: {art_name}; metadata={art_meta}', flush=True)
+    meta_suffix = f"; metadata={art_meta}" if art_meta else ""
+    print(f'[RESUME] {run_path}: {art_name}{meta_suffix}', flush=True)
     print(f'[RESUME] W&B mode: {resume_mode}; source history is preserved.', flush=True)
     args = ['--config', str(config_path), '--resume']
     if num_gpus >= 2:

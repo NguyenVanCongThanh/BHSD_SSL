@@ -334,7 +334,7 @@ class WandbManager:
             metadata=metadata or {}
         )
         if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-            artifact.add_reference(hf_url)
+            artifact.add_reference(hf_url, checksum=False)
             self.run.log_artifact(artifact, aliases=aliases)
             logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
             self._confirmed_uploads += 1
@@ -401,7 +401,7 @@ class WandbManager:
                     metadata=metadata or {}
                 )
                 if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-                    artifact.add_reference(hf_url)
+                    artifact.add_reference(hf_url, checksum=False)
                     self.run.log_artifact(artifact, aliases=aliases)
                     logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
                     return True
@@ -491,7 +491,7 @@ class WandbManager:
                 metadata=metadata or {}
             )
             if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-                artifact.add_reference(hf_url)
+                artifact.add_reference(hf_url, checksum=False)
                 self.run.log_artifact(artifact, aliases=aliases)
                 return True
 
@@ -539,7 +539,9 @@ class WandbManager:
             result = subprocess.run(
                 [sys.executable, '-m', 'wandb', 'artifact', 'cache', 'cleanup', str(target)],
                 capture_output=True, text=True, timeout=30, check=True)
-            logging.info('[W&B CACHE] %s', result.stdout.strip())
+            cache_out = result.stdout.strip()
+            if cache_out:
+                logging.info('[W&B CACHE] %s', cache_out)
         except Exception as exc:
             logging.warning('[W&B CACHE] Cleanup failed: %s', exc)
 

@@ -74,9 +74,8 @@ class ValidationCoordinator:
 
         if is_main_process():
             num_gpus_str = f" across {runtime.world_size} GPU(s)" if runtime.world_size > 1 else ""
-            msg = f"\n>>> [{request.phase} Validation] Periodic evaluation at Iter {request.iter_num}{num_gpus_str}..."
+            msg = f">>> [{request.phase} Validation] Periodic evaluation at Iter {request.iter_num}{num_gpus_str}..."
             logging.info(msg)
-            print(msg, flush=True)
 
         if request.should_vis:
             val_mdice, per_class, visual_samples = callbacks.validate(return_visuals=True)
@@ -107,7 +106,6 @@ class ValidationCoordinator:
                 f"mDice: {val_mdice:.4f} (Best: {best_dice:.4f}) | {summary_str}"
             )
             logging.info(end_msg)
-            print(end_msg, flush=True)
 
             if writer is not None:
                 writer.add_scalar('val/mDice', val_mdice, request.global_step)

@@ -30,6 +30,9 @@ def _load_env():
             pass
 
 _load_env()
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 class HFStorageManager:

@@ -67,13 +67,17 @@ def init_distributed_mode(ddp_requested: bool = False) -> bool:
                  f"local_rank={local_rank}, backend={dist_backend}")
 
     # Timeout 1800s to allow ranks sufficient time while Rank 0 runs sliding window validation
-    dist.init_process_group(
-        backend=dist_backend,
-        init_method="env://",
-        world_size=world_size,
-        rank=rank,
-        timeout=timedelta(seconds=1800)
-    )
+    import inspect
+    pg_kwargs = {
+        "backend": dist_backend,
+        "init_method": "env://",
+        "world_size": world_size,
+        "rank": rank,
+        "timeout": timedelta(seconds=1800),
+    }
+    if torch.cuda.is_available() and "device_id" in inspect.signature(dist.init_process_group).parameters:
+        pg_kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
+    dist.init_process_group(**pg_kwargs)
     dist.barrier()
     logging.info(f"[DDP-Rank{rank}] DDP initialization succeeded, barrier passed.")
     return True

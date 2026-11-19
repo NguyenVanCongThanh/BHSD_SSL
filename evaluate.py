@@ -80,6 +80,7 @@ def main():
     parser.add_argument('--no_gaussian', action='store_true', help='Disable Gaussian weighting in sliding window (default: Gaussian enabled)')
     parser.add_argument('--use_tta', action='store_true', help='Enable 3D Test-Time Augmentation (flips across spatial axes, nnUNet standard)')
     parser.add_argument('--profile', action='store_true', help='Measure computational complexity (FLOPs, params, latency, VRAM)')
+    parser.add_argument('--profile_only', action='store_true', help='Load checkpoint architecture and run only computational complexity benchmark (skip sliding-window evaluation)')
     parser.add_argument('--patch_size', nargs=3, type=int, default=None, help='Input patch dimensions (Z Y X)')
     parser.add_argument('--checkpoint_preference', choices=['best', 'latest'], default='best')
     parser.add_argument('--allow_latest', action='store_true', help='Allow best to fall back to latest')
@@ -166,14 +167,22 @@ def main():
             step_size=args.step_size,
         )
     elif args.checkpoint:
-        # Single checkpoint evaluation
-        logging.info(f"Evaluating single checkpoint: {args.checkpoint} on fold {args.fold}...")
+        # Single checkpoint evaluation (or profile-only mode using exact checkpoint architecture)
         from utils.evaluation_checkpoint import build_evaluation_model
         model, metadata, actual_model = build_evaluation_model(
             args.checkpoint, model_builder_helper, args.model, num_classes,
             fold=args.fold, task=task, dataset_name=dataset_name)
         model.to(device)
         model.eval()
+
+        if args.profile_only:
+            logging.info(f"Profiling checkpoint architecture: {args.checkpoint} (model={actual_model}, patch={patch_size})")
+            input_shape = (1, 1, patch_size[0], patch_size[1], patch_size[2])
+            metrics = profile_model_complexity(model, input_size=input_shape, device=device)
+            print("\n" + format_complexity_summary(metrics), flush=True)
+            return
+
+        logging.info(f"Evaluating single checkpoint: {args.checkpoint} on fold {args.fold}...")
 
         d_name = dataset_name
         val_dataset = DATASETS.build(
@@ -215,8 +224,10 @@ def main():
         print(f"Per-Class:  {summary_str}")
         print("=" * 65)
         for row in details['per_class']:
-            print(f"{class_names[row['class_id']]}: positive Dice={row['dice_positive_mean']}, "
-                  f"positive cases={row['positive_cases']}, negative FP rate={row['negative_fp_case_rate']}")
+            pos_dice = f"{row['dice_positive_mean']:.4f}" if row.get('dice_positive_mean') is not None else "N/A"
+            neg_fp = f"{row['negative_fp_case_rate']:.4f}" if row.get('negative_fp_case_rate') is not None else "N/A"
+            print(f"  {class_names[row['class_id']]}: positive Dice={pos_dice}, "
+                  f"positive cases={row['positive_cases']}, negative FP rate={neg_fp}")
         if args.metrics_output:
             from pathlib import Path
             output = dict(details, checkpoint=args.checkpoint, model=actual_model,

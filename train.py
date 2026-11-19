@@ -48,6 +48,7 @@ def main():
 
     # DDP detection: via --ddp flag or torchrun environment variables (RANK, WORLD_SIZE)
     from core.distributed import init_distributed_mode, cleanup_distributed, is_main_process
+    get_logger(is_main=(int(os.environ.get("RANK", "0")) == 0))
     is_ddp = init_distributed_mode(ddp_requested=known_args.ddp)
     get_logger(is_main=is_main_process())
 
@@ -90,12 +91,35 @@ def main():
     model_name = getattr(cfg.model, 'name', 'vnet')
     method_name = getattr(cfg.method, 'name', 'pick')
 
+    git_commit = "unknown"
+    try:
+        import subprocess as _sp
+        _res = _sp.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3
+        )
+        if _res.returncode == 0 and _res.stdout.strip():
+            git_commit = _res.stdout.strip()
+    except Exception:
+        pass
+
+    banner_mode = "SUPERVISED" if str(method_name).lower() == "supervised" else "SEMI-SUPERVISED"
+    patch_size = getattr(cfg.data, 'patch_size', None)
+    optimizer_name = getattr(cfg.method, 'optimizer', 'sgd')
+    base_lr = getattr(cfg.method, 'base_lr', None)
+    lr_sched = getattr(cfg.method, 'lr_scheduler', 'poly')
+    max_iter = getattr(cfg.method, 'max_iteration', None)
+    val_int = getattr(cfg.method, 'val_interval', None)
+    seed_val = getattr(cfg.experiment, 'seed', 1337)
+    amp_val = bool(getattr(cfg.experiment, 'amp', False))
+
     logging.info("=" * 75)
-    logging.info("=== MedSSL-BHSD SEMI-SUPERVISED MEDICAL IMAGE SEGMENTATION ===")
-    logging.info(f"  Dataset:     {dataset_name.upper()} ({task.upper()}, {num_classes} classes)")
-    logging.info(f"  Method:      {method_name.upper()}")
-    logging.info(f"  Model:       {model_name}")
-    logging.info(f"  Fold:        {fold}")
+    logging.info(f"=== MedSSL-BHSD {banner_mode} MEDICAL IMAGE SEGMENTATION ===")
+    logging.info(f"  Dataset:     {dataset_name.upper()} ({task.upper()}, {num_classes} classes) | Fold: {fold}")
+    logging.info(f"  Method:      {method_name.upper()} | Model: {model_name}")
+    logging.info(f"  Training:    max_iter={max_iter}, val_int={val_int}, patch={patch_size}")
+    logging.info(f"  Optimizer:   {optimizer_name} (lr={base_lr}, sched={lr_sched}) | AMP={amp_val} | DDP={is_ddp} | Seed={seed_val}")
+    logging.info(f"  Git Commit:  {git_commit}")
     logging.info(f"  Snapshot:    {cfg.experiment.exp_dir}/{cfg.experiment.name}/fold_{fold}")
     logging.info("=" * 75)
 
@@ -105,7 +129,8 @@ def main():
     model = build_model_from_spec(model_spec, seed=int(getattr(cfg.experiment, 'seed', 1337)),
                                   deterministic=bool(getattr(cfg.experiment, 'deterministic', True)),
                                   rank=0)
-    logging.info("[Registry] Built model '%s'", model_spec['name'])
+    total_params_m = sum(p.numel() for p in model.parameters()) / 1e6
+    logging.info("[Registry] Built model '%s' (%.2fM params)", model_spec['name'], total_params_m)
 
     # 2. Build Method / Trainer
     trainer = METHODS.build(method_name, model=model, cfg=cfg)

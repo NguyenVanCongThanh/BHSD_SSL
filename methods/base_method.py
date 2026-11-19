@@ -519,6 +519,9 @@ class BaseMethod(abc.ABC):
         elapsed_10 = time.time() - iter_t0
         sec_per_it = elapsed_10 / 10 if iter_num > 1 else elapsed_10
         vram_used = torch.cuda.memory_reserved() / (1024**3) if torch.cuda.is_available() else 0.0
+        cur_lr = None
+        if getattr(self, 'optimizer', None) is not None and getattr(self.optimizer, 'param_groups', None):
+            cur_lr = float(self.optimizer.param_groups[0]['lr'])
         msg = format_iteration_progress_string(
             iter_num=iter_num,
             max_iters=max_iters,
@@ -526,6 +529,7 @@ class BaseMethod(abc.ABC):
             loss_dict=loss_dict,
             phase=phase,
             vram_used=vram_used,
+            lr=cur_lr,
         )
         logging.info(msg)
         return time.time()
@@ -690,7 +694,8 @@ class BaseMethod(abc.ABC):
 
         remaining_iters = max(max_iters - iter_num, 0)
         max_epoch = remaining_iters // epoch_len + 2
-        iter_t0 = time.time()
+        phase_t0 = time.time()
+        iter_t0 = phase_t0
 
         start_epoch = completed_epochs
         for epoch_idx in range(max_epoch):
@@ -812,7 +817,9 @@ class BaseMethod(abc.ABC):
         if is_main_process():
             # Final validation already saved latest and any selected best.
             # Do not fabricate a best checkpoint from unvalidated final weights.
-            logging.info(f"=== [{phase.upper()}] FINISHED | Best mDice: {best_dice:.4f} ===")
+            elapsed = time.time() - phase_t0
+            elapsed_str = time.strftime('%Hh%Mm%Ss', time.gmtime(elapsed)) if elapsed < 86400 else f"{elapsed/3600:.1f}h"
+            logging.info(f"=== [{phase.upper()}] FINISHED | Best mDice: {best_dice:.4f} | Elapsed: {elapsed_str} ===")
 
         if close_wandb_on_finish:
             if self.writer is not None:

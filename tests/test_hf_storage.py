@@ -64,8 +64,11 @@ class TestHFStorage(unittest.TestCase):
             logged = obj.log_artifact(tmp.name, "best_ckpt", aliases=["best"])
             self.assertTrue(logged)
             mock_hf.upload_checkpoint.assert_called_once()
-            # Verify reference was added to WandB rather than add_file
-            mock_art.return_value.add_reference.assert_called_once_with("https://huggingface.co/test/repo/blob/main/test_run/best.pth")
+            # Verify reference was added to WandB rather than add_file (checksum=False for private HF repos)
+            mock_art.return_value.add_reference.assert_called_once_with(
+                "https://huggingface.co/test/repo/blob/main/test_run/best.pth",
+                checksum=False,
+            )
             mock_art.return_value.add_file.assert_not_called()
 
 
