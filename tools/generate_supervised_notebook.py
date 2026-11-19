@@ -58,6 +58,7 @@ def build_supervised_notebook(
     lr_scheduler_override = os.environ.get("BHSD_LR_SCHEDULER", "").strip().lower()
     warmup_iters_override = os.environ.get("BHSD_WARMUP_ITERS", "").strip()
     extra_overrides_raw = os.environ.get("BHSD_EXTRA_OVERRIDES", "").strip()
+    run_name_override = os.environ.get("BHSD_RUN_NAME", "").strip()
     val_stride_xy = spec["val_stride_xy"]
     val_stride_z = spec["val_stride_z"]
     patch_size_eval = list(spec["patch_size_eval"])
@@ -146,6 +147,64 @@ def build_supervised_notebook(
     wandb_project = sup_defaults["wandb_project"]
     exp_dir = repo["exp_dir"]
 
+    # Build standardized 1:1 run name for EXP_NAME and W&B run name
+    if run_name_override:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", run_name_override):
+            raise ValueError(f"BHSD_RUN_NAME contains invalid characters: {run_name_override!r}")
+        exp_name_line = f"EXP_NAME = {json.dumps(run_name_override)}\n"
+    else:
+        aliases = presets["supervised"].get("aliases", {})
+        canonical_setting = aliases.get(setting, setting)
+        task_tag = "bin" if task == "binary" else "mc"
+        gpu_tag = "1gpu" if single_gpu else "ddp"
+        name_parts = [canonical_setting, task_tag, f"f{fold_id}", gpu_tag]
+
+        if has_residual_override in ("true", "false"):
+            name_parts.append("res" if has_residual_override == "true" else "nores")
+        if has_dropout_override in ("true", "false"):
+            name_parts.append("drop" if has_dropout_override == "true" else "nodrop")
+        if normalization_override:
+            norm_map = {"batchnorm": "bn", "instancenorm": "in", "groupnorm": "gn", "none": "nonorm"}
+            name_parts.append(norm_map.get(normalization_override.lower(), normalization_override.lower()))
+        if use_sync_bn and not single_gpu:
+            name_parts.append("syncbn")
+        if foreground_prob_override:
+            name_parts.append(f"fg{float(foreground_prob_override):g}")
+        if loss_type_override:
+            name_parts.append("ftloss" if loss_type_override == "focal_tversky" else loss_type_override)
+        if anisotropic_kernels_override in ("true", "false"):
+            name_parts.append("aniso" if anisotropic_kernels_override == "true" else "iso")
+        if n_filters_override:
+            name_parts.append(f"nf{int(n_filters_override)}")
+        if batch_dice_override in ("true", "false"):
+            name_parts.append("bdice" if batch_dice_override == "true" else "nobdice")
+        if aug_preset_override:
+            name_parts.append(f"aug{aug_preset_override}")
+        if extended_aug_override in ("true", "false"):
+            name_parts.append("extaug" if extended_aug_override == "true" else "noextaug")
+        if optimizer_override:
+            name_parts.append(optimizer_override)
+        if lr_scheduler_override:
+            name_parts.append(lr_scheduler_override)
+        if warmup_iters_override:
+            name_parts.append(f"wu{int(warmup_iters_override)}")
+        if patch_size_override:
+            name_parts.append(f"p{pz}x{py}x{px}")
+        if base_lr_override:
+            name_parts.append(f"lr{float(base_lr_override):g}")
+        if os.environ.get("BHSD_BATCH_SIZE") or os.environ.get("BHSD_LABELED_BS"):
+            name_parts.append(f"bs{batch_size}")
+        if int(labelnum) < 154:
+            name_parts.append(f"lbl{int(labelnum)}")
+        if lr_max_iter:
+            lrm = int(lr_max_iter)
+            name_parts.append(f"lrmax{lrm // 1000}k" if lrm % 1000 == 0 else f"lrmax{lrm}")
+        if os.environ.get("BHSD_MAX_ITER") or lr_max_iter:
+            name_parts.append(f"i{max_iter}")
+
+        run_name_prefix = "_".join(name_parts)
+        exp_name_line = f"EXP_NAME = f{json.dumps(run_name_prefix + '_{RUN_TIMESTAMP}')}\n"
+
     cells = [
         markdown_cell([
             "# 🧠 MedSSL-BHSD: Full Supervised Baseline (100% Data) trên Dual GPU T4 (Kaggle)\n",
@@ -193,8 +252,8 @@ def build_supervised_notebook(
                 f"LABELED_SAMPLING = \"{labeled_sampling}\"\n",
                 f"PATCH_SIZE_EVAL = {patch_size_eval}\n",
                 "\n",
-                "RUN_TIMESTAMP = datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n",
-                f"EXP_NAME = f\"BHSD_{{TASK}}_Supervised_{{MODEL_NAME}}_fold{{FOLD_ID}}_{{RUN_TIMESTAMP}}\"\n",
+                "RUN_TIMESTAMP = datetime.datetime.now().strftime(\"%Y%m%d_%H%M\")\n",
+                exp_name_line,
                 f"EXP_DIR = \"{exp_dir}\"\n",
                 "\n",
                 "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
@@ -221,6 +280,7 @@ def build_supervised_notebook(
                 "    \"--use_wandb\",\n",
                 "    \"--save_wandb_model\",\n",
                 "    \"--wandb_project\", str(WANDB_PROJECT),\n",
+                "    \"--wandb_run_name\", EXP_NAME,\n",
             ]
             + extra_cli_lines
             + [

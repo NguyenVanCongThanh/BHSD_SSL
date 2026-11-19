@@ -401,6 +401,19 @@ class TestRefactorContracts(unittest.TestCase):
             self.assertIn('"--method.warmup_iters", "500"', ablation_code)
             self.assertIn('"--method.tversky_alpha", "0.25"', ablation_code)
             self.assertIn('"--model.skip_mode", "add"', ablation_code)
+            self.assertIn('"--wandb_run_name", EXP_NAME,', ablation_code)
+            self.assertIn(
+                'EXP_NAME = f"vnet5_plain_bin_f0_1gpu_fg0.33_ftloss_iso_nf32_nobdice_auglegacy_noextaug_adamw_cosine_wu500_{RUN_TIMESTAMP}"',
+                ablation_code,
+            )
+
+        with patch.dict(os.environ, {"BHSD_RUN_NAME": "custom_vnet5_run_01"}, clear=False):
+            named_nb = build_supervised_notebook(task="binary", setting="vnet5_plain")
+            named_code = "\n".join(
+                "".join(c["source"]) for c in named_nb["cells"] if c["cell_type"] == "code"
+            )
+            self.assertIn('EXP_NAME = "custom_vnet5_run_01"', named_code)
+            self.assertIn('"--wandb_run_name", EXP_NAME,', named_code)
 
 
 if __name__ == "__main__":

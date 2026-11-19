@@ -109,6 +109,7 @@ def _apply_build_env_overrides(args):
         ("BHSD_OPTIMIZER", "optimizer"),
         ("BHSD_LR_SCHEDULER", "lr_scheduler"),
         ("BHSD_WARMUP_ITERS", "warmup_iters"),
+        ("BHSD_RUN_NAME", "run_name"),
     ]:
         val = getattr(args, attr_name, None)
         if val is not None:
@@ -492,6 +493,8 @@ def main():
                                     help="Ghi đè method.lr_scheduler ('poly', 'cosine', 'constant')")
         command_parser.add_argument("--warmup-iters", type=int, default=None,
                                     help="Ghi đè method.warmup_iters (vd: 500)")
+        command_parser.add_argument("--run-name", default=None,
+                                    help="Tên run đồng bộ 1:1 cho cả EXP_NAME và W&B run name (bỏ trống sẽ tự động sinh theo setting + flags)")
         command_parser.add_argument("--override", action="append", default=None,
                                     help="Ghi đè tổng quát dạng KEY=VALUE (lặp được nhiều lần, vd: --override method.tversky_alpha=0.3)")
 
