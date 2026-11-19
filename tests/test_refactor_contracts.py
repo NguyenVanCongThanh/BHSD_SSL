@@ -363,6 +363,45 @@ class TestRefactorContracts(unittest.TestCase):
             self.assertIn('"--model.has_residual", "true"', custom_code)
             self.assertIn('"--model.normalization", "instancenorm"', custom_code)
 
+        with patch.dict(
+            os.environ,
+            {
+                "BHSD_SINGLE_GPU": "true",
+                "BHSD_FOREGROUND_PROB": "0.33",
+                "BHSD_LOSS_TYPE": "focal_tversky",
+                "BHSD_ANISOTROPIC_KERNELS": "false",
+                "BHSD_N_FILTERS": "32",
+                "BHSD_BATCH_DICE": "false",
+                "BHSD_AUG_PRESET": "legacy",
+                "BHSD_EXTENDED_AUG": "false",
+                "BHSD_OPTIMIZER": "adamw",
+                "BHSD_LR_SCHEDULER": "cosine",
+                "BHSD_WARMUP_ITERS": "500",
+                "BHSD_EXTRA_OVERRIDES": json.dumps([["method.tversky_alpha", "0.25"], ["model.skip_mode", "add"]]),
+            },
+            clear=False,
+        ):
+            ablation_nb = build_supervised_notebook(task="binary", setting="vnet5_plain")
+            ablation_cells = ["".join(c["source"]) for c in ablation_nb["cells"] if c["cell_type"] == "code"]
+            ablation_code = "\n".join(ablation_cells)
+            # Ensure generated train cell is syntactically valid Python
+            import ast
+            train_cell = next(src for src in ablation_cells if "base_args = [" in src)
+            ast.parse(train_cell)
+            self.assertIn("FORCE_SINGLE_GPU = True", ablation_code)
+            self.assertIn('"--data.foreground_prob", "0.33"', ablation_code)
+            self.assertIn('"--method.loss_type", "focal_tversky"', ablation_code)
+            self.assertIn('"--model.anisotropic_kernels", "false"', ablation_code)
+            self.assertIn('"--model.n_filters", "32"', ablation_code)
+            self.assertIn('"--method.batch_dice", "false"', ablation_code)
+            self.assertIn('"--data.aug_preset", "legacy"', ablation_code)
+            self.assertIn('"--data.extended_aug", "false"', ablation_code)
+            self.assertIn('"--method.optimizer", "adamw"', ablation_code)
+            self.assertIn('"--method.lr_scheduler", "cosine"', ablation_code)
+            self.assertIn('"--method.warmup_iters", "500"', ablation_code)
+            self.assertIn('"--method.tversky_alpha", "0.25"', ablation_code)
+            self.assertIn('"--model.skip_mode", "add"', ablation_code)
+
 
 if __name__ == "__main__":
     unittest.main()

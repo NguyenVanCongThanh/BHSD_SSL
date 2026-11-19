@@ -99,12 +99,37 @@ def _apply_build_env_overrides(args):
         ("BHSD_HAS_RESIDUAL", "has_residual"),
         ("BHSD_HAS_DROPOUT", "has_dropout"),
         ("BHSD_NORMALIZATION", "normalization"),
+        ("BHSD_FOREGROUND_PROB", "foreground_prob"),
+        ("BHSD_LOSS_TYPE", "loss_type"),
+        ("BHSD_ANISOTROPIC_KERNELS", "anisotropic_kernels"),
+        ("BHSD_N_FILTERS", "n_filters"),
+        ("BHSD_BATCH_DICE", "batch_dice"),
+        ("BHSD_AUG_PRESET", "aug_preset"),
+        ("BHSD_EXTENDED_AUG", "extended_aug"),
+        ("BHSD_OPTIMIZER", "optimizer"),
+        ("BHSD_LR_SCHEDULER", "lr_scheduler"),
+        ("BHSD_WARMUP_ITERS", "warmup_iters"),
     ]:
         val = getattr(args, attr_name, None)
         if val is not None:
             os.environ[env_key] = str(val)
         else:
             os.environ.pop(env_key, None)
+    overrides = getattr(args, "override", None) or []
+    if overrides:
+        parsed_overrides = []
+        for item in overrides:
+            if "=" not in item:
+                raise ValueError(f"--override must be in KEY=VALUE format, got {item!r}")
+            k, v = item.split("=", 1)
+            k = k.strip().lstrip("-")
+            v = v.strip()
+            if not k or not re.fullmatch(r"[A-Za-z0-9_.-]+", k):
+                raise ValueError(f"Invalid --override key {k!r}")
+            parsed_overrides.append([k, v])
+        os.environ["BHSD_EXTRA_OVERRIDES"] = json.dumps(parsed_overrides)
+    else:
+        os.environ.pop("BHSD_EXTRA_OVERRIDES", None)
     for env_key, attr_name in [
         ("BHSD_USE_SYNC_BN", "use_sync_bn"),
         ("BHSD_SINGLE_GPU", "single_gpu"),
@@ -447,6 +472,28 @@ def main():
                                     help="Ghi đè model.has_dropout (true/false)")
         command_parser.add_argument("--normalization", choices=["batchnorm", "instancenorm", "groupnorm", "none"], default=None,
                                     help="Ghi đè model.normalization (dành cho 5-stage V-Net)")
+        command_parser.add_argument("--foreground-prob", type=float, default=None,
+                                    help="Ghi đè data.foreground_prob trong [0.0, 1.0] (vd: 0.33, 0.50, 0.66)")
+        command_parser.add_argument("--loss-type", choices=["ce_dice", "focal_tversky"], default=None,
+                                    help="Ghi đè method.loss_type ('ce_dice' hoặc 'focal_tversky')")
+        command_parser.add_argument("--anisotropic-kernels", choices=["true", "false"], default=None,
+                                    help="Ghi đè model.anisotropic_kernels (true/false)")
+        command_parser.add_argument("--n-filters", type=int, default=None,
+                                    help="Ghi đè model.n_filters cho 5-stage V-Net (vd: 16, 32)")
+        command_parser.add_argument("--batch-dice", choices=["true", "false"], default=None,
+                                    help="Ghi đè method.batch_dice (true/false)")
+        command_parser.add_argument("--aug-preset", choices=["nnunet", "legacy"], default=None,
+                                    help="Ghi đè data.aug_preset ('nnunet' hoặc 'legacy')")
+        command_parser.add_argument("--extended-aug", choices=["true", "false"], default=None,
+                                    help="Ghi đè data.extended_aug (true/false)")
+        command_parser.add_argument("--optimizer", choices=["sgd", "adam", "adamw"], default=None,
+                                    help="Ghi đè method.optimizer ('sgd', 'adam', 'adamw')")
+        command_parser.add_argument("--lr-scheduler", choices=["poly", "cosine", "constant"], default=None,
+                                    help="Ghi đè method.lr_scheduler ('poly', 'cosine', 'constant')")
+        command_parser.add_argument("--warmup-iters", type=int, default=None,
+                                    help="Ghi đè method.warmup_iters (vd: 500)")
+        command_parser.add_argument("--override", action="append", default=None,
+                                    help="Ghi đè tổng quát dạng KEY=VALUE (lặp được nhiều lần, vd: --override method.tversky_alpha=0.3)")
 
     # Subcommand: status
     parser_status = subparsers.add_parser("status", help="Kiểm tra trạng thái notebook đang chạy")

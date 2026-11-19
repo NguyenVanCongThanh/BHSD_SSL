@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -46,12 +47,27 @@ def build_supervised_notebook(
     has_residual_override = os.environ.get("BHSD_HAS_RESIDUAL", "").strip().lower()
     has_dropout_override = os.environ.get("BHSD_HAS_DROPOUT", "").strip().lower()
     normalization_override = os.environ.get("BHSD_NORMALIZATION", "").strip()
+    foreground_prob_override = os.environ.get("BHSD_FOREGROUND_PROB", "").strip()
+    loss_type_override = os.environ.get("BHSD_LOSS_TYPE", "").strip().lower()
+    anisotropic_kernels_override = os.environ.get("BHSD_ANISOTROPIC_KERNELS", "").strip().lower()
+    n_filters_override = os.environ.get("BHSD_N_FILTERS", "").strip()
+    batch_dice_override = os.environ.get("BHSD_BATCH_DICE", "").strip().lower()
+    aug_preset_override = os.environ.get("BHSD_AUG_PRESET", "").strip().lower()
+    extended_aug_override = os.environ.get("BHSD_EXTENDED_AUG", "").strip().lower()
+    optimizer_override = os.environ.get("BHSD_OPTIMIZER", "").strip().lower()
+    lr_scheduler_override = os.environ.get("BHSD_LR_SCHEDULER", "").strip().lower()
+    warmup_iters_override = os.environ.get("BHSD_WARMUP_ITERS", "").strip()
+    extra_overrides_raw = os.environ.get("BHSD_EXTRA_OVERRIDES", "").strip()
     val_stride_xy = spec["val_stride_xy"]
     val_stride_z = spec["val_stride_z"]
     patch_size_eval = list(spec["patch_size_eval"])
     config_file = spec["config_file"]
     arch_desc = spec["arch_desc"]
     extra_cli_lines = list(spec.get("extra_cli_lines", []))
+
+    def _append_cli_pair(flag: str, value: str) -> None:
+        extra_cli_lines.append(f"    {json.dumps(flag)}, {json.dumps(str(value))},\n")
+
     if patch_size_override:
         cleaned = patch_size_override.strip("[]() ")
         parts = [int(p.strip()) for p in cleaned.split(",") if p.strip()]
@@ -61,19 +77,68 @@ def build_supervised_notebook(
         patch_size_eval = [str(pz), str(py), str(px)]
         val_stride_z = max(1, pz // 2)
         val_stride_xy = max(1, min(py, px) // 2)
-        extra_cli_lines.append(f'    "--data.patch_size", "[{pz},{py},{px}]",')
+        _append_cli_pair("--data.patch_size", f"[{pz},{py},{px}]")
     if has_residual_override in ("true", "false"):
-        extra_cli_lines.append(f'    "--model.has_residual", "{has_residual_override}",')
+        _append_cli_pair("--model.has_residual", has_residual_override)
     if has_dropout_override in ("true", "false"):
-        extra_cli_lines.append(f'    "--model.has_dropout", "{has_dropout_override}",')
+        _append_cli_pair("--model.has_dropout", has_dropout_override)
     if normalization_override:
-        extra_cli_lines.append(f'    "--model.normalization", "{normalization_override}",')
+        _append_cli_pair("--model.normalization", normalization_override)
+    if foreground_prob_override:
+        fp = float(foreground_prob_override)
+        if not (0.0 <= fp <= 1.0):
+            raise ValueError(f"BHSD_FOREGROUND_PROB must be in [0.0, 1.0], got {foreground_prob_override!r}")
+        _append_cli_pair("--data.foreground_prob", fp)
+    if loss_type_override:
+        if loss_type_override not in ("ce_dice", "focal_tversky"):
+            raise ValueError(f"BHSD_LOSS_TYPE must be 'ce_dice' or 'focal_tversky', got {loss_type_override!r}")
+        _append_cli_pair("--method.loss_type", loss_type_override)
+    if anisotropic_kernels_override in ("true", "false"):
+        _append_cli_pair("--model.anisotropic_kernels", anisotropic_kernels_override)
+    if n_filters_override:
+        nf = int(n_filters_override)
+        if nf <= 0:
+            raise ValueError(f"BHSD_N_FILTERS must be positive, got {n_filters_override!r}")
+        _append_cli_pair("--model.n_filters", nf)
+    if batch_dice_override in ("true", "false"):
+        _append_cli_pair("--method.batch_dice", batch_dice_override)
+    if aug_preset_override:
+        if aug_preset_override not in ("nnunet", "legacy"):
+            raise ValueError(f"BHSD_AUG_PRESET must be 'nnunet' or 'legacy', got {aug_preset_override!r}")
+        _append_cli_pair("--data.aug_preset", aug_preset_override)
+    if extended_aug_override in ("true", "false"):
+        _append_cli_pair("--data.extended_aug", extended_aug_override)
+    if optimizer_override:
+        if optimizer_override not in ("sgd", "adam", "adamw"):
+            raise ValueError(f"BHSD_OPTIMIZER must be 'sgd', 'adam', or 'adamw', got {optimizer_override!r}")
+        _append_cli_pair("--method.optimizer", optimizer_override)
+    if lr_scheduler_override:
+        if lr_scheduler_override not in ("poly", "cosine", "constant"):
+            raise ValueError(f"BHSD_LR_SCHEDULER must be 'poly', 'cosine', or 'constant', got {lr_scheduler_override!r}")
+        _append_cli_pair("--method.lr_scheduler", lr_scheduler_override)
+    if warmup_iters_override:
+        wi = int(warmup_iters_override)
+        if wi < 0:
+            raise ValueError(f"BHSD_WARMUP_ITERS must be >= 0, got {warmup_iters_override!r}")
+        _append_cli_pair("--method.warmup_iters", wi)
     if lr_max_iter:
-        extra_cli_lines.append(f'    "--lr_max_iteration", "{int(lr_max_iter)}",')
+        _append_cli_pair("--lr_max_iteration", int(lr_max_iter))
     if base_lr_override:
-        extra_cli_lines.append(f'    "--base_lr", "{float(base_lr_override)}",')
+        _append_cli_pair("--base_lr", float(base_lr_override))
     if use_sync_bn and not single_gpu:
-        extra_cli_lines.append('    "--use_sync_bn", "true",')
+        _append_cli_pair("--use_sync_bn", "true")
+    if extra_overrides_raw:
+        parsed_extra = json.loads(extra_overrides_raw)
+        if not isinstance(parsed_extra, list):
+            raise ValueError("BHSD_EXTRA_OVERRIDES must be a JSON list of [key, value] pairs")
+        for pair in parsed_extra:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise ValueError(f"Invalid BHSD_EXTRA_OVERRIDES entry: {pair!r}")
+            key = str(pair[0]).strip().lstrip("-")
+            val = str(pair[1]).strip()
+            if not key or not re.fullmatch(r"[A-Za-z0-9_.-]+", key):
+                raise ValueError(f"Invalid override key: {key!r}")
+            _append_cli_pair(f"--{key}", val)
 
     fold_id = sup_defaults["fold_id"]
     val_interval = sup_defaults["val_interval"]
