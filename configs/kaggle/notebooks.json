@@ -128,6 +128,22 @@
         "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện Supervised 5-Stage Classic Residual V-Net (has_residual=true, Patch 32x192x192) trên Dual GPU T4"
+    },
+    "lefed": {
+      "slug": "kaggle-bhsd-lefed-dual-gpu",
+      "title": "kaggle_bhsd_lefed_dual_gpu",
+      "code_file": "kaggle_bhsd_lefed_dual_gpu.ipynb",
+      "generator_script": "tools/generate_lefed_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0-optimal"
+      ],
+      "description": "Huấn luyện LeFeD Semi-Supervised Segmentation (5-Stage Dual-Decoder Feedback) trên Dual GPU T4"
     }
   }
 }

@@ -232,6 +232,44 @@
       "val_stride_z": 16,
       "wandb_project": "PICK_BHSD"
     }
+  },
+  "lefed": {
+    "defaults": {
+      "fold_id": 0,
+      "task": "binary",
+      "labelnum": 8,
+      "max_samples": 154,
+      "labeled_sampling": "stratified",
+      "val_interval": 500,
+      "save_interval": 1000,
+      "wandb_project": "BHSD_LeFeD"
+    },
+    "settings": {
+      "default": {
+        "model_name": "lefed_net",
+        "batch_size": 4,
+        "labeled_bs": 2,
+        "max_iter": 12000,
+        "val_stride_xy": 80,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "160", "160"],
+        "config_file": "configs/methods/lefed.yaml",
+        "arch_desc": "- **Kiến trúc LeFeD 5-Stage Dual-Decoder (`lefed_net`)**: GroupNorm, Dropout, Feedback 3 bước với Deep Supervision.\n",
+        "extra_cli_lines": []
+      },
+      "vnet5": {
+        "model_name": "lefed_net",
+        "batch_size": 8,
+        "labeled_bs": 4,
+        "max_iter": 15000,
+        "val_stride_xy": 128,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "256", "256"],
+        "config_file": "configs/experiments/bhsd_lefed_vnet5_binary_fold0.yaml",
+        "arch_desc": "- **Kiến trúc LeFeD 5-Stage InstanceNorm (Aligned với `vnet5_plain`)**: InstanceNorm3d, no Dropout, patch [32, 256, 256], Hybrid Consistency (bg=0.05) với iter-based rampup/rampdown cho ICH.\n",
+        "extra_cli_lines": []
+      }
+    }
   }
 }
 

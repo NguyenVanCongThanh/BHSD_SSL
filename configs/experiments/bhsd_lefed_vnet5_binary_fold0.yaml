@@ -1,0 +1,66 @@
+# Experiment Preset: BHSD Binary LeFeD with 5-Stage InstanceNorm V-Net (Fold 0)
+# Fair 1:1 SSL benchmark aligned with vnet5_plain supervised runs (patch [32,256,256], InstanceNorm, no Dropout).
+experiment:
+  name: "bhsd_lefed_vnet5_binary_fold0"
+  task: "binary"
+  num_classes: 2
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+  amp: true
+
+dataset: "bhsd_binary"
+
+model:
+  name: "lefed_net"
+  in_channels: 1
+  n_filters: 16
+  normalization: "instancenorm"
+  has_dropout: false
+  has_residual: false
+
+method:
+  name: "lefed"
+  max_iteration: 15000
+  lr_max_iteration: 15000
+  base_lr: 0.01
+  lr_scheduler: "poly"
+  consistency: 0.05
+  consistency_rampup: 4000.0
+  consistency_rampdown_start: 10000
+  consistency_min_factor: 0.25
+  consistency_type: "hybrid"
+  bg_consistency_weight: 0.05
+  confidence_thresh: 0.0
+  feedback_steps: 3
+  feedback_scale: 0.001
+  ds_weights: [0.5, 0.25, 0.125, 0.0625, 0.03125]
+
+data:
+  name: "bhsd"
+  task: "binary"
+  num_classes: 2
+  class_names:
+    - "Background"
+    - "Hemorrhage"
+  patch_size: [32, 256, 256]
+  batch_size: 8
+  labeled_bs: 4
+  labelnum: 8
+  max_samples: 154
+  labeled_sampling: "stratified"
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  save_interval: 1000
+  val_step_size: 0.5
+  val_eval_space: "preprocessed"
+  val_gaussian: true
+  val_amp: true
+  val_visualize: true
+  num_vis_samples: 4
+  use_wandb: true
+  save_wandb_model: true
+  wandb_project: "BHSD_LeFeD"

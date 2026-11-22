@@ -415,7 +415,7 @@ def main():
 
     # Subcommand: build
     parser_build = subparsers.add_parser("build", help="Xây dựng và kiểm tra tính hợp lệ của bundle notebook cục bộ (không gọi mạng)")
-    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
+    parser_build.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'lefed', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
     parser_build.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_build.add_argument("--username", "-u", default="dry_run_user", help="Username giả định để build metadata")
     parser_build.add_argument("--slug", help="Ghi đè slug của kernel")
@@ -428,7 +428,7 @@ def main():
     # Subcommand: push
     parser_push = subparsers.add_parser("push", help="Đẩy notebook lên Kaggle")
     parser_push.add_argument("--account", "-a", default="1", help="Tài khoản để submit (ID '1', '2' hoặc slug 'thanh', 'khanh')")
-    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
+    parser_push.add_argument("--notebook", "-n", default="mean_teacher", help="Loại notebook ('mean_teacher', 'pick', 'lefed', 'supervised', 'supervised_vnet', 'supervised_vnet_v2', 'supervised_vnet7_plain', 'supervised_vnet5_plain', 'supervised_vnet5_res')")
     parser_push.add_argument("--task", "-t", choices=["multiclass", "binary"], default="multiclass", help="Loại task ('multiclass' hoặc 'binary')")
     parser_push.add_argument("--slug", help="Ghi đè slug của kernel trên Kaggle")
     parser_push.add_argument("--title", help="Ghi đè title của notebook")
@@ -438,8 +438,8 @@ def main():
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):
-        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl", "opt1_nnunet", "vnet_v2", "vnet_legacy", "vnet7_plain", "vnet5_plain", "vnet5_res"], default="default",
-                                    help="Cấu hình hyperparameter: 'default', 'swdl', 'vnet', 'vnet_swdl', 'opt1_nnunet', 'vnet_v2', 'vnet_legacy', 'vnet7_plain', 'vnet5_plain', hoặc 'vnet5_res'")
+        command_parser.add_argument("--setting", choices=["default", "swdl", "vnet", "vnet_swdl", "opt1_nnunet", "vnet_v2", "vnet_legacy", "vnet7_plain", "vnet5_plain", "vnet5_res", "vnet5"], default="default",
+                                    help="Cấu hình hyperparameter: 'default', 'swdl', 'vnet', 'vnet_swdl', 'opt1_nnunet', 'vnet_v2', 'vnet_legacy', 'vnet7_plain', 'vnet5_plain', 'vnet5_res', hoặc 'vnet5'")
         command_parser.add_argument("--labelnum", type=int, default=None,
                                     help="Số mẫu có nhãn (ví dụ: 8 cho 5%% của 154 mẫu; mặc định: 154)")
         command_parser.add_argument("--max-samples", type=int, default=None,

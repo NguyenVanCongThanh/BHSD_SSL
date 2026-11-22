@@ -4,17 +4,24 @@ Reference: "Learning Feedback for Semi-Supervised 3D Medical Image Segmentation"
 Adapted & Optimized for 3D Brain Hemorrhage Segmentation (BHSD) Multi-class setting.
 """
 
+import math
 from typing import Dict, Tuple, List, Optional, Iterator
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
+from data.constants import (
+    DEFAULT_CONSISTENCY_DICE_WEIGHT,
+    DEFAULT_CONSISTENCY_MSE_WEIGHT,
+    DEFAULT_FG_CONFIDENCE_MAX_THRESH,
+    DEFAULT_SUPERVISED_CE_WEIGHT,
+    DEFAULT_SUPERVISED_DICE_WEIGHT,
+)
 from methods.base_method import BaseMethod
 
 DEFAULT_LEFED_DS_WEIGHTS = [0.8, 0.6, 0.4, 0.2, 0.1]
-from losses import MaskDiceLoss
+from losses import MaskDiceLoss, ConsistencyLoss
 from utils.ramps import sigmoid_rampup
 
 @METHODS.register("lefed")
@@ -33,6 +40,11 @@ class LeFeDMethod(BaseMethod):
 
         self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
+        rampdown_val = getattr(self.cfg.method, 'consistency_rampdown_start', None)
+        self.consistency_rampdown_start = 0 if (rampdown_val is None or rampdown_val == 'null') else int(rampdown_val)
+        self.consistency_min_factor = float(getattr(self.cfg.method, 'consistency_min_factor', 0.25))
+        self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'mse')).lower()
+        self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
         self.feedback_steps = int(getattr(self.cfg.method, 'feedback_steps', 3))
         self.feedback_scale = float(getattr(self.cfg.method, 'feedback_scale', 1e-3))
         self.ds_weights = getattr(self.cfg.method, 'ds_weights', DEFAULT_LEFED_DS_WEIGHTS)
@@ -41,8 +53,8 @@ class LeFeDMethod(BaseMethod):
         self.sup_ce_weight = DEFAULT_SUPERVISED_CE_WEIGHT if sup_ce_cfg is None else float(sup_ce_cfg)
         self.sup_dice_weight = DEFAULT_SUPERVISED_DICE_WEIGHT if sup_dice_cfg is None else float(sup_dice_cfg)
 
-        # Background vs Foregrounds weight balance for consistency
-        if not self.is_binary and self.num_classes >= 2:
+        # Background vs Foreground weight balance for consistency (applies to both binary and multiclass)
+        if self.num_classes >= 2:
             bg_weight = float(getattr(self.cfg.method, 'bg_consistency_weight', 0.1))
             weights = [bg_weight] + [1.0] * (self.num_classes - 1)
             self.class_weights = torch.tensor(weights, device=self.device).view(1, -1, 1, 1, 1)
@@ -57,17 +69,50 @@ class LeFeDMethod(BaseMethod):
             ddp=self.is_ddp,
         )
 
-    def get_current_consistency_weight(self, epoch: float) -> float:
+        fg_conf_cfg = getattr(self.cfg.method, 'fg_confidence_max_thresh', None)
+        cons_dice_cfg = getattr(self.cfg.method, 'consistency_dice_weight', None)
+        cons_mse_cfg = getattr(self.cfg.method, 'consistency_mse_weight', None)
+        self.consistency_loss = ConsistencyLoss(
+            consistency_type=self.consistency_type,
+            num_classes=self.num_classes,
+            is_binary=self.is_binary,
+            confidence_thresh=self.confidence_thresh,
+            class_weights=self.class_weights,
+            fg_confidence_max_thresh=(
+                DEFAULT_FG_CONFIDENCE_MAX_THRESH if fg_conf_cfg is None else float(fg_conf_cfg)
+            ),
+            weight_dice=(
+                DEFAULT_CONSISTENCY_DICE_WEIGHT if cons_dice_cfg is None else float(cons_dice_cfg)
+            ),
+            weight_mse=(
+                DEFAULT_CONSISTENCY_MSE_WEIGHT if cons_mse_cfg is None else float(cons_mse_cfg)
+            ),
+            batch_dice=self.batch_dice,
+            ddp=self.is_ddp,
+        )
+
+    def get_current_consistency_weight(self, epoch: float, iter_num: int = 0) -> float:
         if self.consistency_rampup <= 0:
-            return self.consistency
-        return self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+            base_w = self.consistency
+        elif self.consistency_rampup > 100:
+            base_w = self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
+        else:
+            base_w = self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+
+        max_iterations = int(getattr(self.cfg.method, 'max_iteration', 12000))
+        if self.consistency_rampdown_start > 0 and iter_num > self.consistency_rampdown_start:
+            span = max(1, max_iterations - self.consistency_rampdown_start)
+            progress = min(1.0, (iter_num - self.consistency_rampdown_start) / span)
+            decay_factor = self.consistency_min_factor + 0.5 * (1.0 - self.consistency_min_factor) * (1.0 + math.cos(math.pi * progress))
+            return base_w * decay_factor
+        return base_w
 
     def _feedback_steps(self, sampled_batch: Dict, iter_num: int, mim_mask: Optional[torch.Tensor] = None) -> Iterator[Tuple[torch.Tensor, Dict[str, float]]]:
         volume_batch = sampled_batch['image'].to(self.device)
         label_batch = sampled_batch['label'].to(self.device)
 
         cur_epoch = iter_num / max(len(self.trainloader), 1)
-        consistency_weight = self.get_current_consistency_weight(cur_epoch)
+        consistency_weight = self.get_current_consistency_weight(cur_epoch, iter_num=iter_num)
 
         en: Optional[List[torch.Tensor]] = None
 
@@ -108,12 +153,7 @@ class LeFeDMethod(BaseMethod):
                 loss_ds = loss_ds + w * (self.sup_ce_weight * l_ce + self.sup_dice_weight * l_dice)
 
             # 3. Consistency loss between Decoder 1 and Decoder 2 across all samples
-            prob1 = F.softmax(outputs1, dim=1)
-            prob2 = F.softmax(outputs2, dim=1)
-            sq_diff = (prob1 - prob2) ** 2
-            if self.class_weights is not None:
-                sq_diff = sq_diff * self.class_weights
-            loss_cons = sq_diff.mean()
+            loss_cons = self.consistency_loss(outputs1, outputs2)
 
             # Step total loss
             loss_step = loss_sup + loss_ds + consistency_weight * loss_cons
