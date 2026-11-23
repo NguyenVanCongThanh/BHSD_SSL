@@ -144,6 +144,20 @@
         "thnhnguynvncng/bhsd-fold0-optimal"
       ],
       "description": "Huấn luyện LeFeD Semi-Supervised Segmentation (5-Stage Dual-Decoder Feedback) trên Dual GPU T4"
+    },
+    "nnunet_plan": {
+      "slug": "kaggle-bhsd-nnunet-plan",
+      "title": "kaggle_bhsd_nnunet_plan",
+      "code_file": "kaggle_bhsd_nnunet_plan.ipynb",
+      "generator_script": "tools/generate_nnunet_plan_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": false,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [],
+      "description": "Chạy nnUNetv2_extract_fingerprint và nnUNetv2_plan_experiment trên 192 ca gốc Wendy-Fly/BHSD"
     }
   }
 }
