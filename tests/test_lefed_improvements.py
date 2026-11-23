@@ -332,6 +332,28 @@ class LeFeDImprovementsTests(unittest.TestCase):
         # Should save only once at iter 6 (not at 2, 4, 6, 8, 10)
         self.assertEqual(epoch_save_iters, [6])
 
+    def test_lefed_kaggle_resume_injection_works(self):
+        from tools.generate_lefed_notebook import build_lefed_notebook
+        from tools.kaggle.resume import inject_resume
+        from tools.kaggle.notebook_builder import NotebookBuilder
+
+        nb = build_lefed_notebook(task='binary', labelnum=8, max_samples=154, labeled_sampling='stratified', setting='vnet5')
+        inject_resume(nb, 'entity/BHSD_LeFeD/abc12345', 'latest', 'same-run')
+        train_sources = [''.join(c['source']) for c in nb['cells'] if c.get('cell_type') == 'code']
+        self.assertTrue(any('prepare_resume(' in src and 'entity/BHSD_LeFeD/abc12345' in src for src in train_sources))
+
+        # Ensure NotebookBuilder accepts 'lefed' in supported_resume_notebooks
+        builder = NotebookBuilder()
+        with patch.object(builder, 'get_notebook_spec', side_effect=RuntimeError('stop_after_validation')):
+            with self.assertRaisesRegex(RuntimeError, 'stop_after_validation'):
+                builder.build_bundle(
+                    notebook_type='lefed',
+                    target_username='dry_run_user',
+                    resume_run='entity/BHSD_LeFeD/abc12345',
+                    resume_checkpoint='latest',
+                    resume_mode='same-run',
+                )
+
 
 if __name__ == '__main__':
     unittest.main()

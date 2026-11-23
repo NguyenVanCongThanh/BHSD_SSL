@@ -195,6 +195,7 @@ def build_lefed_notebook(
                 "        return s.getsockname()[1]\n",
                 "master_port = str(find_free_port())\n",
                 "\n",
+                "# Cấu hình Anti-Deadlock\n",
                 "env = os.environ.copy()\n",
                 "env[\"PYTHONUNBUFFERED\"] = \"1\"\n",
                 "env[\"OMP_NUM_THREADS\"] = \"1\"\n",

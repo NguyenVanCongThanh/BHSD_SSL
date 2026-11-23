@@ -60,6 +60,7 @@ class NotebookBuilder:
             raise ValueError("--resume-checkpoint/--resume-mode requires --resume-run")
         supported_resume_notebooks = (
             "mean_teacher",
+            "lefed",
             "supervised",
             "supervised_vnet",
             "supervised_vnet_v2",
