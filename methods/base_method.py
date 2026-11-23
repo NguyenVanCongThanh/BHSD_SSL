@@ -698,6 +698,7 @@ class BaseMethod(abc.ABC):
         iter_t0 = phase_t0
 
         start_epoch = completed_epochs
+        last_epoch_ckpt_iter = iter_num
         for epoch_idx in range(max_epoch):
             current_epoch = start_epoch + epoch_idx
             if self.is_ddp and hasattr(self, 'train_sampler') and hasattr(self.train_sampler, 'set_epoch'):
@@ -779,17 +780,25 @@ class BaseMethod(abc.ABC):
                     )
                     iter_t0 = time.time()
 
-                # Epoch boundary checkpoint: only triggered when completing the full epoch
+                # Epoch boundary checkpoint: only triggered when completing the full epoch.
+                # When resume_policy='latest' and epochs are tiny (e.g. low-label SSL where epoch_len=2),
+                # throttle local disk writes to save_interval so we don't save checkpoints every 2 iters.
                 is_epoch_boundary = (batch_idx == epoch_len - 1)
                 if is_epoch_boundary:
                     completed_epochs = current_epoch + 1
-                    if is_main_process():
+                    cloud_due = self.cloud_epoch_due(completed_epochs)
+                    should_save_epoch_ckpt = (
+                        resume_policy == "epoch_boundary"
+                        or cloud_due
+                        or (iter_num - last_epoch_ckpt_iter) >= save_int
+                    )
+                    if is_main_process() and should_save_epoch_ckpt:
                         self.save_checkpoint(
                             path=epoch_pth,
                             iter_num=iter_num,
                             best_dice=best_dice,
                             phase=phase,
-                            artifact_name=f"{art_prefix}_epoch_latest" if self.cloud_epoch_due(completed_epochs) else None,
+                            artifact_name=f"{art_prefix}_epoch_latest" if cloud_due else None,
                             artifact_type="checkpoint",
                             aliases=["latest", f"epoch_{completed_epochs}"],
                             extra_state={
@@ -802,6 +811,7 @@ class BaseMethod(abc.ABC):
                                 'batch_layout': getattr(self, 'batch_layout', None).to_dict() if hasattr(getattr(self, 'batch_layout', None), 'to_dict') else None,
                             }
                         )
+                        last_epoch_ckpt_iter = iter_num
 
                 if iter_num >= max_iters:
                     break

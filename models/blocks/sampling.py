@@ -107,28 +107,62 @@ class UpsamplingFunction(nn.Module):
         self,
         n_filters_in: int,
         n_filters_out: int,
-        stride: int = 2,
+        stride: Union[int, Tuple[int, int, int]] = 2,
         normalization: str = "groupnorm",
         mode_upsampling: int = 1,
-        inplace: bool = True,
+        activation: str = "relu",
+        kernel_size: Union[int, Tuple[int, int, int]] = 3,
+        inplace: bool = False,
     ):
         super(UpsamplingFunction, self).__init__()
+        use_bias = str(normalization).lower() in ("none", "", "identity")
+        if isinstance(kernel_size, int):
+            conv_padding: Union[int, Tuple[int, int, int]] = kernel_size // 2
+        else:
+            conv_padding = tuple(k // 2 for k in kernel_size)
+        scale_factor = tuple(float(s) for s in stride) if isinstance(stride, (tuple, list)) else float(stride)
+
         ops = []
         if mode_upsampling == 0:
-            ops.append(nn.ConvTranspose3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=0))
+            ops.append(
+                nn.ConvTranspose3d(
+                    n_filters_in,
+                    n_filters_out,
+                    kernel_size=stride,
+                    stride=stride,
+                    padding=0,
+                    bias=use_bias,
+                )
+            )
         elif mode_upsampling == 1:
-            ops.append(nn.Upsample(scale_factor=stride, mode="trilinear", align_corners=True))
-            ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=3, padding=1))
+            ops.append(nn.Upsample(scale_factor=scale_factor, mode="trilinear", align_corners=True))
+            ops.append(
+                nn.Conv3d(
+                    n_filters_in,
+                    n_filters_out,
+                    kernel_size=kernel_size,
+                    padding=conv_padding,
+                    bias=use_bias,
+                )
+            )
         elif mode_upsampling == 2:
-            ops.append(nn.Upsample(scale_factor=stride, mode="nearest"))
-            ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=3, padding=1))
+            ops.append(nn.Upsample(scale_factor=scale_factor, mode="nearest"))
+            ops.append(
+                nn.Conv3d(
+                    n_filters_in,
+                    n_filters_out,
+                    kernel_size=kernel_size,
+                    padding=conv_padding,
+                    bias=use_bias,
+                )
+            )
         else:
             raise ValueError(f"Unsupported mode_upsampling: {mode_upsampling}")
 
         norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
         if norm_layer is not None:
             ops.append(norm_layer)
-        ops.append(nn.ReLU(inplace=inplace))
+        ops.append(get_activation(activation, inplace=inplace))
 
         self.conv = nn.Sequential(*ops)
 

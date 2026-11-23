@@ -355,7 +355,7 @@ KNOWN_SECTION_KEYS = {
         'ema_decay', 'ema_schedule', 'u_weight', 'temperature', 'threshold',
         'warmup_epochs', 'warmup_iters', 'min_lr', 'nesterov', 'betas', 'eps',
         'loss_name', 'aux_loss_weight', 'optimizer',
-        'feedback_steps', 'feedback_scale', 'ds_weights',
+        'feedback_steps', 'feedback_scale', 'feedback_update_mode', 'ds_weights', 'ds_loss_weight',
         'loss_type', 'tversky_alpha', 'tversky_beta', 'focal_gamma', 'ds_rampdown_start',
         'batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target',
         'mc_t', 'mc_noise_std', 'mc_noise_clamp', 'uncertainty_min_ratio', 'uncertainty_max_ratio',

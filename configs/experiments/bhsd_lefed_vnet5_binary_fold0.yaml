@@ -1,5 +1,8 @@
-# Experiment Preset: BHSD Binary LeFeD with 5-Stage InstanceNorm V-Net (Fold 0)
-# Fair 1:1 SSL benchmark aligned with vnet5_plain supervised runs (patch [32,256,256], InstanceNorm, no Dropout).
+# Experiment Preset: BHSD Binary LeFeD with 5-Stage InstanceNorm Anisotropic V-Net (Fold 0)
+# Fair 1:1 SSL benchmark aligned with vnet5_plain supervised runs:
+# - Anisotropic 5-stage encoder/decoder (bottleneck Z=8, LeakyReLU, concat skips, Kaiming init)
+# - Foreground-only MaskDiceLoss, balanced dual-decoder supervised loss, finest->coarsest DS
+# - Gradient-accumulated feedback passes (1 optimizer step & 1 DDP sync per iter) with meaningful consistency weight
 experiment:
   name: "bhsd_lefed_vnet5_binary_fold0"
   task: "binary"
@@ -17,8 +20,13 @@ model:
   in_channels: 1
   n_filters: 16
   normalization: "instancenorm"
-  has_dropout: false
+  anisotropic_kernels: true
+  activation: "leaky_relu"
+  skip_mode: "concat"
+  has_dropout: true
+  dropout_prob: 0.15
   has_residual: false
+  eval_ensemble: true
 
 method:
   name: "lefed"
@@ -26,16 +34,23 @@ method:
   lr_max_iteration: 15000
   base_lr: 0.01
   lr_scheduler: "poly"
-  consistency: 0.05
-  consistency_rampup: 4000.0
-  consistency_rampdown_start: 10000
+  batch_dice: true
+  consistency: 0.5
+  consistency_rampup: 2500.0
+  consistency_rampdown_start: 11000
   consistency_min_factor: 0.25
   consistency_type: "hybrid"
+  consistency_dice_weight: 0.8
+  consistency_mse_weight: 0.2
   bg_consistency_weight: 0.05
   confidence_thresh: 0.0
-  feedback_steps: 3
+  feedback_steps: 2
   feedback_scale: 0.001
+  feedback_update_mode: "accumulate"
   ds_weights: [0.5, 0.25, 0.125, 0.0625, 0.03125]
+  ds_loss_weight: 0.5
+  ds_downsample_target: true
+  ds_zero_lowest_scale: true
 
 data:
   name: "bhsd"
