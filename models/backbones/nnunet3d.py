@@ -31,18 +31,25 @@ DEFAULT_ISOTROPIC_POOL_STRIDES: Tuple[Tuple[int, int, int], ...] = (
 
 
 class nnUNetBlock(nn.Module):
-    """Basic two-convolution block with InstanceNorm3d and LeakyReLU supporting anisotropic kernel."""
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: Union[int, Tuple[int, int, int]] = 3):
+    """Basic two-convolution block with InstanceNorm3d and LeakyReLU supporting anisotropic kernel and optional first-conv stride."""
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: Union[int, Tuple[int, int, int]] = 3,
+        stride: Union[int, Tuple[int, int, int]] = 1,
+        conv_bias: bool = False,
+    ):
         super().__init__()
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size, kernel_size)
         padding = tuple(k // 2 for k in kernel_size)
 
         self.conv = nn.Sequential(
-            nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False),
+            nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=conv_bias),
             nn.InstanceNorm3d(out_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=False),
+            nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=conv_bias),
             nn.InstanceNorm3d(out_channels, affine=True),
             nn.LeakyReLU(negative_slope=0.01, inplace=True)
         )
@@ -82,6 +89,8 @@ class nnUNet3D(nn.Module):
         stage_multipliers: Optional[Sequence[int]] = None,
         pool_strides: Optional[Sequence[Tuple[int, int, int]]] = None,
         stage_kernels: Optional[Sequence[Tuple[int, int, int]]] = None,
+        conv_bias: bool = False,
+        strided_conv_in_block: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -94,6 +103,8 @@ class nnUNet3D(nn.Module):
         self.deep_supervision = deep_supervision
         self.anisotropic_kernels = anisotropic_kernels
         self.use_strided_conv = use_strided_conv
+        self.conv_bias = bool(conv_bias)
+        self.strided_conv_in_block = bool(strided_conv_in_block)
 
         # Filter capacity configuration across stages
         multipliers = tuple(stage_multipliers) if stage_multipliers is not None else DEFAULT_STAGE_MULTIPLIERS
@@ -127,62 +138,67 @@ class nnUNet3D(nn.Module):
         stride6 = strides[5] if num_stages >= 7 else (1, 2, 2)
 
         def _make_downsample(in_c: int, stride: Tuple[int, int, int]):
+            if self.strided_conv_in_block:
+                return nn.Identity()
             if use_strided_conv:
                 return nn.Conv3d(in_c, in_c, kernel_size=stride, stride=stride, bias=False)
             else:
                 return nn.MaxPool3d(kernel_size=stride, stride=stride)
 
+        def _enc_stride(stride: Tuple[int, int, int]) -> Union[int, Tuple[int, int, int]]:
+            return stride if self.strided_conv_in_block else 1
+
         # Encoder stages & Strides (bám sát nnUNet v2 Plans)
-        self.enc1 = nnUNetBlock(in_channels, f[0], kernel_size=k1)
+        self.enc1 = nnUNetBlock(in_channels, f[0], kernel_size=k1, conv_bias=self.conv_bias)
         self.pool1 = _make_downsample(f[0], stride=stride1)
 
-        self.enc2 = nnUNetBlock(f[0], f[1], kernel_size=k2)
+        self.enc2 = nnUNetBlock(f[0], f[1], kernel_size=k2, stride=_enc_stride(stride1), conv_bias=self.conv_bias)
         self.pool2 = _make_downsample(f[1], stride=stride2)
 
-        self.enc3 = nnUNetBlock(f[1], f[2], kernel_size=k3)
+        self.enc3 = nnUNetBlock(f[1], f[2], kernel_size=k3, stride=_enc_stride(stride2), conv_bias=self.conv_bias)
         self.pool3 = _make_downsample(f[2], stride=stride3)
 
-        self.enc4 = nnUNetBlock(f[2], f[3], kernel_size=k4)
+        self.enc4 = nnUNetBlock(f[2], f[3], kernel_size=k4, stride=_enc_stride(stride3), conv_bias=self.conv_bias)
         self.pool4 = _make_downsample(f[3], stride=stride4)
 
         if self.num_stages >= 6:
-            self.enc5 = nnUNetBlock(f[3], f[4], kernel_size=k5)
+            self.enc5 = nnUNetBlock(f[3], f[4], kernel_size=k5, stride=_enc_stride(stride4), conv_bias=self.conv_bias)
             # In 7-stage nnUNet, pool5 stride is (1, 2, 2)
             self.pool5 = _make_downsample(f[4], stride=stride5)
 
         if self.num_stages == 7:
-            self.enc6 = nnUNetBlock(f[4], f[5], kernel_size=k6)
+            self.enc6 = nnUNetBlock(f[4], f[5], kernel_size=k6, stride=_enc_stride(stride5), conv_bias=self.conv_bias)
             self.pool6 = _make_downsample(f[5], stride=stride6)
-            self.bottleneck = nnUNetBlock(f[5], f[6], kernel_size=k_btn)
+            self.bottleneck = nnUNetBlock(f[5], f[6], kernel_size=k_btn, stride=_enc_stride(stride6), conv_bias=self.conv_bias)
 
             # Decoder 6
-            self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=stride6, stride=stride6)
-            self.dec6 = nnUNetBlock(f[5] * 2, f[5], kernel_size=k6)
+            self.up6 = nn.ConvTranspose3d(f[6], f[5], kernel_size=stride6, stride=stride6, bias=self.conv_bias or True)
+            self.dec6 = nnUNetBlock(f[5] * 2, f[5], kernel_size=k6, conv_bias=self.conv_bias)
             # Decoder 5
-            self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5)
-            self.dec5 = nnUNetBlock(f[4] * 2, f[4], kernel_size=k5)
+            self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5, bias=self.conv_bias or True)
+            self.dec5 = nnUNetBlock(f[4] * 2, f[4], kernel_size=k5, conv_bias=self.conv_bias)
         elif self.num_stages == 6:
-            self.bottleneck = nnUNetBlock(f[4], f[5], kernel_size=k_btn)
-            self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5)
-            self.dec5 = nnUNetBlock(f[4] * 2, f[4], kernel_size=k5)
+            self.bottleneck = nnUNetBlock(f[4], f[5], kernel_size=k_btn, stride=_enc_stride(stride5), conv_bias=self.conv_bias)
+            self.up5 = nn.ConvTranspose3d(f[5], f[4], kernel_size=stride5, stride=stride5, bias=self.conv_bias or True)
+            self.dec5 = nnUNetBlock(f[4] * 2, f[4], kernel_size=k5, conv_bias=self.conv_bias)
         else:
-            self.bottleneck = nnUNetBlock(f[3], f[4], kernel_size=k_btn)
+            self.bottleneck = nnUNetBlock(f[3], f[4], kernel_size=k_btn, stride=_enc_stride(stride4), conv_bias=self.conv_bias)
 
         self.dropout = nn.Dropout3d(p=dropout_prob) if has_dropout else nn.Identity()
 
         # Shared Decoders (Stages 4, 3, 2, 1)
         dec4_in = f[4]
-        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=stride4, stride=stride4)
-        self.dec4 = nnUNetBlock(f[3] * 2, f[3], kernel_size=k4)
+        self.up4 = nn.ConvTranspose3d(dec4_in, f[3], kernel_size=stride4, stride=stride4, bias=self.conv_bias or True)
+        self.dec4 = nnUNetBlock(f[3] * 2, f[3], kernel_size=k4, conv_bias=self.conv_bias)
 
-        self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=stride3, stride=stride3)
-        self.dec3 = nnUNetBlock(f[2] * 2, f[2], kernel_size=k3)
+        self.up3 = nn.ConvTranspose3d(f[3], f[2], kernel_size=stride3, stride=stride3, bias=self.conv_bias or True)
+        self.dec3 = nnUNetBlock(f[2] * 2, f[2], kernel_size=k3, conv_bias=self.conv_bias)
 
-        self.up2 = nn.ConvTranspose3d(f[2], f[1], kernel_size=stride2, stride=stride2)
-        self.dec2 = nnUNetBlock(f[1] * 2, f[1], kernel_size=k2)
+        self.up2 = nn.ConvTranspose3d(f[2], f[1], kernel_size=stride2, stride=stride2, bias=self.conv_bias or True)
+        self.dec2 = nnUNetBlock(f[1] * 2, f[1], kernel_size=k2, conv_bias=self.conv_bias)
 
-        self.up1 = nn.ConvTranspose3d(f[1], f[0], kernel_size=stride1, stride=stride1)
-        self.dec1 = nnUNetBlock(f[0] * 2, f[0], kernel_size=k1)
+        self.up1 = nn.ConvTranspose3d(f[1], f[0], kernel_size=stride1, stride=stride1, bias=self.conv_bias or True)
+        self.dec1 = nnUNetBlock(f[0] * 2, f[0], kernel_size=k1, conv_bias=self.conv_bias)
 
         # Final segmentation head (1x1x1 Conv)
         self.final_conv = nn.Conv3d(f[0], num_classes, kernel_size=1)

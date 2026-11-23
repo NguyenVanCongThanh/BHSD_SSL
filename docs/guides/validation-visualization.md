@@ -12,13 +12,15 @@ Cập nhật: 27/10/2026. Tài liệu này mô tả hành vi đã triển khai, 
 
 ## 2. Intensity: không áp dụng HU window lên tensor normalized
 
-Ba file H5 validation đã kiểm tra có intensity xấp xỉ `-4..4`, không phải HU trực tiếp. Một file lưu:
+Ba file H5 validation local đã kiểm tra có intensity xấp xỉ `-4..4`, không phải HU trực tiếp. Một file local lưu:
 
 ```text
 norm_params = {'mean': 47.6804, 'std': 18.4999}
 clip_range = [11.0, 88.0]
 target_spacing = (5.0, 0.5, 0.5)
 ```
+
+> **Lưu ý:** Dataset `thnhnguynvncng/bhsd-fold0-optimal` trên Kaggle hiện **không có metadata spacing**; khi thiếu `spacing`, visualizer tự fallback về `(1.0, 1.0)` (tỷ lệ pixel) và các metric thể tích/bề mặt theo mm/mL (`negative_fp_ml_mean`, HD95/ASD) không khả dụng.
 
 Metadata normalization không tự chứng minh toàn bộ pipeline có thể đảo chính xác: thứ tự clipping, interpolation và padding có thể làm mất hoặc đổi giá trị. Không tự suy đơn vị từ numeric range hoặc riêng `mean/std`.
 

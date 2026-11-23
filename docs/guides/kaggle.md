@@ -66,6 +66,7 @@ Danh sách tài khoản thực tế thuộc cấu hình local, không được �
   ```bash
   bash scripts/submit_mean_teacher_kaggle.sh --account 2 --dataset thnhnguynvncng/bhsd-fold0-optimal
   ```
+  > **Lưu ý:** Dataset `thnhnguynvncng/bhsd-fold0-optimal` trên Kaggle hiện **không chứa metadata spacing** trong `.h5`, nên `val_surface_metrics` (`--surface_metrics`) và `negative_fp_ml_mean` không khả dụng (hãy giữ `val_surface_metrics: false`), và ảnh visualization dùng aspect ratio pixel `(1.0, 1.0)`.
 
 - **Kiểm tra trạng thái đang chạy trên Kaggle**:
   ```bash

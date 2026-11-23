@@ -1,6 +1,6 @@
 # Dataset BHSD: preprocessing và đối chiếu nnU-Net
 
-> **Phạm vi bằng chứng:** các số liệu dưới đây là ghi nhận từ môi trường/dataset đã kiểm tra trước đây, gồm một ca mẫu. Chưa phải xác minh toàn dataset ở checkout hiện tại. Nguồn preprocessing nằm ngoài repo; cần bổ sung commit/hash script, plans/fingerprint, manifest dữ liệu và split hash trước khi tuyên bố tương đương toàn bộ.
+> **Phạm vi bằng chứng:** các số liệu dưới đây là ghi nhận từ môi trường/dataset local `/home/u001015/dataset/BHSD_fold0` đã kiểm tra trước đây. **Lưu ý Kaggle:** dataset `thnhnguynvncng/bhsd-fold0-optimal` trên Kaggle hiện **không có metadata spacing** (`target_spacing` / `orig_spacing`) trong các file `.h5`, nên không dùng được các metric/hiển thị phụ thuộc spacing vật lý (`--surface_metrics`, `negative_fp_ml_mean`, aspect ratio vật lý). Nguồn preprocessing nằm ngoài repo; cần bổ sung commit/hash script, plans/fingerprint, manifest dữ liệu và split hash trước khi tuyên bố tương đương toàn bộ.
 
 Tài liệu này ghi lại chi tiết các điểm tương đồng, điểm khác biệt và nguyên nhân kỹ thuật giữa tập dữ liệu tiền xử lý **BHSD_fold0** (lưu dưới dạng `.h5` tại `/home/u001015/dataset/BHSD_fold0`) và tập dữ liệu trong **nnUNet Option 1** (`nnUNetPlans_Option1_CTClip` tại `/home/u001015/nnUNet_data/nnUNet_preprocessed/Dataset001_BHSD/`).
 
