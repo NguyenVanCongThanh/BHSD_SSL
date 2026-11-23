@@ -8,6 +8,7 @@ from typing import List, Tuple, Optional, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 from core.registry import MODELS
 from models.backbones.vnet_classic import (
@@ -28,6 +29,12 @@ DEFAULT_ENCODER_DROPOUT_PROB = 0.3
 DEFAULT_DECODER_DROPOUT_PROB = 0.5
 
 
+def _maybe_checkpoint(module: nn.Module, x: torch.Tensor, enabled: bool) -> torch.Tensor:
+    if enabled and torch.is_grad_enabled():
+        return grad_checkpoint(module, x, use_reentrant=False)
+    return module(x)
+
+
 class LeFeDEncoder(nn.Module):
     """Encoder capable of receiving multi-level feedback signals (en)."""
     def __init__(
@@ -40,10 +47,12 @@ class LeFeDEncoder(nn.Module):
         anisotropic_kernels: bool = True,
         activation: str = 'leaky_relu',
         dropout_prob: Optional[float] = None,
+        gradient_checkpointing: bool = False,
     ):
         super(LeFeDEncoder, self).__init__()
         self.has_dropout = has_dropout
         self.anisotropic_kernels = bool(anisotropic_kernels)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
         block_cls = ConvBlock if not has_residual else ResidualConvBlock
         k1, k2, k3, k4, k5 = (
             CLASSIC_ANISOTROPIC_KERNELS if self.anisotropic_kernels else CLASSIC_ISOTROPIC_KERNELS
@@ -70,38 +79,34 @@ class LeFeDEncoder(nn.Module):
         _init_vnet_weights(self, activation)
 
     def forward(self, x: torch.Tensor, en: Optional[List[torch.Tensor]] = None) -> List[torch.Tensor]:
-        if en is not None and len(en) == 5:
-            x1 = self.block_one(x) + en[4]
-            x1_dw = self.block_one_dw(x1)
+        use_ckpt = self.training and self.gradient_checkpointing
+        has_en = (en is not None and len(en) == 5)
 
-            x2 = self.block_two(x1_dw) + en[3]
-            x2_dw = self.block_two_dw(x2)
+        x1 = _maybe_checkpoint(self.block_one, x, use_ckpt)
+        if has_en:
+            x1 = x1 + en[4]
+        x1_dw = _maybe_checkpoint(self.block_one_dw, x1, use_ckpt)
 
-            x3 = self.block_three(x2_dw) + en[2]
-            x3_dw = self.block_three_dw(x3)
+        x2 = _maybe_checkpoint(self.block_two, x1_dw, use_ckpt)
+        if has_en:
+            x2 = x2 + en[3]
+        x2_dw = _maybe_checkpoint(self.block_two_dw, x2, use_ckpt)
 
-            x4 = self.block_four(x3_dw) + en[1]
-            x4_dw = self.block_four_dw(x4)
+        x3 = _maybe_checkpoint(self.block_three, x2_dw, use_ckpt)
+        if has_en:
+            x3 = x3 + en[2]
+        x3_dw = _maybe_checkpoint(self.block_three_dw, x3, use_ckpt)
 
-            x5 = self.block_five(x4_dw) + en[0]
-            if self.has_dropout:
-                x5 = self.dropout(x5)
-        else:
-            x1 = self.block_one(x)
-            x1_dw = self.block_one_dw(x1)
+        x4 = _maybe_checkpoint(self.block_four, x3_dw, use_ckpt)
+        if has_en:
+            x4 = x4 + en[1]
+        x4_dw = _maybe_checkpoint(self.block_four_dw, x4, use_ckpt)
 
-            x2 = self.block_two(x1_dw)
-            x2_dw = self.block_two_dw(x2)
-
-            x3 = self.block_three(x2_dw)
-            x3_dw = self.block_three_dw(x3)
-
-            x4 = self.block_four(x3_dw)
-            x4_dw = self.block_four_dw(x4)
-
-            x5 = self.block_five(x4_dw)
-            if self.has_dropout:
-                x5 = self.dropout(x5)
+        x5 = _maybe_checkpoint(self.block_five, x4_dw, use_ckpt)
+        if has_en:
+            x5 = x5 + en[0]
+        if self.has_dropout:
+            x5 = self.dropout(x5)
 
         return [x1, x2, x3, x4, x5]
 
@@ -120,10 +125,12 @@ class LeFeDDecoder(nn.Module):
         activation: str = 'leaky_relu',
         skip_mode: str = 'add',
         dropout_prob: Optional[float] = None,
+        gradient_checkpointing: bool = False,
     ):
         super(LeFeDDecoder, self).__init__()
         self.has_dropout = has_dropout
         self.anisotropic_kernels = bool(anisotropic_kernels)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
         self.skip_mode = str(skip_mode).lower()
         if self.skip_mode not in ('concat', 'add'):
             raise ValueError(f"skip_mode must be 'concat' or 'add', got {self.skip_mode}")
@@ -172,24 +179,25 @@ class LeFeDDecoder(nn.Module):
 
     def forward(self, features: List[torch.Tensor], f1: Optional[List[torch.Tensor]] = None) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         x1, x2, x3, x4, x5 = features
+        use_ckpt = self.training and self.gradient_checkpointing
 
         if f1 is None:
-            x5_up_ori = self.block_five_up(x5)
+            x5_up_ori = _maybe_checkpoint(self.block_five_up, x5, use_ckpt)
             x5_up = self._combine_skip(x5_up_ori, x4)
 
-            x6 = self.block_six(x5_up)
-            x6_up_ori = self.block_six_up(x6)
+            x6 = _maybe_checkpoint(self.block_six, x5_up, use_ckpt)
+            x6_up_ori = _maybe_checkpoint(self.block_six_up, x6, use_ckpt)
             x6_up = self._combine_skip(x6_up_ori, x3)
 
-            x7 = self.block_seven(x6_up)
-            x7_up_ori = self.block_seven_up(x7)
+            x7 = _maybe_checkpoint(self.block_seven, x6_up, use_ckpt)
+            x7_up_ori = _maybe_checkpoint(self.block_seven_up, x7, use_ckpt)
             x7_up = self._combine_skip(x7_up_ori, x2)
 
-            x8 = self.block_eight(x7_up)
-            x8_up_ori = self.block_eight_up(x8)
+            x8 = _maybe_checkpoint(self.block_eight, x7_up, use_ckpt)
+            x8_up_ori = _maybe_checkpoint(self.block_eight_up, x8, use_ckpt)
             x8_up = self._combine_skip(x8_up_ori, x1)
 
-            x9 = self.block_nine(x8_up)
+            x9 = _maybe_checkpoint(self.block_nine, x8_up, use_ckpt)
             if self.has_dropout:
                 x9 = self.dropout(x9)
             out_seg = self.out_conv(x9)
@@ -198,22 +206,22 @@ class LeFeDDecoder(nn.Module):
             w5, w4, w3, w2, w1 = [torch.sigmoid(m).detach() for m in [m5, m4, m3, m2, m1]]
 
             x5 = x5 + x5 * w5
-            x5_up_ori = self.block_five_up(x5)
+            x5_up_ori = _maybe_checkpoint(self.block_five_up, x5, use_ckpt)
             x5_up = self._combine_skip(x5_up_ori, x4 * w4)
 
-            x6 = self.block_six(x5_up)
-            x6_up_ori = self.block_six_up(x6)
+            x6 = _maybe_checkpoint(self.block_six, x5_up, use_ckpt)
+            x6_up_ori = _maybe_checkpoint(self.block_six_up, x6, use_ckpt)
             x6_up = self._combine_skip(x6_up_ori, x3 * w3)
 
-            x7 = self.block_seven(x6_up)
-            x7_up_ori = self.block_seven_up(x7)
+            x7 = _maybe_checkpoint(self.block_seven, x6_up, use_ckpt)
+            x7_up_ori = _maybe_checkpoint(self.block_seven_up, x7, use_ckpt)
             x7_up = self._combine_skip(x7_up_ori, x2 * w2)
 
-            x8 = self.block_eight(x7_up)
-            x8_up_ori = self.block_eight_up(x8)
+            x8 = _maybe_checkpoint(self.block_eight, x7_up, use_ckpt)
+            x8_up_ori = _maybe_checkpoint(self.block_eight_up, x8, use_ckpt)
             x8_up = self._combine_skip(x8_up_ori, x1 * w1)
 
-            x9 = self.block_nine(x8_up)
+            x9 = _maybe_checkpoint(self.block_nine, x8_up, use_ckpt)
             if self.has_dropout:
                 x9 = self.dropout(x9)
             out_seg = self.out_conv(x9)
@@ -277,10 +285,12 @@ class LeFeD_Net(nn.Module):
         skip_mode: str = 'add',
         dropout_prob: Optional[float] = None,
         eval_ensemble: bool = False,
+        gradient_checkpointing: bool = False,
     ):
         super(LeFeD_Net, self).__init__()
         self.num_classes = num_classes
         self.eval_ensemble = bool(eval_ensemble)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
 
         self.encoder = LeFeDEncoder(
             in_channels=in_channels,
@@ -291,6 +301,7 @@ class LeFeD_Net(nn.Module):
             anisotropic_kernels=anisotropic_kernels,
             activation=activation,
             dropout_prob=dropout_prob,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
         self.decoder1 = LeFeDDecoder(
             num_classes=num_classes,
@@ -303,6 +314,7 @@ class LeFeD_Net(nn.Module):
             activation=activation,
             skip_mode=skip_mode,
             dropout_prob=dropout_prob,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
         self.decoder2 = LeFeDDecoder(
             num_classes=num_classes,
@@ -315,6 +327,7 @@ class LeFeD_Net(nn.Module):
             activation=activation,
             skip_mode=skip_mode,
             dropout_prob=dropout_prob,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
         self.sideconv = SideConv(num_classes=num_classes, n_filters=n_filters, upsample=False)
 
@@ -340,5 +353,9 @@ class LeFeD_Net(nn.Module):
         out_seg2, stage_feat2 = self.decoder2(features, stage_feat1)
         deep_out1 = self.sideconv(stage_feat1)
 
-        # masks: [stage_feat2, stage_feat1]
-        return out_seg1, out_seg2, [stage_feat2, stage_feat1], deep_out1
+        # Detach feedback masks before returning so DDP _DDPSink does not clone 10 large feature tensors.
+        masks_detached = [
+            [f.detach() for f in stage_feat2],
+            [f.detach() for f in stage_feat1],
+        ]
+        return out_seg1, out_seg2, masks_detached, deep_out1

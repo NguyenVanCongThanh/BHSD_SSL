@@ -72,6 +72,7 @@ def _ddp_accumulate_worker(rank: int, root: str):
             anisotropic_kernels=True,
             activation='leaky_relu',
             skip_mode='concat',
+            gradient_checkpointing=True,
         )
         with patch.object(BaseMethod, 'setup_dataloaders', loaders), \
              patch.object(BaseMethod, 'setup_logging', logging_setup), \
@@ -238,8 +239,56 @@ class LeFeDImprovementsTests(unittest.TestCase):
         self.assertEqual(spec['kwargs']['skip_mode'], 'concat')
         self.assertEqual(spec['kwargs']['activation'], 'leaky_relu')
         self.assertTrue(spec['kwargs']['eval_ensemble'])
+        self.assertTrue(spec['kwargs']['gradient_checkpointing'])
         model = build_model_from_spec(spec, seed=1337)
         self.assertIsInstance(model, LeFeD_Net)
+        self.assertTrue(model.gradient_checkpointing)
+
+    def test_gradient_checkpointing_matches_exact_gradients_and_detaches_masks(self):
+        torch.manual_seed(42)
+        net_plain = LeFeD_Net(
+            in_channels=1, num_classes=2, n_filters=4,
+            normalization='instancenorm', has_dropout=False,
+            anisotropic_kernels=True, activation='leaky_relu', skip_mode='concat',
+            gradient_checkpointing=False,
+        )
+        net_ckpt = LeFeD_Net(
+            in_channels=1, num_classes=2, n_filters=4,
+            normalization='instancenorm', has_dropout=False,
+            anisotropic_kernels=True, activation='leaky_relu', skip_mode='concat',
+            gradient_checkpointing=True,
+        )
+        net_ckpt.load_state_dict(net_plain.state_dict())
+
+        x = torch.randn(2, 1, 8, 32, 32)
+        y = torch.randint(0, 2, (2, 8, 32, 32))
+
+        for net in (net_plain, net_ckpt):
+            net.train()
+            o1, o2, masks, ds = net(x, None)
+            # Feedback masks must be detached so DDP _DDPSink does not clone them
+            for feat_list in masks:
+                for f in feat_list:
+                    self.assertFalse(f.requires_grad)
+            en = [1e-3 * (m2 - m1) for m2, m1 in zip(masks[0], masks[1])]
+            o1_fb, o2_fb, _, ds_fb = net(x, en)
+            loss = (
+                torch.nn.functional.cross_entropy(o1, y)
+                + torch.nn.functional.cross_entropy(o2, y)
+                + sum(d.square().mean() for d in ds)
+                + torch.nn.functional.cross_entropy(o1_fb, y)
+                + torch.nn.functional.cross_entropy(o2_fb, y)
+                + sum(d.square().mean() for d in ds_fb)
+            )
+            loss.backward()
+
+        for (name, p_plain), (_, p_ckpt) in zip(net_plain.named_parameters(), net_ckpt.named_parameters()):
+            self.assertIsNotNone(p_plain.grad, f"Missing plain grad for {name}")
+            self.assertIsNotNone(p_ckpt.grad, f"Missing ckpt grad for {name}")
+            self.assertTrue(
+                torch.allclose(p_plain.grad, p_ckpt.grad, atol=1e-5, rtol=1e-4),
+                f"Gradient mismatch on {name}: max_diff={(p_plain.grad - p_ckpt.grad).abs().max().item()}",
+            )
 
     def test_lefed_ddp_accumulate_mode_keeps_ranks_synchronized(self):
         mp.spawn(_ddp_accumulate_worker, args=(str(self.root),), nprocs=2, join=True)

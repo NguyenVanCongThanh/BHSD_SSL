@@ -27,6 +27,7 @@ model:
   dropout_prob: 0.15
   has_residual: false
   eval_ensemble: true
+  gradient_checkpointing: true
 
 method:
   name: "lefed"
