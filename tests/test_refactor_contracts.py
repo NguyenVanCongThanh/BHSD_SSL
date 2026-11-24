@@ -357,8 +357,7 @@ class TestRefactorContracts(unittest.TestCase):
                 "".join(c["source"]) for c in custom_nb["cells"] if c["cell_type"] == "code"
             )
             self.assertIn("PATCH_SIZE_EVAL = ['32', '160', '160']", custom_code)
-            self.assertIn('"--stride_xy", "80"', custom_code)
-            self.assertIn('"--stride_z", "16"', custom_code)
+            self.assertIn('"--profile_only"', custom_code)
             self.assertIn('"--data.patch_size", "[32,160,160]"', custom_code)
             self.assertIn('"--model.has_residual", "true"', custom_code)
             self.assertIn('"--model.normalization", "instancenorm"', custom_code)
@@ -385,7 +384,6 @@ class TestRefactorContracts(unittest.TestCase):
             ablation_cells = ["".join(c["source"]) for c in ablation_nb["cells"] if c["cell_type"] == "code"]
             ablation_code = "\n".join(ablation_cells)
             # Ensure generated train cell is syntactically valid Python
-            import ast
             train_cell = next(src for src in ablation_cells if "base_args = [" in src)
             ast.parse(train_cell)
             self.assertIn("FORCE_SINGLE_GPU = True", ablation_code)

@@ -139,3 +139,39 @@ python3 /home/u001015/notebook/preprocess_bhsd_for_pick.py \
 3. `restore_volume_to_native_space()` báo lỗi `ValueError` thay vì im lặng trả về volume chưa tái tạo nếu thiếu `orig_shape` hoặc `bbox_used`/`crop_bbox`.
 4. `restore_case_to_native()` kiểm tra `pred_native.shape == raw_gt.shape` khi có `--raw_gt_dir`, ngăn chặn lệch hình học âm thầm.
 
+### 7.1. Tình trạng tương thích của các dataset `.h5` hiện có
+
+> **Cảnh báo tương thích:** Các tập `.h5` đã sinh trước Phase 1 (bao gồm dataset local và dataset Kaggle `thnhnguynvncng/bhsd-fold0-optimal`) **chưa chứa đầy đủ metadata hình học** (`orig_shape`, `bbox_used`/`crop_bbox`, `orig_spacing`, `itk_*`). Do đó:
+> - Chúng **vẫn tương thích hoàn toàn** với huấn luyện và đánh giá ở không gian tiền xử lý (`--eval_space preprocessed`, mặc định).
+> - Chúng **không tương thích với `--eval_space native`** và sẽ chủ động báo `ValueError` thay vì cho ra kết quả sai lệch âm thầm.
+
+### 7.2. Quy trình tái sinh `.h5` và kiểm định (khi cần đánh giá Native Space)
+
+**Không ghi đè trực tiếp dataset đang dùng.** Luôn xuất ra một thư mục mới và kiểm định trước khi chuyển đổi:
+
+1. **Chạy script chuyển đổi (chỉ đọc thư mục nnU-Net Option 1 `.b2nd` + `.pkl`):**
+   ```bash
+   python tools/convert_option1_to_h5.py \
+       --input_dir /path/to/nnUNetPlans_Option1_CTClip_3d_fullres \
+       --output_dir /path/to/BHSD_fold0_v2_native_ready \
+       --splits_file /path/to/splits_multilabel.json \
+       --target_spacing 5.0 0.5 0.5
+   ```
+2. **Kiểm định metadata trên toàn bộ file `.h5` mới sinh:**
+   ```bash
+   python - <<'PY'
+   import glob, h5py
+   required = {"orig_shape", "bbox_used", "crop_bbox", "cropped_shape", "orig_spacing", "target_spacing"}
+   files = sorted(glob.glob("/path/to/BHSD_fold0_v2_native_ready/data/*.h5"))
+   assert files, "No .h5 files found"
+   for p in files:
+       with h5py.File(p, "r") as f:
+           missing = required - set(f.attrs.keys())
+           assert not missing, f"{p} missing attrs: {missing}"
+   print(f"Verified {len(files)} HDF5 files contain all required native-space attributes.")
+   PY
+   ```
+3. **Kiểm định căn chỉnh hình học với NIfTI gốc (trước khi chạy benchmark chính thức):**
+   Chạy `evaluate.py --eval_space native --raw_gt_dir /path/to/raw_nifti_labels` trên một checkpoint hiện có và xác nhận không có ngoại lệ `ValueError` về shape mismatch và mDice ở native space nhất quán với kỳ vọng lâm sàng.
+
+
