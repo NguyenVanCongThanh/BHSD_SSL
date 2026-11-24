@@ -120,10 +120,55 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     for key in list(cfg.keys()):
         if key not in allowed_top_level:
             cfg.pop(key, None)
+    method_cfg = cfg.setdefault('method', {})
+    source_max_iter = method_cfg.get('max_iteration')
+    source_lr_max_iter = method_cfg.get('lr_max_iteration')
+    effective_source_lr_max = source_lr_max_iter if source_lr_max_iter is not None else source_max_iter
+    target_max_iter = int(max_iteration) if max_iteration is not None else source_max_iter
+
+    if resume_mode == 'same-run':
+        if (lr_max_iteration is not None and effective_source_lr_max is not None
+                and int(lr_max_iteration) != int(effective_source_lr_max)):
+            raise ValueError(
+                f"Cannot change lr_max_iteration from {effective_source_lr_max} to {int(lr_max_iteration)} "
+                f"in 'same-run' resume mode; use --resume-mode new-run instead."
+            )
+        if (source_lr_max_iter is None and source_max_iter is not None
+                and target_max_iter is not None and int(target_max_iter) != int(source_max_iter)):
+            method_cfg['lr_max_iteration'] = int(source_max_iter)
+    elif (lr_max_iteration is not None and effective_source_lr_max is not None
+            and int(lr_max_iteration) != int(effective_source_lr_max)):
+        print(
+            f"[RESUME WARNING] Overriding lr_max_iteration from {effective_source_lr_max} "
+            f"to {int(lr_max_iteration)} in 'new-run' mode.",
+            flush=True,
+        )
+
     if max_iteration is not None:
-        cfg.setdefault('method', {})['max_iteration'] = int(max_iteration)
+        method_cfg['max_iteration'] = int(max_iteration)
     if lr_max_iteration is not None:
-        cfg.setdefault('method', {})['lr_max_iteration'] = int(lr_max_iteration)
+        method_cfg['lr_max_iteration'] = int(lr_max_iteration)
+
+    run_summary = getattr(run, 'summary', None) or {}
+    source_iter_num = art_meta.get('iter_num')
+    if source_iter_num is None and hasattr(run_summary, 'get'):
+        source_iter_num = run_summary.get('completed_iters') or run_summary.get('global_step')
+    if source_iter_num is not None:
+        source_iter_int = int(source_iter_num)
+        if target_max_iter is not None and int(target_max_iter) <= source_iter_int:
+            raise ValueError(
+                f"Resume max_iteration ({target_max_iter}) must be greater than source iter_num ({source_iter_int})."
+            )
+        scheduler_type = str(method_cfg.get('lr_scheduler', 'poly')).lower()
+        effective_target_lr_max = method_cfg.get('lr_max_iteration')
+        if effective_target_lr_max is None:
+            effective_target_lr_max = target_max_iter
+        if (scheduler_type in ('poly', 'cosine') and effective_target_lr_max is not None
+                and int(effective_target_lr_max) <= source_iter_int):
+            raise ValueError(
+                f"Resume lr_max_iteration ({effective_target_lr_max}) must be greater than source iter_num "
+                f"({source_iter_int}) for '{scheduler_type}' LR schedule; otherwise LR is 0."
+            )
     config_path = destination / 'resume_config.yaml'
     config_path.write_text(yaml.safe_dump(cfg), encoding='utf-8')
     # Fail before launching any GPU workers if the staged config is incompatible.

@@ -188,3 +188,70 @@ class ResumeTests(unittest.TestCase):
             builder.build_bundle('mean_teacher', 'test_user')
             self.assertEqual(json.loads((folder / 'kernel-metadata.json').read_text())['title'],
                              builder.get_notebook_spec('mean_teacher')['title'])
+
+    def test_prepare_resume_lr_and_iteration_guards(self):
+        def make_run(max_iter=15000, lr_max_iter=15000, iter_num=15000):
+            config = {
+                'experiment': {'name': 'src', 'fold': 0, 'task': 'binary', 'num_classes': 2},
+                'method': {'name': 'supervised', 'max_iteration': max_iter, 'lr_scheduler': 'poly'},
+                'data': {'name': 'bhsd', 'task': 'binary', 'num_classes': 2,
+                         'class_names': ['Background', 'Hemorrhage'], 'root_path': 'old', 'batch_size': 4},
+                'logging': {},
+                'model': {'name': 'vnet'},
+                'model_spec': {'name': 'vnet', 'kwargs': {}},
+                'resolved': {'batch_layout': {'world_size': 2}},
+            }
+            if lr_max_iter is not None:
+                config['method']['lr_max_iteration'] = lr_max_iter
+
+            class Artifact:
+                name = 'src_fold0_latest:v1'
+                metadata = {'iter_num': iter_num}
+
+                def download(self, root):
+                    Path(root).mkdir(parents=True)
+                    (Path(root) / 'checkpoint_latest.pth').write_bytes(b'ckpt')
+                    return root
+
+            return types.SimpleNamespace(config=config, state='finished', logged_artifacts=lambda: [Artifact()])
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules):
+            tmp_path = Path(directory)
+            # 1) same-run rejects changing lr_max_iteration
+            sys.modules['wandb'] = types.SimpleNamespace(
+                Api=lambda: types.SimpleNamespace(run=lambda p: make_run(9500, 25000, 9500))
+            )
+            with self.assertRaisesRegex(ValueError, "same-run"):
+                prepare_resume('run1', 'latest', '/input/data', tmp_path / 't1', 2, 'same-run',
+                               max_iteration=25000, lr_max_iteration=15000)
+
+            # 2) same-run locks lr_max_iteration to source_max_iteration when source lr_max_iteration is None
+            sys.modules['wandb'] = types.SimpleNamespace(
+                Api=lambda: types.SimpleNamespace(run=lambda p: make_run(9500, None, 5000))
+            )
+            _, locked_cfg = prepare_resume('run2', 'latest', '/input/data', tmp_path / 't2', 2, 'same-run',
+                                           max_iteration=25000)
+            self.assertEqual(locked_cfg['method']['max_iteration'], 25000)
+            self.assertEqual(locked_cfg['method']['lr_max_iteration'], 9500)
+
+            # 3) Reject max_iteration <= source_iter_num
+            sys.modules['wandb'] = types.SimpleNamespace(
+                Api=lambda: types.SimpleNamespace(run=lambda p: make_run(15000, 25000, 15000))
+            )
+            with self.assertRaisesRegex(ValueError, "max_iteration"):
+                prepare_resume('run3', 'latest', '/input/data', tmp_path / 't3', 2, 'same-run',
+                               max_iteration=15000)
+
+            # 4) Reject lr_max_iteration <= source_iter_num for poly/cosine
+            sys.modules['wandb'] = types.SimpleNamespace(
+                Api=lambda: types.SimpleNamespace(run=lambda p: make_run(15000, 15000, 15000))
+            )
+            with self.assertRaisesRegex(ValueError, "lr_max_iteration"):
+                prepare_resume('run4', 'latest', '/input/data', tmp_path / 't4', 2, 'same-run',
+                               max_iteration=25000)
+
+            # 5) new-run allows overriding lr_max_iteration > source_iter_num
+            _, new_cfg = prepare_resume('run5', 'latest', '/input/data', tmp_path / 't5', 2, 'new-run',
+                                        max_iteration=25000, lr_max_iteration=25000)
+            self.assertEqual(new_cfg['method']['max_iteration'], 25000)
+            self.assertEqual(new_cfg['method']['lr_max_iteration'], 25000)
