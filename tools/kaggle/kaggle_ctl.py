@@ -184,6 +184,12 @@ def cmd_push(args):
     else:
         print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
 
+    hf_repo_id = mgr.resolve_hf_repo_id(acc, cli_repo_id=getattr(args, 'hf_repo_id', None))
+    if hf_repo_id:
+        print(f"[*] HF Repo:     [✓ Đã nạp HF_REPO_ID: {hf_repo_id}]")
+    else:
+        print("[!] HF Repo:     [Chưa cấu hình HF_REPO_ID - Thiết lập trong .env, accounts.json hoặc Kaggle Secrets]")
+
     if embed_local_patches:
         print("[!] WARNING: --embed-local-patches enabled; uncommitted local files will be embedded (experimental testing only).")
 
@@ -197,6 +203,7 @@ def cmd_push(args):
         enable_gpu=not args.no_gpu,
         wandb_key=wandb_key,
         hf_token=hf_token,
+        hf_repo_id=hf_repo_id,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
         resume_mode=getattr(args, "resume_mode", None),
@@ -327,6 +334,12 @@ def cmd_build(args):
     else:
         print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
 
+    hf_repo_id = mgr.resolve_hf_repo_id(acc, cli_repo_id=getattr(args, 'hf_repo_id', None))
+    if hf_repo_id:
+        print(f"[*] HF Repo:     [✓ Đã nạp HF_REPO_ID: {hf_repo_id}]")
+    else:
+        print("[!] HF Repo:     [Chưa cấu hình HF_REPO_ID - Thiết lập trong .env, accounts.json hoặc Kaggle Secrets]")
+
     if embed_local_patches:
         print("[!] WARNING: --embed-local-patches enabled; uncommitted local files will be embedded (experimental testing only).")
 
@@ -339,6 +352,7 @@ def cmd_build(args):
         enable_gpu=not args.no_gpu,
         wandb_key=wandb_key,
         hf_token=hf_token,
+        hf_repo_id=hf_repo_id,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
         resume_mode=getattr(args, "resume_mode", None),
@@ -440,6 +454,7 @@ def main():
     parser_build.add_argument("--dataset", "-d", help="Ghi đè dataset source")
     parser_build.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để cấu hình online")
     parser_build.add_argument("--hf-token", help="Hugging Face User Access Token (hf_...) để cấu hình cloud storage")
+    parser_build.add_argument("--hf-repo-id", help="Hugging Face Model Repo ID (vd: username/BHSD_checkpoints)")
     parser_build.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     # Subcommand: push
@@ -452,6 +467,7 @@ def main():
     parser_push.add_argument("--dataset", "-d", help="Ghi đè dataset source (mặc định thnhnguynvncng/bhsd-fold0-optimal)")
     parser_push.add_argument("--wandb-key", "-w", help="W&B API Key (wandb_v1_...) để đồng bộ online")
     parser_push.add_argument("--hf-token", help="Hugging Face User Access Token (hf_...) để cấu hình cloud storage")
+    parser_push.add_argument("--hf-repo-id", help="Hugging Face Model Repo ID (vd: username/BHSD_checkpoints)")
     parser_push.add_argument("--no-gpu", action="store_true", help="Vô hiệu hóa GPU")
 
     for command_parser in (parser_build, parser_push):

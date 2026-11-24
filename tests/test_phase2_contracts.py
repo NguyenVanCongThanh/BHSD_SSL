@@ -91,6 +91,27 @@ class TestUnifiedKaggleRenderer(unittest.TestCase):
                 self.assertIn('"--method.consistency_rampup_unit", "iter"', all_code)
                 self.assertIn("# Cấu hình Anti-Deadlock", all_code)
 
+    def test_bundle_injects_hf_repo_id_from_env_or_account_without_touching_templates(self):
+        from tools.kaggle import notebook_builder
+        from tools.kaggle.accounts_manager import AccountsManager
+        from tools.kaggle.render_notebook import NotebookRenderOptions
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env_mgr = AccountsManager(config_path=Path(tmp) / "accounts.json")
+            with patch.dict("os.environ", {"HF_REPO_ID": "some_user/BHSD_checkpoints"}):
+                self.assertEqual(env_mgr.resolve_hf_repo_id(), "some_user/BHSD_checkpoints")
+
+            with patch.object(notebook_builder, "RUNS_BASE_DIR", Path(tmp)):
+                builder = notebook_builder.NotebookBuilder()
+                bundle_dir = builder.build_bundle(
+                    "mean_teacher",
+                    "test_user",
+                    hf_repo_id="some_user/BHSD_checkpoints",
+                    render_options=NotebookRenderOptions(),
+                )
+                nb_text = (bundle_dir / "kaggle_bhsd_mean_teacher_dual_gpu.ipynb").read_text(encoding="utf-8")
+                self.assertIn('HF_REPO_ID = \\"some_user/BHSD_checkpoints\\"', nb_text)
+
 
 class TestResumeCLIAndProvenance(unittest.TestCase):
     def test_inject_resume_default_clean_vs_opt_in_local_patches(self):

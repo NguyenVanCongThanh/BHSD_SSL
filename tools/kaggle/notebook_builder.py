@@ -49,6 +49,7 @@ class NotebookBuilder:
                      enable_gpu: Optional[bool] = None,
                      wandb_key: Optional[str] = None,
                      hf_token: Optional[str] = None,
+                     hf_repo_id: Optional[str] = None,
                      resume_run: Optional[str] = None,
                      resume_checkpoint: Optional[str] = None,
                      resume_mode: Optional[str] = None,
@@ -130,13 +131,15 @@ class NotebookBuilder:
         # Đảm bảo mọi tài khoản mới hoặc cũ đều tự động đồng bộ W&B Cloud và HF Storage mà không phụ thuộc Kaggle Secrets
         need_inject_wb = bool(wandb_key and wandb_key.strip())
         need_inject_hf = bool(hf_token and hf_token.strip())
+        need_inject_hf_repo = bool(hf_repo_id and hf_repo_id.strip())
 
-        if need_inject_wb or need_inject_hf:
+        if need_inject_wb or need_inject_hf or need_inject_hf_repo:
             with target_code_path.open("r", encoding="utf-8") as stream:
                 notebook = json.load(stream)
 
             injected_wb = False
             injected_hf = False
+            injected_hf_repo = False
 
             for cell in notebook.get("cells", []):
                 if cell.get("cell_type") == "code":
@@ -153,13 +156,17 @@ class NotebookBuilder:
                             new_lines.append(f'HF_TOKEN = "{hf_token.strip()}"\n')
                             cell_changed = True
                             injected_hf = True
+                        elif need_inject_hf_repo and not injected_hf_repo and line.startswith('HF_REPO_ID = ""'):
+                            new_lines.append(f'HF_REPO_ID = "{hf_repo_id.strip()}"\n')
+                            cell_changed = True
+                            injected_hf_repo = True
                         else:
                             new_lines.append(line)
                     if cell_changed:
                         cell["source"] = new_lines
 
             # Nếu template chưa có biến khai báo sẵn, chèn vào cell code đầu tiên
-            if (need_inject_wb and not injected_wb) or (need_inject_hf and not injected_hf):
+            if (need_inject_wb and not injected_wb) or (need_inject_hf and not injected_hf) or (need_inject_hf_repo and not injected_hf_repo):
                 for cell in notebook.get("cells", []):
                     if cell.get("cell_type") == "code":
                         prefix = []
@@ -167,6 +174,8 @@ class NotebookBuilder:
                             prefix.append(f'import os\nos.environ["WANDB_API_KEY"] = "{wandb_key.strip()}"\n')
                         if need_inject_hf and not injected_hf:
                             prefix.append(f'import os\nos.environ["HF_TOKEN"] = "{hf_token.strip()}"\n')
+                        if need_inject_hf_repo and not injected_hf_repo:
+                            prefix.append(f'import os\nos.environ["HF_REPO_ID"] = "{hf_repo_id.strip()}"\n')
                         raw_src = cell.get("source", [])
                         lines = raw_src if isinstance(raw_src, list) else raw_src.splitlines(keepends=True)
                         cell["source"] = prefix + lines

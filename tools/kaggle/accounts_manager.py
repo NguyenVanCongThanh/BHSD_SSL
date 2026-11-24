@@ -185,7 +185,49 @@ class AccountsManager:
 
         return ""
 
-    def get_executor(self, account_id_or_slug: str) -> "KaggleExecutor":
+    def resolve_hf_repo_id(self,
+                           account: Optional[Dict[str, Any]] = None,
+                           cli_repo_id: Optional[str] = None) -> str:
+        """
+        Trích xuất Hugging Face Repo ID theo thứ tự ưu tiên:
+        1. CLI override (--hf-repo-id)
+        2. Cấu hình riêng của tài khoản trong accounts.json (account.hf_repo_id)
+        3. Cấu hình chung default_hf_repo_id trong accounts.json
+        4. Biến môi trường HF_REPO_ID
+        5. File .env tại thư mục gốc dự án (HF_REPO_ID=...)
+        """
+        if cli_repo_id and str(cli_repo_id).strip():
+            return str(cli_repo_id).strip()
+
+        if account:
+            acc_repo = account.get("hf_repo_id")
+            if acc_repo and str(acc_repo).strip():
+                return str(acc_repo).strip()
+
+        default_repo = self.accounts_data.get("default_hf_repo_id")
+        if default_repo and str(default_repo).strip():
+            return str(default_repo).strip()
+
+        env_repo = os.environ.get("HF_REPO_ID")
+        if env_repo and env_repo.strip():
+            return env_repo.strip()
+
+        env_file = PROJECT_ROOT / ".env"
+        if env_file.exists():
+            try:
+                for line in env_file.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    if k.strip() == "HF_REPO_ID":
+                        val = v.strip().strip("'\"")
+                        if val and val != "your_username/BHSD_checkpoints":
+                            return val
+            except Exception:
+                pass
+
+        return ""
         """
         Khởi tạo KaggleExecutor trực tiếp trong RAM (Zero-file mode).
         Không sinh file hay thư mục tĩnh nào ra ổ cứng.
