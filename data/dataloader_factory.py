@@ -5,9 +5,10 @@ and supervised / semi-supervised data loaders with single-GPU and DDP samplers.
 """
 
 from dataclasses import dataclass
-from typing import Tuple, Sequence, Optional, List, Dict, Any
+from typing import Tuple, Sequence, Optional, List, Dict, Any, Callable
 import logging
 import os
+import random
 try:
     import h5py
 except ImportError:  # pragma: no cover - optional when running non-HDF5 unit tests
@@ -345,6 +346,16 @@ def resolve_labeled_unlabeled_indices(
     return labeled_idxs, unlabeled_idxs
 
 
+def make_worker_init_fn(base_seed: int, rank: int = 0) -> Callable[[int], None]:
+    """Return a deterministic DataLoader worker_init_fn seeding NumPy, Python, and Torch per (rank, worker_id)."""
+    def _worker_init_fn(worker_id: int) -> None:
+        worker_seed = (int(base_seed) + int(rank) * 1000 + int(worker_id)) % (2**32)
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+    return _worker_init_fn
+
+
 def build_bhsd_dataloaders(
     *,
     cfg: Config,
@@ -428,6 +439,9 @@ def build_bhsd_dataloaders(
     db_train.max_samples = max_samples
 
     method_name = str(getattr(cfg.method, 'name', 'pick')).lower()
+    base_seed = int(getattr(cfg.experiment, 'seed', 1337))
+    worker_init = make_worker_init_fn(base_seed=base_seed, rank=rank)
+
     if method_name == 'supervised':
         if labelnum < batch_layout.global_batch_size:
             raise ValueError('Labeled pool must contain at least one global supervised batch.')
@@ -445,6 +459,7 @@ def build_bhsd_dataloaders(
             labeled_dataset, batch_size=batch_size, sampler=train_sampler,
             shuffle=train_sampler is None, drop_last=drop_last,
             num_workers=num_workers, pin_memory=pin_memory,
+            worker_init_fn=worker_init,
         )
         return DataLoaderBundle(
             db_train=db_train,
@@ -463,7 +478,7 @@ def build_bhsd_dataloaders(
             labeled_idxs, unlabeled_idxs,
             batch_size=batch_size, secondary_batch_size=unlabeled_bs,
             num_replicas=world_size, rank=rank,
-            seed=int(getattr(cfg.experiment, 'seed', 1337)),
+            seed=base_seed,
         )
     else:
         batch_sampler = TwoStreamBatchSampler(
@@ -476,6 +491,7 @@ def build_bhsd_dataloaders(
     trainloader = DataLoader(
         db_train, batch_sampler=batch_sampler,
         num_workers=num_workers, pin_memory=pin_memory,
+        worker_init_fn=worker_init,
     )
 
     return DataLoaderBundle(

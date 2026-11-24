@@ -297,6 +297,63 @@ class WandbManager:
         except Exception as e:
             logging.warning(f"[W&B ARTIFACT] Error waiting for pending uploads: {e}")
 
+    def _commit_artifact_file(
+        self,
+        file_path: str,
+        target_filename: str,
+        name: str,
+        artifact_type: str,
+        description: str,
+        aliases: List[str],
+        metadata: Optional[Dict[str, Any]],
+        *,
+        wait_timeout: int = 120,
+        commit_prefix: str = "Checkpoint",
+        cleanup_on_hf: bool = True,
+    ) -> bool:
+        """Single canonical path for uploading a checkpoint to HF Hub and/or W&B Artifacts."""
+        hf_url = None
+        if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
+            path_in_repo = f"{self.run_name}/{target_filename}"
+            hf_url = self.hf_manager.upload_checkpoint(
+                file_path=file_path,
+                path_in_repo=path_in_repo,
+                commit_message=f"{commit_prefix} {name} ({', '.join(aliases)})",
+                async_upload=False,
+            )
+
+        import wandb
+        artifact = wandb.Artifact(
+            name=name,
+            type=artifact_type,
+            description=description,
+            metadata=metadata or {},
+        )
+        if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
+            artifact.add_reference(hf_url, checksum=False)
+            self.run.log_artifact(artifact, aliases=aliases)
+            logging.info(
+                f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)"
+            )
+            if cleanup_on_hf:
+                self._confirmed_uploads += 1
+                if self._confirmed_uploads % self.cache_cleanup_interval == 0:
+                    self._cleanup_artifact_cache()
+            return True
+
+        artifact.add_file(file_path, name=target_filename)
+        self.run.log_artifact(artifact, aliases=aliases)
+        logging.info(f"[W&B ARTIFACT] Uploading '{name}' ({artifact_type}) with aliases {aliases}...")
+        if self.mode == 'online':
+            try:
+                artifact.wait(timeout=wait_timeout)
+                logging.info(f"[W&B ARTIFACT] Successfully committed '{name}' to cloud.")
+            except Exception as exc:
+                logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
+            else:
+                self._maintain_artifact_storage(artifact, name, artifact_type)
+        return True
+
     def _upload_and_prune(
         self,
         staging_file: str,
@@ -310,44 +367,18 @@ class WandbManager:
         """Serialize and commit artifact with wait and prune in background thread."""
         if not self.enabled or self.run is None:
             return
-
-        hf_url = None
-        if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
-            path_in_repo = f"{self.run_name}/{target_filename}"
-            hf_url = self.hf_manager.upload_checkpoint(
-                file_path=staging_file,
-                path_in_repo=path_in_repo,
-                commit_message=f"Checkpoint {name} ({', '.join(aliases)})",
-                async_upload=False
-            )
-
-        import wandb
-        artifact = wandb.Artifact(
+        self._commit_artifact_file(
+            file_path=staging_file,
+            target_filename=target_filename,
             name=name,
-            type=artifact_type,
+            artifact_type=artifact_type,
             description=description,
-            metadata=metadata or {}
+            aliases=aliases,
+            metadata=metadata,
+            wait_timeout=120,
+            commit_prefix="Checkpoint",
+            cleanup_on_hf=True,
         )
-        if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-            artifact.add_reference(hf_url, checksum=False)
-            self.run.log_artifact(artifact, aliases=aliases)
-            logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
-            self._confirmed_uploads += 1
-            if self._confirmed_uploads % self.cache_cleanup_interval == 0:
-                self._cleanup_artifact_cache()
-            return
-
-        artifact.add_file(staging_file, name=target_filename)
-        self.run.log_artifact(artifact, aliases=aliases)
-        logging.info(f"[W&B ARTIFACT] Uploading '{name}' ({artifact_type}) with aliases {aliases}...")
-        if self.mode == 'online':
-            try:
-                artifact.wait(timeout=120)
-                logging.info(f"[W&B ARTIFACT] Successfully committed '{name}' to cloud.")
-            except Exception as exc:
-                logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
-            else:
-                self._maintain_artifact_storage(artifact, name, artifact_type)
 
     def log_artifact(
         self,
@@ -373,40 +404,18 @@ class WandbManager:
 
         if not self.async_upload or self._upload_queue is None:
             try:
-                hf_url = None
-                if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
-                    path_in_repo = f"{self.run_name}/{target_filename}"
-                    hf_url = self.hf_manager.upload_checkpoint(
-                        file_path=file_path,
-                        path_in_repo=path_in_repo,
-                        commit_message=f"Sync checkpoint {name} ({', '.join(aliases)})",
-                        async_upload=False
-                    )
-
-                import wandb
-                artifact = wandb.Artifact(
+                return self._commit_artifact_file(
+                    file_path=file_path,
+                    target_filename=target_filename,
                     name=name,
-                    type=artifact_type,
+                    artifact_type=artifact_type,
                     description=description,
-                    metadata=metadata or {}
+                    aliases=aliases,
+                    metadata=metadata,
+                    wait_timeout=60,
+                    commit_prefix="Sync checkpoint",
+                    cleanup_on_hf=False,
                 )
-                if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-                    artifact.add_reference(hf_url, checksum=False)
-                    self.run.log_artifact(artifact, aliases=aliases)
-                    logging.info(f"[W&B ARTIFACT] Logged HF reference '{name}' ({artifact_type}) with aliases {aliases} (0 byte W&B quota)")
-                    return True
-
-                artifact.add_file(file_path, name=target_filename)
-                self.run.log_artifact(artifact, aliases=aliases)
-                logging.info(f"[W&B ARTIFACT] Queued '{name}' ({artifact_type}) with aliases {aliases}")
-                if self.mode == 'online':
-                    try:
-                        artifact.wait(timeout=60)
-                    except Exception as exc:
-                        logging.warning('[W&B] Upload confirmation failed; skipping storage cleanup: %s', exc)
-                    else:
-                        self._maintain_artifact_storage(artifact, name, artifact_type)
-                return True
             except Exception as e:
                 logging.warning(f"[W&B ARTIFACT] Failed to log artifact '{name}': {e}")
                 return False
@@ -439,7 +448,6 @@ class WandbManager:
                     logging.warning(f"[W&B ASYNC ARTIFACT] Queue full for critical upload '{name}', falling back to direct upload")
                     if staging_file.exists():
                         os.remove(staging_file)
-                    # Fallback to direct synchronous upload to guarantee best model persistence
                     return self._upload_and_prune_direct(file_path, target_filename, name, artifact_type, description, aliases, metadata)
             else:
                 try:
@@ -458,34 +466,18 @@ class WandbManager:
     def _upload_and_prune_direct(self, file_path, target_filename, name, artifact_type, description, aliases, metadata):
         """Fallback synchronous upload when queue is unavailable or blocked."""
         try:
-            hf_url = None
-            if getattr(self, 'hf_manager', None) is not None and getattr(self, 'artifact_backend', None) in ('huggingface', 'both'):
-                path_in_repo = f"{self.run_name}/{target_filename}"
-                hf_url = self.hf_manager.upload_checkpoint(
-                    file_path=file_path,
-                    path_in_repo=path_in_repo,
-                    commit_message=f"Direct checkpoint {name} ({', '.join(aliases)})",
-                    async_upload=False
-                )
-
-            import wandb
-            artifact = wandb.Artifact(
+            return self._commit_artifact_file(
+                file_path=file_path,
+                target_filename=target_filename,
                 name=name,
-                type=artifact_type,
+                artifact_type=artifact_type,
                 description=description,
-                metadata=metadata or {}
+                aliases=aliases,
+                metadata=metadata,
+                wait_timeout=120,
+                commit_prefix="Direct checkpoint",
+                cleanup_on_hf=False,
             )
-            if getattr(self, 'artifact_backend', None) == 'huggingface' and hf_url:
-                artifact.add_reference(hf_url, checksum=False)
-                self.run.log_artifact(artifact, aliases=aliases)
-                return True
-
-            artifact.add_file(file_path, name=target_filename)
-            self.run.log_artifact(artifact, aliases=aliases)
-            if self.mode == 'online':
-                artifact.wait(timeout=120)
-                self._maintain_artifact_storage(artifact, name, artifact_type)
-            return True
         except Exception as exc:
             logging.warning(f"[W&B DIRECT ARTIFACT] Direct upload failed for '{name}': {exc}")
             return False

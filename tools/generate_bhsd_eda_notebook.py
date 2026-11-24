@@ -48,7 +48,12 @@ ROOT = next(p for p in (Path.cwd(), *Path.cwd().parents) if (p/'tools/bhsd_eda.p
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools.bhsd_eda import CLASS_NAMES, split_audit, build_tables, parse, sample_case, fingerprint
-from tools.bhsd_eda_vi import vi, vietnamese_table, translate_figure
+try:
+    from tools.bhsd_eda_vi import vi, vietnamese_table, translate_figure
+except ImportError:
+    vi = lambda x: x
+    vietnamese_table = lambda obj: obj
+    translate_figure = lambda fig: fig
 
 def display(obj):
     original_display(vietnamese_table(obj))

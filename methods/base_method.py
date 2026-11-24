@@ -316,23 +316,15 @@ class BaseMethod(abc.ABC):
         )
 
     def cloud_latest_due(self, iteration):
-        if getattr(self.cfg.experiment, 'resume_policy', 'latest') != 'latest':
-            return False
-        interval = getattr(self.cfg.logging, 'artifact_interval', None) or 5000
-        interval = int(interval)
-        if interval < 1:
-            raise ValueError('artifact_interval must be positive')
-        return iteration % interval == 0 or iteration == getattr(self, '_phase_max_iters', None)
+        from training.checkpoint_manager import CheckpointManager
+        return CheckpointManager.cloud_latest_due(
+            self.cfg, iteration, phase_max_iters=getattr(self, '_phase_max_iters', None)
+        )
 
     def cloud_epoch_due(self, completed_epochs: int) -> bool:
         """Determine whether current epoch boundary checkpoint should be uploaded to W&B."""
-        if getattr(self.cfg.experiment, 'resume_policy', 'latest') != 'epoch_boundary':
-            return False
-        epoch_art_int = getattr(self.cfg.logging, 'epoch_artifact_interval', None)
-        interval = 10 if epoch_art_int is None else int(epoch_art_int)
-        if interval < 1:
-            raise ValueError('epoch_artifact_interval must be positive')
-        return completed_epochs % interval == 0
+        from training.checkpoint_manager import CheckpointManager
+        return CheckpointManager.cloud_epoch_due(self.cfg, completed_epochs)
 
     def save_checkpoint(
         self,
@@ -345,73 +337,46 @@ class BaseMethod(abc.ABC):
         aliases: Optional[List[str]] = None,
         extra_state: Optional[Dict[str, Any]] = None
     ):
-        if not is_main_process():
-            return
-
-        from utils.checkpoint import save_checkpoint as _save_ckpt
-        from utils.wandb_manager import redact_config
-        from training.checkpoint_metadata import build_checkpoint_metadata
-        cfg_dict = redact_config(self.cfg.to_dict()) if hasattr(self.cfg, 'to_dict') else None
-        wandb_ident = self.wandb_manager.identity() if getattr(self.wandb_manager, 'run_id', None) else None
-        merged_extra = build_checkpoint_metadata(
-            config_dict=cfg_dict,
-            wandb_identity=wandb_ident,
-            validation_options=self.validation_options(),
-            successful_updates=getattr(self, 'successful_updates', 0),
-            validation_details=getattr(self, 'validation_details', None),
-            extra_state=extra_state
-        )
-
-        _save_ckpt(
+        from training.checkpoint_manager import CheckpointManager
+        CheckpointManager.save(
             path=path,
             model=self.model,
             optimizer=self.optimizer,
             scaler=self.scaler if hasattr(self, 'scaler') else None,
+            cfg=self.cfg,
+            wandb_manager=self.wandb_manager,
+            validation_options=self.validation_options(),
+            successful_updates=getattr(self, 'successful_updates', 0),
+            validation_details=getattr(self, 'validation_details', None),
             iter_num=iter_num,
             best_dice=best_dice,
             phase=phase,
-            extra_state=merged_extra
+            artifact_name=artifact_name,
+            artifact_type=artifact_type,
+            aliases=aliases,
+            extra_state=extra_state,
         )
 
-        if artifact_name and self.wandb_manager.enabled and self.wandb_manager.save_artifacts:
-            self.wandb_manager.log_artifact(
-                file_path=str(path),
-                name=artifact_name,
-                artifact_type=artifact_type,
-                description=f"Checkpoint at iter {iter_num} ({phase}) with best_mDice: {best_dice:.4f}",
-                aliases=aliases or ["latest"],
-                metadata={'iter_num': iter_num, 'best_dice': best_dice, 'phase': phase}
-            )
-
     def load_checkpoint(self, path: str, prefer_ema: bool = False) -> Tuple[int, float]:
-        from utils.checkpoint import load_checkpoint as _load_ckpt, validate_checkpoint_context
-        checkpoint_state = torch.load(path, map_location=self.device, weights_only=True)
-        validate_checkpoint_context(checkpoint_state, fold=self.fold, task=self.task,
-                                    num_classes=self.num_classes, dataset_name=self.dataset_name)
-        self._last_loaded_checkpoint_state = checkpoint_state
-        ckpt_data = _load_ckpt(
+        from training.checkpoint_manager import CheckpointManager
+        res = CheckpointManager.load(
             path=path,
             model=self.model,
             optimizer=self.optimizer,
             scaler=self.scaler if hasattr(self, 'scaler') else None,
             device=self.device,
+            fold=self.fold,
+            task=self.task,
+            num_classes=self.num_classes,
+            dataset_name=self.dataset_name,
             prefer_ema=prefer_ema,
-            strict=True,
-            checkpoint_state=checkpoint_state,
-            restore_rng=True
         )
-        self.validation_details = ckpt_data.get('validation_metrics') or {}
-        if 'successful_updates' in ckpt_data:
-            self.successful_updates = ckpt_data['successful_updates']
-        elif 'successful_updates' in ckpt_data.get('extra_state', {}):
-            self.successful_updates = ckpt_data['extra_state']['successful_updates']
-
-        # Extract completed_epochs if recorded
-        self.loaded_completed_epochs = ckpt_data.get('completed_epochs')
-        if self.loaded_completed_epochs is None and 'extra_state' in ckpt_data and isinstance(ckpt_data['extra_state'], dict):
-            self.loaded_completed_epochs = ckpt_data['extra_state'].get('completed_epochs')
-
-        return ckpt_data.get('iter_num', 0), ckpt_data.get('best_dice', 0.0)
+        self._last_loaded_checkpoint_state = res.checkpoint_state
+        self.validation_details = res.validation_details
+        if res.successful_updates is not None:
+            self.successful_updates = res.successful_updates
+        self.loaded_completed_epochs = res.completed_epochs
+        return res.iter_num, res.best_dice
 
     def build_visual_samples(self, visual_records: List[Dict[str, Any]]) -> List[Any]:
         """Build interactive segmentation masks for W&B."""

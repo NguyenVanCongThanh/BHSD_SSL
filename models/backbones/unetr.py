@@ -173,11 +173,9 @@ class Transformer(nn.Module):
         super().__init__()
         self.embeddings = Embeddings(input_dim, embed_dim, cube_size, patch_size, dropout)
         self.layer = nn.ModuleList()
-        self.encoder_norm = nn.LayerNorm(embed_dim, eps=1e-6)
         self.extract_layers = extract_layers
         for _ in range(num_layers):
-            layer = TransformerBlock(embed_dim, num_heads, dropout, cube_size, patch_size)
-            self.layer.append(copy.deepcopy(layer))
+            self.layer.append(TransformerBlock(embed_dim, num_heads, dropout, cube_size, patch_size))
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         extract_layers = []
