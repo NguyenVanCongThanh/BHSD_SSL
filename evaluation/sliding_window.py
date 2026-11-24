@@ -16,7 +16,7 @@ import torch.distributed as dist
 from functools import lru_cache
 from scipy.ndimage import gaussian_filter
 
-from data.constants import (
+from core.constants import (
     DEFAULT_PATCH_SIZE,
     DEFAULT_VAL_STEP_SIZE,
     resolve_sliding_window_strides,

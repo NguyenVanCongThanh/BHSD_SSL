@@ -28,7 +28,7 @@ import torch
 
 from core.registry import MODELS, DATASETS
 from core.config_parser import load_config
-from data.constants import (
+from core.constants import (
     DEFAULT_DATA_ROOT,
     DEFAULT_PATCH_SIZE,
     DEFAULT_VAL_STEP_SIZE,
@@ -39,8 +39,8 @@ from evaluation.benchmark import benchmark_5folds
 from evaluation.sliding_window import evaluate_dataset_sliding_window
 from evaluation.metrics import format_dice_summary
 from evaluation.complexity import profile_model_complexity, format_complexity_summary
-import data    # Register datasets
-import models  # Register models
+import data.dataset_bhsd  # Register datasets
+import models             # Register models
 from utils.logger import get_logger
 
 

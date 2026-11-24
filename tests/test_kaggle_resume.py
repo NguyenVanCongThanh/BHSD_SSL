@@ -89,21 +89,27 @@ class ResumeTests(unittest.TestCase):
             meta = json.loads((folder / 'kernel-metadata.json').read_text())
             code = folder / meta['code_file']
             fresh = code.read_bytes()
+            self.assertNotIn(b'from tools.kaggle.resume import prepare_resume', fresh)
             self.assertNotIn(b'def prepare_resume', fresh)
             builder.build_bundle('mean_teacher', 'test_user', resume_run='klbm4ebr', resume_checkpoint='best')
-            self.assertIn(b'def prepare_resume', code.read_bytes())
+            clean_resume = code.read_bytes()
+            self.assertIn(b'from tools.kaggle.resume import prepare_resume', clean_resume)
+            self.assertNotIn(b"Path('utils/wandb_manager.py').write_text", clean_resume)
             builder.build_bundle('mean_teacher', 'test_user', resume_run='klbm4ebr',
-                                 resume_checkpoint='best', resume_mode='new-run')
+                                 resume_checkpoint='best', resume_mode='new-run', embed_local_patches=True)
             branch_nb = json.loads(code.read_text())
             branch_cell = next(''.join(c['source']) for c in branch_nb['cells']
                                if 'def prepare_resume' in ''.join(c.get('source', [])))
             ast.parse(branch_cell)
             self.assertIn('resume_mode=\'new-run\'', branch_cell)
+            self.assertIn('local_patches_embedded=True', branch_cell)
             self.assertIn("Path('utils/wandb_manager.py').write_text", branch_cell)
             builder.build_bundle('mean_teacher', 'test_user')
             self.assertEqual(code.read_bytes(), fresh)
             with self.assertRaises(ValueError):
                 builder.build_bundle('mean_teacher', 'test_user', resume_checkpoint='best')
+            with self.assertRaises(ValueError):
+                builder.build_bundle('mean_teacher', 'test_user', embed_local_patches=True)
             with self.assertRaises(ValueError):
                 builder.build_bundle('pick', 'test_user', resume_run='klbm4ebr')
 
@@ -139,7 +145,7 @@ class ResumeTests(unittest.TestCase):
         from core.config_parser import validate_config
         for mode in ('same-run', 'new-run'):
             notebook = build_mean_teacher_notebook('binary')
-            inject_resume(notebook, 'klbm4ebr', 'best', mode)
+            inject_resume(notebook, 'klbm4ebr', 'best', mode, embed_local_patches=True)
             cell = next(''.join(c['source']) for c in notebook['cells']
                         if 'def prepare_resume' in ''.join(c.get('source', [])))
             preamble = cell.split('def prepare_resume', 1)[0]

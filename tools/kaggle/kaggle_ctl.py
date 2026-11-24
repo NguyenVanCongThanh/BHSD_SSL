@@ -22,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from tools.kaggle.accounts_manager import AccountsManager
 from tools.kaggle.notebook_builder import NotebookBuilder
 from tools.kaggle.kaggle_executor import KaggleExecutor
+from tools.kaggle.render_notebook import NOTEBOOK_TYPE_TO_METHOD, NotebookRenderOptions
 
 def cmd_account_list(args):
     mgr = AccountsManager()
@@ -156,7 +157,10 @@ def cmd_push(args):
     executor = mgr.get_executor(account_id)
 
     notebook_type = args.notebook or "mean_teacher"
-    task, setting = _apply_build_env_overrides(args)
+    default_setting = NOTEBOOK_TYPE_TO_METHOD.get(notebook_type, (None, "default"))[1]
+    render_options = NotebookRenderOptions.from_cli_args(args, default_setting=default_setting)
+    embed_local_patches = bool(getattr(args, "embed_local_patches", False))
+    task, setting = render_options.task, render_options.setting
 
     print("\n" + "=" * 80)
     print(f"SUBMIT NOTEBOOK '{notebook_type.upper()}' LÊN KAGGLE")
@@ -180,6 +184,9 @@ def cmd_push(args):
     else:
         print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
 
+    if embed_local_patches:
+        print("[!] WARNING: --embed-local-patches enabled; uncommitted local files will be embedded (experimental testing only).")
+
     custom_datasets = [args.dataset] if args.dataset else None
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
@@ -192,7 +199,9 @@ def cmd_push(args):
         hf_token=hf_token,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
-        resume_mode=getattr(args, "resume_mode", None)
+        resume_mode=getattr(args, "resume_mode", None),
+        render_options=render_options,
+        embed_local_patches=embed_local_patches,
     )
 
     print(f"[*] Thư mục bundle đã chuẩn bị: {bundle_dir}")
@@ -291,7 +300,10 @@ def cmd_build(args):
     builder = NotebookBuilder()
     notebook_type = args.notebook or "mean_teacher"
     username = args.username or "dry_run_user"
-    task, setting = _apply_build_env_overrides(args)
+    default_setting = NOTEBOOK_TYPE_TO_METHOD.get(notebook_type, (None, "default"))[1]
+    render_options = NotebookRenderOptions.from_cli_args(args, default_setting=default_setting)
+    embed_local_patches = bool(getattr(args, "embed_local_patches", False))
+    task, setting = render_options.task, render_options.setting
 
     print("\n" + "=" * 80)
     print(f"BUILD & VALIDATE NOTEBOOK '{notebook_type.upper()}' CỤC BỘ (DRY-RUN)")
@@ -315,6 +327,9 @@ def cmd_build(args):
     else:
         print("[!] HF Hub:      [Chưa cấu hình HF Token - Checkpoint có thể không được upload lên HF]")
 
+    if embed_local_patches:
+        print("[!] WARNING: --embed-local-patches enabled; uncommitted local files will be embedded (experimental testing only).")
+
     bundle_dir = builder.build_bundle(
         notebook_type=notebook_type,
         target_username=username,
@@ -326,7 +341,9 @@ def cmd_build(args):
         hf_token=hf_token,
         resume_run=getattr(args, "resume_run", None),
         resume_checkpoint=getattr(args, "resume_checkpoint", None),
-        resume_mode=getattr(args, "resume_mode", None)
+        resume_mode=getattr(args, "resume_mode", None),
+        render_options=render_options,
+        embed_local_patches=embed_local_patches,
     )
 
     metadata_file = bundle_dir / "kernel-metadata.json"
@@ -451,6 +468,16 @@ def main():
                                     help="W&B tracking mode (default same-run); requires --resume-run")
         command_parser.add_argument("--resume-checkpoint", choices=["latest", "best"],
                                     help="Checkpoint cloud để resume (mặc định latest); cần --resume-run")
+        command_parser.add_argument(
+            "--embed-local-patches",
+            action="store_true",
+            default=False,
+            help=(
+                "Opt-in experimental flag (requires --resume-run): embed local uncommitted "
+                "core/config_parser.py, utils/wandb_manager.py, utils/hf_storage.py, and prepare_resume "
+                "into the Kaggle bundle. Default is False (clean reproducible GIT_COMMIT execution)."
+            ),
+        )
         command_parser.add_argument("--max-iteration", type=int, default=None,
                                     help="Ghi đè số iteration tối đa (vd 9994)")
         command_parser.add_argument("--lr-max-iteration", type=int, default=None,

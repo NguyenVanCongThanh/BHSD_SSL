@@ -13,7 +13,7 @@ import torch
 from tqdm import tqdm
 
 from core.registry import DATASETS
-from data.constants import (
+from core.constants import (
     DEFAULT_PATCH_SIZE,
     DEFAULT_VAL_STEP_SIZE,
     get_dataset_class_names,

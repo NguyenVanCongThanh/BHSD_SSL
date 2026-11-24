@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from data.constants import BHSD_CLASS_ABBREVS
+from core.constants import BHSD_CLASS_ABBREVS
 
 CLASS_NAMES = list(BHSD_CLASS_ABBREVS)
 MODULE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()

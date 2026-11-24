@@ -1,7 +1,7 @@
 """Shared model specification for training and checkpoint-based evaluation."""
 import inspect
 from core.registry import MODELS
-from data.constants import DEFAULT_PATCH_SIZE
+from core.constants import DEFAULT_PATCH_SIZE
 
 
 def model_spec_from_config(config, num_classes, legacy=False):

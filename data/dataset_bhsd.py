@@ -20,7 +20,7 @@ from torch.utils.data import Dataset
 
 from core.registry import DATASETS
 from data.masking import MaskGeneratorBHSD
-from data.constants import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
+from core.constants import BHSD_MULTICLASS_NAMES, BHSD_BINARY_NAMES
 
 
 @DATASETS.register("bhsd")

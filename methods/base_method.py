@@ -31,7 +31,7 @@ from core.distributed import (
     is_main_process
 )
 from core.optimizers import build_optimizer, calculate_lr
-from data.constants import (
+from core.constants import (
     DEFAULT_CLIP_NORM,
     DEFAULT_PATCH_SIZE,
     DEFAULT_VAL_STEP_SIZE,

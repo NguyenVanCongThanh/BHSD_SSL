@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover - fallback when torchvision is absent or A
 from core.config_parser import Config
 from core.batching import BatchLayout
 from core.registry import DATASETS
-from data.constants import (
+from core.constants import (
     BHSD_FOREGROUND_NAMES,
     DEFAULT_AUGMENTATION_CONFIG,
     DEFAULT_DATA_ROOT,

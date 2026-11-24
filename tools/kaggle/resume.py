@@ -1,8 +1,34 @@
-"""Embed opt-in resume preparation in a Kaggle bundle, without changing templates."""
+"""
+Kaggle Resume Preparation CLI & Notebook Injection Helper for MedSSL-BHSD.
+
+Default behavior (reproducible):
+  `inject_resume(..., embed_local_patches=False)` imports `prepare_resume` directly from
+  the cloned `GIT_COMMIT` on Kaggle without overwriting any repository files, and records
+  `code_provenance="git_commit"` / `local_patches_embedded=False` in `resume_source`.
+
+Opt-in experimental testing (`--embed-local-patches` / `embed_local_patches=True`):
+  Explicitly embeds local `core/config_parser.py`, `utils/wandb_manager.py`,
+  `utils/hf_storage.py`, and `prepare_resume` source for testing uncommitted edits on
+  Kaggle, and records `code_provenance="local_patches_embedded"` /
+  `local_patches_embedded=True` in `resume_source`.
+"""
+import argparse
 import inspect
+import json
+import sys
 
 
-def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resume_mode="same-run", max_iteration=None, lr_max_iteration=None):
+def prepare_resume(
+    run_path,
+    checkpoint_kind,
+    data_root,
+    exp_dir,
+    num_gpus,
+    resume_mode="same-run",
+    max_iteration=None,
+    lr_max_iteration=None,
+    local_patches_embedded=False,
+):
     """Read the source configuration and stage an owned cloud checkpoint before training."""
     import copy
     import json
@@ -123,9 +149,14 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
         cfg['logging']['wandb_run_name'] = None
     art_name = artifact.name if artifact else f"{checkpoint_kind}_from_hf"
     art_meta = artifact.metadata if artifact else {}
+    provenance = 'local_patches_embedded' if local_patches_embedded else 'git_commit'
     cfg['logging']['resume_source'] = {
-        'run': run_path, 'artifact': art_name, 'metadata': art_meta,
+        'run': run_path,
+        'artifact': art_name,
+        'metadata': art_meta,
         'mode': resume_mode,
+        'local_patches_embedded': bool(local_patches_embedded),
+        'code_provenance': provenance,
     }
     allowed_top_level = {'experiment', 'data', 'model', 'method', 'logging'}
     for key in list(cfg.keys()):
@@ -186,46 +217,129 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     from core.config_parser import load_config
     load_config(config_path=str(config_path))
     (destination / 'resume_source.json').write_text(json.dumps({
-        'run': run_path, 'artifact': art_name, 'metadata': art_meta,
+        'run': run_path,
+        'artifact': art_name,
+        'metadata': art_meta,
+        'mode': resume_mode,
+        'local_patches_embedded': bool(local_patches_embedded),
+        'code_provenance': provenance,
     }, indent=2), encoding='utf-8')
     meta_suffix = f"; metadata={art_meta}" if art_meta else ""
     print(f'[RESUME] {run_path}: {art_name}{meta_suffix}', flush=True)
-    print(f'[RESUME] W&B mode: {resume_mode}; source history is preserved.', flush=True)
+    print(f'[RESUME] W&B mode: {resume_mode}; provenance: {provenance}; source history is preserved.', flush=True)
     args = ['--config', str(config_path), '--resume']
     if num_gpus >= 2:
         args.append('--ddp')
     return args, cfg
 
 
-def inject_resume(notebook, run_path, checkpoint_kind, resume_mode="same-run"):
-    """Patch only the generated training cell; fresh builds remain byte-for-byte unchanged."""
+def inject_resume(
+    notebook,
+    run_path,
+    checkpoint_kind,
+    resume_mode="same-run",
+    max_iteration=None,
+    lr_max_iteration=None,
+    embed_local_patches=False,
+):
+    """
+    Patch only the generated training cell; fresh builds remain byte-for-byte unchanged.
+
+    By default (`embed_local_patches=False`), invokes `tools.kaggle.resume.prepare_resume`
+    from the cloned repository commit so runtime code matches `GIT_COMMIT` exactly.
+    When `embed_local_patches=True` is explicitly requested, embeds local source files
+    for experimental testing and marks provenance as `local_patches_embedded`.
+    """
     import os
     marker = '# Cấu hình Anti-Deadlock'
     matches = [c for c in notebook['cells'] if c.get('cell_type') == 'code'
                and 'base_args = [' in ''.join(c['source']) and marker in ''.join(c['source'])]
     if len(matches) != 1:
         raise ValueError('Cannot identify the training cell')
-    # Kaggle clones GitHub: ship both schema and manager from this CLI revision.
-    # Both modes use resume_source, so both need the updated schema.
-    from pathlib import Path
-    repo_root = Path(__file__).resolve().parents[2]
-    max_iter_env = os.environ.get('BHSD_MAX_ITER')
-    max_iter_override = int(max_iter_env) if max_iter_env else None
-    lr_max_iter_env = os.environ.get('BHSD_LR_MAX_ITER')
-    lr_max_iter_override = int(lr_max_iter_env) if lr_max_iter_env else None
-    code = 'from pathlib import Path\n'
-    for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py', 'utils/hf_storage.py'):
-        source = (repo_root / relative_path).read_text(encoding='utf-8')
-        code += f'Path({relative_path!r}).write_text({source!r}, encoding="utf-8")\n'
-    code += inspect.getsource(prepare_resume) + '\n'
-    code += ('_resume_gpus = 1 if globals().get("FORCE_SINGLE_GPU", False) else num_gpus\n'
-             f'base_args, resume_cfg = prepare_resume({run_path!r}, {checkpoint_kind!r}, '
-             f'DATA_ROOT, EXP_DIR, _resume_gpus, resume_mode={resume_mode!r}, '
-             f'max_iteration={max_iter_override!r}, lr_max_iteration={lr_max_iter_override!r})\n'
-             'EXP_NAME = resume_cfg["experiment"]["name"]\n'
-             'FOLD_ID = resume_cfg["experiment"]["fold"]\n'
-             'TASK = resume_cfg["experiment"]["task"]\n'
-             'MODEL_NAME = resume_cfg["model"]["name"]\n'
-             'WANDB_PROJECT = resume_cfg["logging"]["wandb_project"]\n\n')
+
+    max_iter_override = max_iteration
+    if max_iter_override is None:
+        max_iter_env = os.environ.get('BHSD_MAX_ITER')
+        max_iter_override = int(max_iter_env) if max_iter_env else None
+    lr_max_iter_override = lr_max_iteration
+    if lr_max_iter_override is None:
+        lr_max_iter_env = os.environ.get('BHSD_LR_MAX_ITER')
+        lr_max_iter_override = int(lr_max_iter_env) if lr_max_iter_env else None
+
+    if embed_local_patches:
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[2]
+        code = 'from pathlib import Path\n'
+        for relative_path in ('core/config_parser.py', 'utils/wandb_manager.py', 'utils/hf_storage.py'):
+            source = (repo_root / relative_path).read_text(encoding='utf-8')
+            code += f'Path({relative_path!r}).write_text({source!r}, encoding="utf-8")\n'
+        code += inspect.getsource(prepare_resume) + '\n'
+    else:
+        code = 'from tools.kaggle.resume import prepare_resume\n'
+
+    code += (
+        '_resume_gpus = 1 if globals().get("FORCE_SINGLE_GPU", False) else num_gpus\n'
+        f'base_args, resume_cfg = prepare_resume({run_path!r}, {checkpoint_kind!r}, '
+        f'DATA_ROOT, EXP_DIR, _resume_gpus, resume_mode={resume_mode!r}, '
+        f'max_iteration={max_iter_override!r}, lr_max_iteration={lr_max_iter_override!r}, '
+        f'local_patches_embedded={bool(embed_local_patches)!r})\n'
+        'EXP_NAME = resume_cfg["experiment"]["name"]\n'
+        'FOLD_ID = resume_cfg["experiment"]["fold"]\n'
+        'TASK = resume_cfg["experiment"]["task"]\n'
+        'MODEL_NAME = resume_cfg["model"]["name"]\n'
+        'WANDB_PROJECT = resume_cfg["logging"]["wandb_project"]\n\n'
+    )
     cell = matches[0]
     cell['source'] = ''.join(cell['source']).replace(marker, code + marker, 1).splitlines(True)
+
+
+def main(argv=None):
+    """CLI entrypoint: `python -m tools.kaggle.resume --run <id> ...`."""
+    parser = argparse.ArgumentParser(
+        description="Stage a cloud checkpoint and resume_config.yaml from a prior W&B / HF run."
+    )
+    parser.add_argument("--run", required=True, help="Source run ID, project/id, or entity/project/id")
+    parser.add_argument("--checkpoint", choices=["latest", "best"], default="latest", help="Checkpoint kind to restore")
+    parser.add_argument("--data-root", required=True, help="Path to preprocessed BHSD dataset root")
+    parser.add_argument("--exp-dir", required=True, help="Experiment output root directory")
+    parser.add_argument("--num-gpus", type=int, default=2, help="World size / number of GPUs (must match source run)")
+    parser.add_argument("--resume-mode", choices=["same-run", "new-run"], default="same-run", help="W&B tracking mode")
+    parser.add_argument("--max-iteration", type=int, default=None, help="Optional target max_iteration override")
+    parser.add_argument("--lr-max-iteration", type=int, default=None, help="Optional lr_max_iteration override")
+    parser.add_argument(
+        "--local-patches-embedded",
+        action="store_true",
+        help="Mark provenance metadata as containing embedded local patches",
+    )
+    parser.add_argument("--output-json", default=None, help="Optional path to write JSON payload with args and metadata")
+    args = parser.parse_args(argv)
+
+    train_args, cfg = prepare_resume(
+        run_path=args.run,
+        checkpoint_kind=args.checkpoint,
+        data_root=args.data_root,
+        exp_dir=args.exp_dir,
+        num_gpus=args.num_gpus,
+        resume_mode=args.resume_mode,
+        max_iteration=args.max_iteration,
+        lr_max_iteration=args.lr_max_iteration,
+        local_patches_embedded=args.local_patches_embedded,
+    )
+    payload = {
+        "args": train_args,
+        "experiment": cfg["experiment"],
+        "model": cfg["model"],
+        "logging": cfg["logging"],
+    }
+    if args.output_json:
+        from pathlib import Path
+        out_path = Path(args.output_json)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    else:
+        print(json.dumps(payload, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from data.constants import (
+from core.constants import (
     DEFAULT_AUGMENTATION_CONFIG,
     DEFAULT_CROP_JITTER_XY,
     DEFAULT_CROP_JITTER_Z,

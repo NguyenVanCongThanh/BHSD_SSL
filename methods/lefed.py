@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from data.constants import (
+from core.constants import (
     DEFAULT_CLIP_NORM,
     DEFAULT_CONSISTENCY_DICE_WEIGHT,
     DEFAULT_CONSISTENCY_MSE_WEIGHT,

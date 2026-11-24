@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
+from core.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, resolve_ds_weights
 from losses.deep_supervision import downsample_target_for_ds

@@ -51,13 +51,15 @@ class NotebookBuilder:
                      hf_token: Optional[str] = None,
                      resume_run: Optional[str] = None,
                      resume_checkpoint: Optional[str] = None,
-                     resume_mode: Optional[str] = None) -> Path:
+                     resume_mode: Optional[str] = None,
+                     render_options: Optional[Any] = None,
+                     embed_local_patches: bool = False) -> Path:
         """
         Chuẩn bị thư mục bundle hoàn chỉnh gồm file .ipynb và file kernel-metadata.json
         cho tài khoản target_username.
         """
-        if (resume_checkpoint or resume_mode) and not resume_run:
-            raise ValueError("--resume-checkpoint/--resume-mode requires --resume-run")
+        if (resume_checkpoint or resume_mode or embed_local_patches) and not resume_run:
+            raise ValueError("--resume-checkpoint/--resume-mode/--embed-local-patches requires --resume-run")
         supported_resume_notebooks = (
             "mean_teacher",
             "lefed",
@@ -87,33 +89,42 @@ class NotebookBuilder:
 
         target_code_path = bundle_dir / code_file_name
 
-        # 1. Luôn chạy generator script (nếu có) để đảm bảo notebook mới nhất trước khi đóng gói
-        gen_script = spec.get("generator_script")
-        if gen_script:
-            gen_path = PROJECT_ROOT / gen_script
-            if gen_path.exists():
-                try:
-                    subprocess.run([sys.executable, str(gen_path)], cwd=str(PROJECT_ROOT), check=True, timeout=30)
-                except Exception as e:
-                    raise RuntimeError(f"Lỗi khi chạy generator script {gen_script}: {e}")
-
-        possible_sources = [
-            PROJECT_ROOT / "scripts" / code_file_name,
-            PROJECT_ROOT / f"kaggle_{notebook_type}" / code_file_name,
-            PROJECT_ROOT / code_file_name
-        ]
-        
-        found_source = None
-        for p in possible_sources:
-            if p.exists():
-                found_source = p
-                break
-
-        # Đồng bộ file notebook vào bundle
-        if found_source and found_source.exists():
-            shutil.copy2(target_code_path if target_code_path.exists() and found_source == target_code_path else found_source, target_code_path)
+        # 1. Render in-process via unified renderer when typed render_options are provided;
+        # otherwise fall back to generator_script for backward compatibility (e.g. nnunet_plan).
+        from tools.kaggle.render_notebook import NOTEBOOK_TYPE_TO_METHOD, render_training_notebook
+        if render_options is not None and notebook_type in NOTEBOOK_TYPE_TO_METHOD:
+            method_key, default_setting = NOTEBOOK_TYPE_TO_METHOD[notebook_type]
+            if getattr(render_options, "setting", None) in (None, "", "default") and default_setting != "default":
+                render_options.setting = default_setting
+            notebook_dict = render_training_notebook(method_key, options=render_options)
+            target_code_path.write_text(json.dumps(notebook_dict, indent=1, ensure_ascii=False), encoding="utf-8")
         else:
-            raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
+            gen_script = spec.get("generator_script")
+            if gen_script:
+                gen_path = PROJECT_ROOT / gen_script
+                if gen_path.exists():
+                    try:
+                        subprocess.run([sys.executable, str(gen_path)], cwd=str(PROJECT_ROOT), check=True, timeout=30)
+                    except Exception as e:
+                        raise RuntimeError(f"Lỗi khi chạy generator script {gen_script}: {e}")
+
+            possible_sources = [
+                PROJECT_ROOT / "scripts" / code_file_name,
+                PROJECT_ROOT / f"kaggle_{notebook_type}" / code_file_name,
+                PROJECT_ROOT / code_file_name
+            ]
+
+            found_source = None
+            for p in possible_sources:
+                if p.exists():
+                    found_source = p
+                    break
+
+            # Đồng bộ file notebook vào bundle
+            if found_source and found_source.exists():
+                shutil.copy2(target_code_path if target_code_path.exists() and found_source == target_code_path else found_source, target_code_path)
+            else:
+                raise FileNotFoundError(f"Không tìm thấy file notebook nguồn {code_file_name} trong dự án!")
 
         # Tự động nạp W&B API Key và HF Token vào notebook bundle (được bảo vệ trong kaggle_runs/ qua .gitignore)
         # Đảm bảo mọi tài khoản mới hoặc cũ đều tự động đồng bộ W&B Cloud và HF Storage mà không phụ thuộc Kaggle Secrets
@@ -167,7 +178,15 @@ class NotebookBuilder:
             from tools.kaggle.resume import inject_resume
             with target_code_path.open(encoding="utf-8") as stream:
                 notebook = json.load(stream)
-            inject_resume(notebook, resume_run, resume_checkpoint or "latest", resume_mode or "same-run")
+            inject_resume(
+                notebook,
+                resume_run,
+                resume_checkpoint or "latest",
+                resume_mode or "same-run",
+                max_iteration=getattr(render_options, "max_iteration", None) if render_options is not None else None,
+                lr_max_iteration=getattr(render_options, "lr_max_iteration", None) if render_options is not None else None,
+                embed_local_patches=bool(embed_local_patches),
+            )
             target_code_path.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
 
         # 2. Xử lý dataset sources

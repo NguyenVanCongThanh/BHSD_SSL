@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
+from core.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from models.outputs import extract_multiscale_outputs
 from losses import MaskDiceLoss

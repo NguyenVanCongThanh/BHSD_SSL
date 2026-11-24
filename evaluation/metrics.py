@@ -5,7 +5,7 @@ Single Source of Truth for both Binary (Hemorrhage vs BG) and Multi-class (6 cla
 
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
-from data.constants import BHSD_MULTICLASS_NAMES as CLASS_NAMES_MULTICLASS, BHSD_BINARY_NAMES as CLASS_NAMES_BINARY
+from core.constants import BHSD_MULTICLASS_NAMES as CLASS_NAMES_MULTICLASS, BHSD_BINARY_NAMES as CLASS_NAMES_BINARY
 
 
 def _validate_class_maps(pred, gt, num_classes):

@@ -24,9 +24,9 @@ import logging
 
 from core.registry import METHODS
 from core.config_parser import load_config
-import data     # Trigger dataset registrations
-import models   # Trigger model registrations
-import methods  # Trigger method registrations
+import data.dataset_bhsd  # Trigger dataset registrations
+import models             # Trigger model registrations
+import methods            # Trigger method registrations
 
 
 from utils.logger import get_logger

@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.registry import METHODS
-from data.constants import (
+from core.constants import (
     DEFAULT_CONSISTENCY_DICE_WEIGHT,
     DEFAULT_CONSISTENCY_MSE_WEIGHT,
     DEFAULT_FG_CONFIDENCE_MAX_THRESH,

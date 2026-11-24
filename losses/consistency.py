@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from core.registry import LOSSES
 from losses.dice import reduce_batch_stats
-from data.constants import (
+from core.constants import (
     DEFAULT_CONSISTENCY_DICE_WEIGHT,
     DEFAULT_CONSISTENCY_MSE_WEIGHT,
     DEFAULT_FG_CONFIDENCE_MAX_THRESH,
