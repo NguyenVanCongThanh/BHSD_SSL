@@ -320,11 +320,6 @@ class WandbManager:
                 commit_message=f"Checkpoint {name} ({', '.join(aliases)})",
                 async_upload=False
             )
-            if hf_url:
-                try:
-                    self.run.summary[f"hf_{name}"] = hf_url
-                except Exception:
-                    pass
 
         import wandb
         artifact = wandb.Artifact(
@@ -387,11 +382,6 @@ class WandbManager:
                         commit_message=f"Sync checkpoint {name} ({', '.join(aliases)})",
                         async_upload=False
                     )
-                    if hf_url:
-                        try:
-                            self.run.summary[f"hf_{name}"] = hf_url
-                        except Exception:
-                            pass
 
                 import wandb
                 artifact = wandb.Artifact(
@@ -477,11 +467,6 @@ class WandbManager:
                     commit_message=f"Direct checkpoint {name} ({', '.join(aliases)})",
                     async_upload=False
                 )
-                if hf_url:
-                    try:
-                        self.run.summary[f"hf_{name}"] = hf_url
-                    except Exception:
-                        pass
 
             import wandb
             artifact = wandb.Artifact(
