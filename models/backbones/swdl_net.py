@@ -22,46 +22,53 @@ from models.blocks import (
 from models.blocks.norm_act import get_norm3d
 
 
+def _make_gaussian_kernel_2d(kernel_size: int, sigma: float, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    """Create normalized 2D Gaussian kernel of shape (1, 1, 1, k, k) for slice-wise 3D depthwise conv."""
+    half = (kernel_size - 1) / 2.0
+    coords = torch.arange(kernel_size, device=device, dtype=dtype) - half
+    grid_x, grid_y = torch.meshgrid(coords, coords, indexing='ij')
+    kernel = torch.exp(-(grid_x.pow(2) + grid_y.pow(2)) / (2.0 * (sigma ** 2)))
+    kernel = kernel / kernel.sum()
+    return kernel.view(1, 1, 1, kernel_size, kernel_size)
+
+
 class DepthwiseGaussianBlur2D(nn.Module):
-    """Slice-wise Depthwise Gaussian Smoothing for volumetric tensors."""
+    """Vectorized slice-wise Depthwise Gaussian Smoothing for volumetric tensors via 3D grouped conv."""
     def __init__(self, channels: int = 1, kernel_size: int = 5, sigma: float = 1.0):
         super(DepthwiseGaussianBlur2D, self).__init__()
         self.kernel_size = kernel_size
         self.sigma = sigma
         self.padding = kernel_size // 2
         self.channels = channels
-        self.register_buffer('kernel', self._create_gaussian_kernel(kernel_size, sigma))
-
-    def _create_gaussian_kernel(self, kernel_size: int, sigma: float) -> torch.Tensor:
-        x = torch.arange(-self.padding, self.padding + 1, dtype=torch.float32)
-        y = torch.arange(-self.padding, self.padding + 1, dtype=torch.float32)
-        grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
-        kernel = torch.exp(-(grid_x.pow(2) + grid_y.pow(2)) / (2.0 * (sigma ** 2)))
-        kernel = kernel / kernel.sum()
-        kernel = kernel.view(1, 1, kernel_size, kernel_size).repeat(self.channels, 1, 1, 1)
-        return kernel
+        base_k = _make_gaussian_kernel_2d(kernel_size, sigma, torch.device('cpu'), torch.float32)
+        self.register_buffer('kernel', base_k.repeat(self.channels, 1, 1, 1, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, channels, depth, height, width = x.shape
+        channels = x.shape[1]
         if channels != self.channels:
-            kernel = self._create_gaussian_kernel(self.kernel_size, self.sigma).to(x.device, dtype=x.dtype)
+            kernel = _make_gaussian_kernel_2d(self.kernel_size, self.sigma, x.device, x.dtype).repeat(channels, 1, 1, 1, 1)
         else:
-            kernel = self.kernel.to(x.device, dtype=x.dtype)
-
-        slices = []
-        for d in range(depth):
-            sl = x[:, :, d, :, :]
-            sl_blurred = F.conv2d(sl, kernel, padding=self.padding, groups=channels)
-            slices.append(sl_blurred.unsqueeze(2))
-        return torch.cat(slices, dim=2)
+            kernel = self.kernel.to(device=x.device, dtype=x.dtype)
+        return F.conv3d(x, kernel, padding=(0, self.padding, self.padding), groups=channels)
 
 
 class LaplacianUpsample3D(nn.Module):
     """Laplacian Pyramid 3D Upsampling layer for stratum-wise multi-scale reconstruction."""
-    def __init__(self, scale_factor: float = 2.0, mu: float = 1.5):
+    def __init__(self, scale_factor: float = 2.0, mu: float = 1.5, sigma: float = 1.0):
         super(LaplacianUpsample3D, self).__init__()
         self.scale_factor = scale_factor
         self.mu = mu
+        self.sigma = sigma
+        # Precompute odd Gaussian kernels as buffers (no per-forward nn.Module allocation)
+        self.register_buffer('_k3', _make_gaussian_kernel_2d(3, sigma, torch.device('cpu'), torch.float32), persistent=False)
+        self.register_buffer('_k5', _make_gaussian_kernel_2d(5, sigma, torch.device('cpu'), torch.float32), persistent=False)
+
+    def _blur_2d_slices(self, x: torch.Tensor, k_size: int) -> torch.Tensor:
+        channels = x.shape[1]
+        base_k = self._k5 if k_size >= 5 else self._k3
+        pad = base_k.shape[-1] // 2
+        kernel = base_k.to(device=x.device, dtype=x.dtype).expand(channels, 1, 1, base_k.shape[-2], base_k.shape[-1])
+        return F.conv3d(x, kernel, padding=(0, pad, pad), groups=channels)
 
     def get_levels(self, height: int, width: int, depth: int) -> int:
         max_dim = max(height, width, depth)
@@ -81,10 +88,7 @@ class LaplacianUpsample3D(nn.Module):
     def get_kernel_size(self, min_dim: int) -> int:
         if min_dim >= 256:
             return 5
-        elif min_dim == 128:
-            return 4
-        else:
-            return 3
+        return 3
 
     def build_gaussian_pyramid(self, x: torch.Tensor, levels: int) -> List[torch.Tensor]:
         pyramid = [x]
@@ -92,8 +96,7 @@ class LaplacianUpsample3D(nn.Module):
         for _ in range(levels):
             min_dim = min(curr.shape[2], curr.shape[3], curr.shape[4])
             k_size = self.get_kernel_size(min_dim)
-            blur = DepthwiseGaussianBlur2D(channels=curr.shape[1], kernel_size=k_size, sigma=1.0)
-            curr = blur(curr)
+            curr = self._blur_2d_slices(curr, k_size)
             curr = F.interpolate(curr, scale_factor=0.5, mode='trilinear', align_corners=True)
             pyramid.append(curr)
         return pyramid
@@ -103,9 +106,8 @@ class LaplacianUpsample3D(nn.Module):
         for i in range(len(gaussian_pyramid) - 1):
             min_dim = min(gaussian_pyramid[i + 1].shape[3], gaussian_pyramid[i + 1].shape[4])
             k_size = self.get_kernel_size(min_dim)
-            blur = DepthwiseGaussianBlur2D(channels=gaussian_pyramid[i + 1].shape[1], kernel_size=k_size, sigma=1.0)
             upsampled = F.interpolate(gaussian_pyramid[i + 1], size=gaussian_pyramid[i].shape[2:], mode='trilinear', align_corners=True)
-            upsampled = blur(upsampled)
+            upsampled = self._blur_2d_slices(upsampled, k_size)
             laplacian = gaussian_pyramid[i] - upsampled
             pyramid.append(laplacian)
         pyramid.append(gaussian_pyramid[-1])
@@ -116,9 +118,8 @@ class LaplacianUpsample3D(nn.Module):
         for i in range(len(laplacian_pyramid) - 2, -1, -1):
             min_dim = min(laplacian_pyramid[i].shape[2], laplacian_pyramid[i].shape[3], laplacian_pyramid[i].shape[4])
             k_size = self.get_kernel_size(min_dim)
-            blur = DepthwiseGaussianBlur2D(channels=laplacian_pyramid[i].shape[1], kernel_size=k_size, sigma=1.0)
             upsampled = F.interpolate(image, size=laplacian_pyramid[i].shape[2:], mode='trilinear', align_corners=True)
-            upsampled = blur(upsampled)
+            upsampled = self._blur_2d_slices(upsampled, k_size)
             image = upsampled + mu * laplacian_pyramid[i]
         image = F.interpolate(image, size=target_size, mode='trilinear', align_corners=True)
         return image
@@ -249,16 +250,20 @@ class SWDLDecoder(nn.Module):
 
         if f1 is None:
             x5_up_ori = self.block_five_up(x5)
-            x6 = self.block_six(x5_up_ori)
+            x5_up = x5_up_ori + x4
+            x6 = self.block_six(x5_up)
 
             x6_up_ori = self.block_six_up(x6)
-            x7 = self.block_seven(x6_up_ori)
+            x6_up = x6_up_ori + x3
+            x7 = self.block_seven(x6_up)
 
             x7_up_ori = self.block_seven_up(x7)
-            x8 = self.block_eight(x7_up_ori)
+            x7_up = x7_up_ori + x2
+            x8 = self.block_eight(x7_up)
 
             x8_up_ori = self.block_eight_up(x8)
-            x9 = self.block_nine(x8_up_ori)
+            x8_up = x8_up_ori + x1
+            x9 = self.block_nine(x8_up)
         else:
             m5, m4, m3, m2, m1 = f1[0], f1[1], f1[2], f1[3], f1[4]
             w5 = torch.sigmoid(m5).detach()
@@ -302,12 +307,12 @@ class SWDLSideConv(nn.Module):
 
     def forward(self, stage_feat: List[torch.Tensor], target_shape: Tuple[int, int, int]) -> List[torch.Tensor]:
         x5, x5_up, x6_up, x7_up, x8_up = stage_feat[0], stage_feat[1], stage_feat[2], stage_feat[3], stage_feat[4]
-        out5 = F.interpolate(self.side5(x5), size=target_shape, mode='trilinear', align_corners=False)
-        out4 = F.interpolate(self.side4(x5_up), size=target_shape, mode='trilinear', align_corners=False)
-        out3 = F.interpolate(self.side3(x6_up), size=target_shape, mode='trilinear', align_corners=False)
-        out2 = F.interpolate(self.side2(x7_up), size=target_shape, mode='trilinear', align_corners=False)
         out1 = F.interpolate(self.side1(x8_up), size=target_shape, mode='trilinear', align_corners=False)
-        return [out5, out4, out3, out2, out1]
+        out2 = F.interpolate(self.side2(x7_up), size=target_shape, mode='trilinear', align_corners=False)
+        out3 = F.interpolate(self.side3(x6_up), size=target_shape, mode='trilinear', align_corners=False)
+        out4 = F.interpolate(self.side4(x5_up), size=target_shape, mode='trilinear', align_corners=False)
+        out5 = F.interpolate(self.side5(x5), size=target_shape, mode='trilinear', align_corners=False)
+        return [out1, out2, out3, out4, out5]
 
 
 @MODELS.register("swdl_net")
@@ -369,4 +374,9 @@ class SWDLNet(nn.Module):
 
         out_seg2, stage_feat2 = self.decoder2(features, stage_feat1)
         deep_outs = self.sideconv(stage_feat1, target_shape=x.shape[2:])
-        return out_seg1, out_seg2, [stage_feat2, stage_feat1], deep_outs
+        return (
+            out_seg1,
+            out_seg2,
+            [[f.detach() for f in stage_feat2], [f.detach() for f in stage_feat1]],
+            deep_outs,
+        )

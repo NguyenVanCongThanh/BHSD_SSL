@@ -14,7 +14,7 @@ from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss, extract_multiscale_outputs, compute_ds_weights, resolve_ds_weights
 from losses.deep_supervision import downsample_target_for_ds
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 from utils.checkpoint import get_raw_model
 from core.optimizers import build_optimizer
 
@@ -31,6 +31,11 @@ class CPSMethod(BaseMethod):
 
         self.cps_weight = float(getattr(self.cfg.method, 'cps_weight', 1.5))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='epoch',
+        )
 
         # Build second network model2 with independent weights
         raw_net1 = get_raw_model(self.model)
@@ -138,7 +143,9 @@ class CPSMethod(BaseMethod):
         loss_cps2 = F.cross_entropy(logits2, pl1)
 
         cur_epoch = iter_num / max(len(self.trainloader), 1)
-        cur_weight = self.cps_weight * sigmoid_rampup(cur_epoch, self.consistency_rampup)
+        cur_weight = self.cps_weight * compute_rampup_factor(
+            iter_num, cur_epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
 
         total_loss1 = loss_sup1 + cur_weight * loss_cps1
         total_loss2 = loss_sup2 + cur_weight * loss_cps2
@@ -146,11 +153,13 @@ class CPSMethod(BaseMethod):
 
         loss_dict = {
             "total": float(total_loss.item()),
+            "supervised": float((loss_sup1 + loss_sup2).item()),
+            "consistency": float((loss_cps1 + loss_cps2).item()),
+            "weight": float(cur_weight),
             "sup1": float(loss_sup1.item()),
             "sup2": float(loss_sup2.item()),
             "cps1": float(loss_cps1.item()),
             "cps2": float(loss_cps2.item()),
-            "weight": float(cur_weight)
         }
         if self.ds_enabled and len(aux1) > 0:
             loss_dict["ds1"] = float(ds_accum1)

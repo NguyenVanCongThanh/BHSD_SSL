@@ -88,7 +88,7 @@ class WandbManager:
         root = (Path(getattr(cfg.experiment, 'exp_dir', '../experiments'))
                 / getattr(cfg.experiment, 'name', 'exp') / f'fold_{fold}')
         directories = [root]
-        if getattr(cfg.method, 'name', '') == 'pick':
+        if getattr(cfg.method, 'name', '') in ('pick', 'bcp'):
             phase = str(getattr(cfg.experiment, 'phase', 'all')).lower()
             directories.extend(root / name for name in ('pre_train', 'self_train')
                                if phase in ('all', name))

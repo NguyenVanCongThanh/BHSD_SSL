@@ -10,7 +10,10 @@ import os
 import ast
 import logging
 import hashlib
-import h5py
+try:
+    import h5py
+except ImportError:  # pragma: no cover - optional when running non-HDF5 unit tests
+    h5py = None
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -158,6 +161,9 @@ class BHSDDataset(Dataset):
         case_name = self.image_list[idx]
         h5_path = os.path.join(self.base_dir, "data", f"{case_name}.h5")
 
+        if h5py is None:
+            raise ImportError("h5py is required to read BHSD HDF5 (.h5) files. Install via: pip install h5py")
+
         with h5py.File(h5_path, 'r') as h5f:
             image = h5f['image'][:]
             label = h5f['label'][:]
@@ -168,10 +174,15 @@ class BHSDDataset(Dataset):
                     ('orig_spacing', 'orig_spacing'),
                     ('orig_shape', 'orig_shape'),
                     ('bbox_used', 'bbox_used'),
+                    ('crop_bbox', 'crop_bbox'),
                     ('cropped_shape', 'cropped_shape'),
                     ('final_shape', 'final_shape'),
                     ('norm_params', 'norm_params'),
-                    ('clip_range', 'clip_range')
+                    ('clip_range', 'clip_range'),
+                    ('itk_origin', 'itk_origin'),
+                    ('itk_spacing', 'itk_spacing'),
+                    ('itk_direction', 'itk_direction'),
+                    ('affine', 'affine'),
                 ]:
                     value = h5f.attrs.get(source)
                     if isinstance(value, bytes):

@@ -14,6 +14,7 @@ method:
   base_lr: 0.01
   cps_weight: 1.5
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
 
 logging:
   val_interval: 500

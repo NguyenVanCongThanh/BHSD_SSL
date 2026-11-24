@@ -26,7 +26,7 @@ from data.constants import (
 from methods.base_method import BaseMethod
 from methods.ssl_utils import update_ema_variables
 from losses import MaskDiceLoss, extract_multiscale_outputs, ConsistencyLoss
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 from losses.deep_supervision import downsample_target_for_ds, resolve_ds_weights
 from utils.checkpoint import get_raw_model
 
@@ -46,6 +46,11 @@ class MeanTeacherMethod(BaseMethod):
 
         self.consistency = float(getattr(self.cfg.method, 'consistency', 0.05))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 4000.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='auto',
+        )
         self.ema_decay = float(getattr(self.cfg.method, 'ema_decay', 0.999))
         self.consistency_type = str(getattr(self.cfg.method, 'consistency_type', 'hybrid')).lower()
         self.confidence_thresh = float(getattr(self.cfg.method, 'confidence_thresh', 0.0))
@@ -139,12 +144,9 @@ class MeanTeacherMethod(BaseMethod):
 
     def get_current_consistency_weight(self, iter_num: int, epoch: float) -> float:
         """Sigmoid rampup curve + smooth cosine rampdown schedule at late training stage."""
-        if self.consistency_rampup <= 0:
-            base_w = self.consistency
-        elif self.consistency_rampup > 100:
-            base_w = self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
-        else:
-            base_w = self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+        base_w = self.consistency * compute_rampup_factor(
+            iter_num, epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
 
         max_iterations = int(getattr(self.cfg.method, 'max_iteration', 12000))
         if self.consistency_rampdown_start > 0 and iter_num > self.consistency_rampdown_start:

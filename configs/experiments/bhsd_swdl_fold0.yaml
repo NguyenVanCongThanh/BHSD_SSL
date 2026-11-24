@@ -22,6 +22,7 @@ method:
   max_iteration: 15000
   consistency: 1.0
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
   feedback_steps: 3
   feedback_scale: 0.001
 

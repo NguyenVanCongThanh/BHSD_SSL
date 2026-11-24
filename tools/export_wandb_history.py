@@ -1,15 +1,17 @@
 import argparse
 import json
+import os
 from pathlib import Path
 import pandas as pd
 import wandb
 
-def export_run_history(run_path_or_id, output_path=None, project="BHSD_MeanTeacher", entity="thanhnguyen2005243-ho-chi-minh-city-university-of-technology"):
+def export_run_history(run_path_or_id, output_path=None, project="BHSD_MeanTeacher", entity=None):
     api = wandb.Api()
     if "/" in run_path_or_id:
         full_path = run_path_or_id
     else:
-        full_path = f"{entity}/{project}/{run_path_or_id}"
+        resolved_entity = entity or os.environ.get("MEDSSL_WANDB_ENTITY") or os.environ.get("WANDB_ENTITY") or api.default_entity
+        full_path = f"{resolved_entity}/{project}/{run_path_or_id}"
         
     print(f"[*] Đang kết nối W&B lấy dữ liệu run: {full_path} ...", flush=True)
     run = api.run(full_path)

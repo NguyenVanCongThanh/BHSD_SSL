@@ -157,13 +157,28 @@ def migrate_runs(
 
 def main():
     parser = argparse.ArgumentParser(description="Canonical migration of checkpoints from W&B to Hugging Face Hub")
-    parser.add_argument("--entity", type=str, default="thanhnguyen2005243-ho-chi-minh-city-university-of-technology")
-    parser.add_argument("--projects", nargs="+", default=["BHSD_Supervised", "BHSD_MeanTeacher", "PICK_BHSD", "PICK_BHSD_dual_gpu"])
-    parser.add_argument("--repo-id", type=str, default=os.environ.get("HF_REPO_ID", "NguyenVanCongThanh/BHSD_checkpoints"))
+    parser.add_argument(
+        "--entity",
+        type=str,
+        default=os.environ.get("MEDSSL_WANDB_ENTITY") or os.environ.get("WANDB_ENTITY"),
+        help="W&B entity (defaults to $MEDSSL_WANDB_ENTITY / $WANDB_ENTITY / wandb default entity)",
+    )
+    parser.add_argument("--projects", nargs="+", default=["BHSD_Supervised", "BHSD_MeanTeacher", "BHSD_LeFeD", "PICK_BHSD", "PICK_BHSD_dual_gpu"])
+    parser.add_argument(
+        "--repo-id",
+        type=str,
+        default=os.environ.get("HF_REPO_ID"),
+        help="Target Hugging Face repo ID (defaults to $HF_REPO_ID)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Inspect matched runs without downloading/uploading")
     parser.add_argument("--delete-from-wandb", action="store_true", help="Delete old binary artifact on W&B after migration to free 5GB quota")
 
     args = parser.parse_args()
+    if not args.entity:
+        import wandb
+        args.entity = wandb.Api().default_entity
+    if not args.repo_id:
+        parser.error("--repo-id is required (or set HF_REPO_ID in environment / .env)")
     migrate_runs(
         entity=args.entity,
         projects=args.projects,

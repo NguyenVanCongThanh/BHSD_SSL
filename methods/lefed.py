@@ -25,7 +25,7 @@ from losses import MaskDiceLoss, ConsistencyLoss
 from losses.deep_supervision import downsample_target_for_ds
 from methods.base_method import BaseMethod
 from utils.checkpoint import get_raw_model
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 
 DEFAULT_LEFED_DS_WEIGHTS = [0.8, 0.6, 0.4, 0.2, 0.1]
 
@@ -47,6 +47,11 @@ class LeFeDMethod(BaseMethod):
 
         self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='auto',
+        )
         rampdown_val = getattr(self.cfg.method, 'consistency_rampdown_start', None)
         self.consistency_rampdown_start = 0 if (rampdown_val is None or rampdown_val == 'null') else int(rampdown_val)
         self.consistency_min_factor = float(getattr(self.cfg.method, 'consistency_min_factor', 0.25))
@@ -121,12 +126,9 @@ class LeFeDMethod(BaseMethod):
         return [self.ds_loss_weight * (w / total) for w in raw]
 
     def get_current_consistency_weight(self, epoch: float, iter_num: int = 0) -> float:
-        if self.consistency_rampup <= 0:
-            base_w = self.consistency
-        elif self.consistency_rampup > 100:
-            base_w = self.consistency * sigmoid_rampup(iter_num, self.consistency_rampup)
-        else:
-            base_w = self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+        base_w = self.consistency * compute_rampup_factor(
+            iter_num, epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
 
         max_iterations = int(getattr(self.cfg.method, 'max_iteration', 12000))
         if self.consistency_rampdown_start > 0 and iter_num > self.consistency_rampdown_start:

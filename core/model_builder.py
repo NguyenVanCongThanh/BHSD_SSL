@@ -43,6 +43,20 @@ def model_spec_from_config(config, num_classes, legacy=False):
                 raise ValueError('LeFeD requires lefed_net')
             else:
                 raise ValueError(f"Method '{method_name}' requires capabilities {sorted(list(missing))} not provided by model '{name}'")
+        # Instance-level deep_supervision check (e.g. 5-stage VNet or deep_supervision=False cannot satisfy URPC)
+        if 'deep_supervision' in req_caps:
+            ds_enabled_cfg = bool(model.get('deep_supervision', False))
+            if not ds_enabled_cfg:
+                raise ValueError(
+                    f"Method '{method_name}' requires deep_supervision=True on model '{name}' to produce multi-scale pyramid outputs."
+                )
+            if name in ('vnet', 'vnet_single'):
+                num_stages = int(model.get('num_stages', 5))
+                if num_stages < 7 and model.get('base_filters') is None:
+                    raise ValueError(
+                        f"Method '{method_name}' requires multi-scale deep supervision, which 5-stage '{name}' does not support; "
+                        f"use num_stages=7 or nnunet3d with deep_supervision=True."
+                    )
     elif method_name == 'pick' and name != 'pick_vnet':
         raise ValueError('PICK requires pick_vnet; the configured backbone does not provide MIM/aux branches')
     elif method_name == 'lefed' and name != 'lefed_net':

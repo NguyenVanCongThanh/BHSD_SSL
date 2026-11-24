@@ -20,6 +20,7 @@ method:
   max_iteration: 12000
   cps_weight: 1.5
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
 
 data:
   patch_size: [32, 160, 160]

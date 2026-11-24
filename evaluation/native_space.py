@@ -35,23 +35,32 @@ def restore_volume_to_native_space(
     """
     Inverse transform a preprocessed volume back to original patient physical space (like nnU-Net):
     1. Inverse resample: from volume.shape back to cropped_shape
-    2. Inverse crop (pad): place cropped_shape back into orig_shape at bbox_used
+    2. Inverse crop (pad): place cropped_shape back into orig_shape at bbox_used / crop_bbox
+
+    Raises ValueError if required geometry metadata ('orig_shape' and 'bbox_used'/'crop_bbox')
+    is missing so native-space evaluation never silently compares un-restored volumes.
     """
     if not isinstance(metadata, dict):
-        return volume
+        raise ValueError("Native-space restoration requires a metadata dict containing 'orig_shape' and 'bbox_used'/'crop_bbox'.")
 
     orig_shape = _parse_tuple_or_list(metadata.get('orig_shape'))
-    bbox_used = _parse_tuple_or_list(metadata.get('bbox_used'))
+    bbox_used = _parse_tuple_or_list(metadata.get('bbox_used', metadata.get('crop_bbox')))
     cropped_shape = _parse_tuple_or_list(metadata.get('cropped_shape'))
 
     if orig_shape is None or bbox_used is None:
-        return volume
+        raise ValueError(
+            "Missing required native-space geometry metadata ('orig_shape' and 'bbox_used'/'crop_bbox'). "
+            "Regenerate HDF5 files with tools/convert_option1_to_h5.py so .pkl geometry attributes are persisted."
+        )
 
-    orig_shape = tuple(orig_shape)
-    cropped_shape = tuple(cropped_shape) if cropped_shape is not None else None
+    orig_shape = tuple(int(x) for x in orig_shape)
+    if cropped_shape is not None:
+        cropped_shape = tuple(int(x) for x in cropped_shape)
+    else:
+        cropped_shape = tuple(int(hi) - int(lo) for lo, hi in bbox_used)
 
     # 1. Inverse resampling: from volume.shape back to cropped_shape
-    if cropped_shape is not None and tuple(volume.shape) != cropped_shape:
+    if tuple(volume.shape) != cropped_shape:
         zoom_factors = [c / v for c, v in zip(cropped_shape, volume.shape)]
         order = 0 if is_label else 1
         resampled = zoom(volume, zoom_factors, order=order)
@@ -72,7 +81,10 @@ def restore_volume_to_native_space(
 
 
 def load_raw_nifti_ground_truth(case_name: str, raw_gt_dir: Optional[str] = None) -> Optional[np.ndarray]:
-    """Load raw NIfTI ground truth from clinical dataset folder if available."""
+    """
+    Load raw NIfTI ground truth from clinical dataset folder in canonical (Z, Y, X) order.
+    Both nibabel and SimpleITK paths return (Z, Y, X) matching preprocessed HDF5 volumes.
+    """
     if not raw_gt_dir or not os.path.isdir(raw_gt_dir):
         return None
 
@@ -85,11 +97,14 @@ def load_raw_nifti_ground_truth(case_name: str, raw_gt_dir: Optional[str] = None
         if os.path.exists(path):
             try:
                 import nibabel as nib
-                return np.asarray(nib.load(path).get_fdata(), dtype=np.uint8)
+                # nibabel stores NIfTI arrays in (X, Y, Z); transpose to canonical (Z, Y, X)
+                arr_xyz = np.asarray(nib.load(path).dataobj, dtype=np.uint8)
+                return arr_xyz.transpose(2, 1, 0)
             except ImportError:
                 try:
                     import SimpleITK as sitk
                     img = sitk.ReadImage(path)
+                    # SimpleITK.GetArrayFromImage already returns (Z, Y, X)
                     return sitk.GetArrayFromImage(img).astype(np.uint8)
                 except Exception as e:
                     logging.warning(f"Failed to load NIfTI ground truth {path}: {e}")
@@ -109,13 +124,18 @@ def restore_case_to_native(
 ) -> Tuple[np.ndarray, np.ndarray, Optional[Tuple[float, ...]]]:
     """
     Restore prediction and ground truth to native patient physical space.
-    If raw NIfTI ground truth exists in raw_gt_dir, uses it directly;
+    If raw NIfTI ground truth exists in raw_gt_dir, uses it directly and validates shape alignment;
     otherwise restores preprocessed label via inverse geometry transform.
     """
     pred_native = restore_volume_to_native_space(pred, metadata, is_label=True)
 
     raw_gt = load_raw_nifti_ground_truth(case_name, raw_gt_dir)
     if raw_gt is not None:
+        if raw_gt.shape != pred_native.shape:
+            raise ValueError(
+                f"Native-space shape mismatch for case '{case_name}': "
+                f"restored prediction {pred_native.shape} != raw NIfTI GT {raw_gt.shape}."
+            )
         label_native = raw_gt
     else:
         label_native = restore_volume_to_native_space(label, metadata, is_label=True)

@@ -4,6 +4,7 @@ to free up cloud storage quota, while keeping all run metrics, charts,
 and evaluation tables intact on the W&B dashboard.
 """
 
+import os
 import sys
 import logging
 from pathlib import Path
@@ -15,11 +16,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 
 def purge_wandb_models(
-    entity: str = "thanhnguyen2005243-ho-chi-minh-city-university-of-technology",
+    entity: str = None,
     projects: list = None
 ):
     import wandb
     api = wandb.Api()
+    entity = entity or os.environ.get("MEDSSL_WANDB_ENTITY") or os.environ.get("WANDB_ENTITY") or api.default_entity
 
     if projects is None:
         projects = ["BHSD_Supervised", "BHSD_MeanTeacher", "PICK_BHSD", "PICK_BHSD_dual_gpu"]

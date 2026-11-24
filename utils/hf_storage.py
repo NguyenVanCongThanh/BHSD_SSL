@@ -29,10 +29,20 @@ def _load_env():
         except Exception:
             pass
 
-_load_env()
-os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-for _noisy in ("httpx", "httpcore"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+def _resolve_env_or_kaggle_secret(key: str) -> Optional[str]:
+    """Resolve configuration value from environment (.env / HPC) or Kaggle Secrets."""
+    val = os.environ.get(key)
+    if val:
+        return val
+    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+        try:
+            from kaggle_secrets import UserSecretsClient
+            secret = UserSecretsClient().get_secret(key)
+            if secret:
+                return secret
+        except Exception:
+            pass
+    return None
 
 
 class HFStorageManager:
@@ -45,12 +55,22 @@ class HFStorageManager:
         token: Optional[str] = None,
         private: bool = True
     ):
-        self.token = token or os.environ.get("HF_TOKEN")
-        self.repo_id = repo_id or os.environ.get("HF_REPO_ID", "NguyenVanCongThanh/BHSD_checkpoints")
+        _load_env()
+        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        for _noisy in ("httpx", "httpcore"):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+        self.token = token or _resolve_env_or_kaggle_secret("HF_TOKEN")
+        resolved_repo = repo_id if (repo_id and str(repo_id).strip()) else _resolve_env_or_kaggle_secret("HF_REPO_ID")
+        self.repo_id = str(resolved_repo).strip() if resolved_repo else None
         self.private = private
         self.api = None
         self.enabled = False
         self._pending_futures: List[Future] = []
+
+        if not self.repo_id:
+            logging.info("[HF HUB] HF_REPO_ID not configured; Hugging Face checkpoint storage disabled.")
+            return
 
         self._init_hf()
 

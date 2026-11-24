@@ -18,9 +18,8 @@ import torch.nn.functional as F
 
 from core.registry import METHODS
 from methods.mean_teacher import MeanTeacherMethod
-from methods.ssl_utils import extract_logits, update_ema_variables
-from utils.ramps import sigmoid_rampup
-from utils.checkpoint import get_raw_model
+from methods.ssl_utils import extract_logits
+from utils.ramps import compute_rampup_factor
 
 
 @METHODS.register("uamt")
@@ -89,13 +88,16 @@ class UAMTMethod(MeanTeacherMethod):
         loss_supervised = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         # 2. Uncertainty-filtered consistency on unlabeled partition
+        cur_epoch = iter_num / max(len(self.trainloader), 1)
         unlabeled_volume = volume_batch[self.labeled_bs:]
         if unlabeled_volume.shape[0] > 0:
             # Teacher Monte Carlo passes
             mean_t_prob, uncertainty = self._estimate_teacher_uncertainty(unlabeled_volume)
 
             # Progressive uncertainty threshold: tau = (0.75 + 0.25 * rampup) * ln(C)
-            ramp_factor = sigmoid_rampup(iter_num, self.consistency_rampup)
+            ramp_factor = compute_rampup_factor(
+                iter_num, cur_epoch, self.consistency_rampup, self.consistency_rampup_unit
+            )
             threshold_ratio = self.uncertainty_min_ratio + (self.uncertainty_max_ratio - self.uncertainty_min_ratio) * ramp_factor
             threshold = threshold_ratio * math.log(max(self.num_classes, 2))
             reliable_mask = (uncertainty < threshold).float()
@@ -121,21 +123,17 @@ class UAMTMethod(MeanTeacherMethod):
             reliable_fraction = 1.0
 
         # Current consistency weight with rampup and rampdown
-        cur_epoch = iter_num / max(len(self.trainloader), 1)
+        # Note: EMA Teacher is updated post-step via inherited MeanTeacherMethod.after_optimizer_step()
         cur_weight = self.get_current_consistency_weight(iter_num, cur_epoch)
         total_loss = loss_supervised + cur_weight * loss_consistency
 
-        # 3. Update EMA Teacher weights
-        raw_net = get_raw_model(self.model)
-        update_ema_variables(raw_net, self.ema_model, self.ema_decay, iter_num, max_steps=self.max_iteration, schedule=self.ema_schedule)
-
         loss_dict = {
-            "loss_total": float(total_loss.item()),
-            "loss_supervised": float(loss_supervised.item()),
-            "loss_ce": float(loss_ce.item()),
-            "loss_dice": float(loss_dice.item()),
-            "loss_consistency": float(loss_consistency.item()),
-            "consistency_weight": float(cur_weight),
+            "total": float(total_loss.item()),
+            "supervised": float(loss_supervised.item()),
+            "consistency": float(loss_consistency.item()),
+            "weight": float(cur_weight),
+            "ce": float(loss_ce.item()),
+            "dice": float(loss_dice.item()),
             "reliable_mask_ratio": reliable_fraction,
         }
         return total_loss, loss_dict

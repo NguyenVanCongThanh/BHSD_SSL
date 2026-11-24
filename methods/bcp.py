@@ -78,6 +78,7 @@ class BCPMethod(BaseMethod):
         for p in self.ema_model.parameters():
             p.detach_()
         self.ema_model.eval()
+        self._active_phase = 'self_train' if self.phase == 'self_train' else 'pre_train'
 
     def pretrain_step(
         self,
@@ -110,9 +111,12 @@ class BCPMethod(BaseMethod):
         total_loss = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
         loss_dict = {
-            "loss_total": float(total_loss.item()),
-            "loss_ce": float(loss_ce.item()),
-            "loss_dice": float(loss_dice.item()),
+            "total": float(total_loss.item()),
+            "supervised": float(total_loss.item()),
+            "consistency": 0.0,
+            "weight": 0.0,
+            "ce": float(loss_ce.item()),
+            "dice": float(loss_dice.item()),
         }
         return total_loss, loss_dict
 
@@ -170,16 +174,75 @@ class BCPMethod(BaseMethod):
         loss_dice = self.dice_loss(student_logits, mix_labs, mask=weights)
         total_loss = self.sup_ce_weight * loss_ce + self.sup_dice_weight * loss_dice
 
-        # 4. Update EMA Teacher parameters
-        raw_net = get_raw_model(self.model)
-        update_ema_variables(raw_net, self.ema_model, self.ema_decay, iter_num, max_steps=self.self_max_iteration)
-
         loss_dict = {
-            "loss_total": float(total_loss.item()),
-            "loss_ce": float(loss_ce.item()),
-            "loss_dice": float(loss_dice.item()),
+            "total": float(total_loss.item()),
+            "supervised": float(total_loss.item()),
+            "consistency": 0.0,
+            "weight": float(self.u_weight),
+            "ce": float(loss_ce.item()),
+            "dice": float(loss_dice.item()),
         }
         return total_loss, loss_dict
+
+    def after_optimizer_step(self, iter_num: int):
+        """Update EMA Teacher strictly after validated optimizer step during Stage 2."""
+        if self._active_phase != 'self_train':
+            return
+        raw_net = get_raw_model(self.model)
+        raw_ema = get_raw_model(self.ema_model)
+        update_ema_variables(
+            raw_net, raw_ema, self.ema_decay, iter_num, max_steps=self.self_max_iteration
+        )
+
+    def save_checkpoint(
+        self,
+        path: str,
+        iter_num: int,
+        best_dice: float,
+        phase: str = 'train',
+        artifact_name: Optional[str] = None,
+        artifact_type: str = "checkpoint",
+        aliases: Optional[list] = None,
+        extra_state=None,
+    ):
+        """Persist student weights along with EMA teacher weights."""
+        raw_ema = get_raw_model(self.ema_model)
+        super().save_checkpoint(
+            path=path,
+            iter_num=iter_num,
+            best_dice=best_dice,
+            phase=phase,
+            artifact_name=artifact_name,
+            artifact_type=artifact_type,
+            aliases=aliases,
+            extra_state={**(extra_state or {}), 'ema_net': raw_ema.state_dict()},
+        )
+
+    def load_checkpoint(self, path: str) -> Tuple[int, float]:
+        """Restore student weights and EMA teacher weights."""
+        iter_num, best_dice = super().load_checkpoint(path, prefer_ema=False)
+        state = getattr(self, '_last_loaded_checkpoint_state', None)
+        if isinstance(state, dict) and 'ema_net' in state:
+            from utils.checkpoint import load_checkpoint as _load_ckpt
+            _load_ckpt(
+                path,
+                model=self.ema_model,
+                device=self.device,
+                prefer_ema=True,
+                strict=True,
+                checkpoint_state=state,
+            )
+            logging.info('[BCP] Restored EMA Teacher weights with strict validation.')
+        else:
+            logging.warning('[BCP] Checkpoint lacks ema_net; syncing EMA Teacher from restored Student.')
+            self.ema_model.load_state_dict(get_raw_model(self.model).state_dict())
+        return iter_num, best_dice
+
+    def validate(self, return_visuals: bool = False):
+        """Evaluate EMA Teacher in Stage 2 (self_train) and Student in Stage 1 (pre_train)."""
+        if self._active_phase == 'self_train':
+            return self.evaluate_validation_model(get_raw_model(self.ema_model), return_visuals, 'ema_net')
+        return self.evaluate_validation_model(get_raw_model(self.model), return_visuals, 'net')
 
     def train_step(
         self,
@@ -217,14 +280,14 @@ class BCPMethod(BaseMethod):
 
         if pretrain_candidate and os.path.exists(pretrain_candidate):
             logging.info(f"[BCP] Loading Stage 1 pre-trained checkpoint: {pretrain_candidate}")
-            ckpt = torch.load(pretrain_candidate, map_location=self.device)
-            raw_net = get_raw_model(self.model)
-            state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
-            raw_net.load_state_dict(state_dict, strict=False)
+            from utils.checkpoint import load_checkpoint
+            load_checkpoint(pretrain_candidate, self.model, device=self.device, strict=True)
+            self.setup_optimizer()
 
             # Sync weights into EMA Teacher
+            raw_net = get_raw_model(self.model)
             self.ema_model.load_state_dict(raw_net.state_dict())
-            logging.info("[BCP] Pre-trained weights successfully transferred to Student and EMA Teacher.")
+            logging.info("[BCP] Pre-trained weights successfully transferred to Student and EMA Teacher (optimizer reset).")
         else:
             logging.warning("[BCP] No pre-trained checkpoint found. Initializing Stage 2 directly with random weights.")
             raw_net = get_raw_model(self.model)
@@ -232,6 +295,7 @@ class BCPMethod(BaseMethod):
 
     def run_pre_train(self) -> Tuple[int, float]:
         """Execute Stage 1: Pre-training via unified training loop."""
+        self._active_phase = 'pre_train'
         logging.info("=== [BCP] STARTING STAGE 1: COPY-PASTE PRE-TRAINING PHASE ===")
         return self.run_training_loop(
             phase='pre_train',
@@ -248,6 +312,7 @@ class BCPMethod(BaseMethod):
 
     def run_self_train(self) -> Tuple[int, float]:
         """Execute Stage 2: Self-training via unified training loop."""
+        self._active_phase = 'self_train'
         logging.info("=== [BCP] STARTING STAGE 2: BIDIRECTIONAL SELF-TRAINING PHASE ===")
         resume = bool(getattr(self.cfg.experiment, 'resume', False))
         policy = getattr(self.cfg.experiment, 'resume_policy', 'latest')
@@ -257,9 +322,13 @@ class BCPMethod(BaseMethod):
 
         has_self_train_ckpt = os.path.exists(latest_pth) or os.path.exists(alt_pth)
         if resume and not has_self_train_ckpt and self.wandb_manager is not None and self.wandb_manager.enabled:
-            restored = self.wandb_manager.restore_checkpoint(target_name, self.self_snapshot_path)
-            if restored and os.path.exists(restored):
-                has_self_train_ckpt = True
+            suffix = 'epoch_latest' if policy == 'epoch_boundary' else 'latest'
+            self.wandb_manager.restore_artifact(
+                artifact_name=f"{self.exp_name}_self_fold{self.fold}_{suffix}",
+                dest_dir=self.self_snapshot_path,
+                tag="latest",
+            )
+            has_self_train_ckpt = os.path.exists(latest_pth) or os.path.exists(alt_pth)
 
         if not (resume and has_self_train_ckpt):
             self.load_pretrain_weights_for_selftrain()

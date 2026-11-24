@@ -137,6 +137,7 @@ class SupervisedMethod(BaseMethod):
 
         loss_dict = {
             "total": float(total_loss.item()),
+            "supervised": float(total_loss.item()),
             "ce": float(loss_ce.item()),
             "dice": float(loss_dice.item())
         }

@@ -39,3 +39,25 @@ def cosine_rampdown(current, rampdown_length):
     """Cosine rampdown from https://arxiv.org/abs/1608.03983"""
     assert 0 <= current <= rampdown_length
     return float(.5 * (np.cos(np.pi * current / rampdown_length) + 1))
+
+
+def resolve_rampup_unit(unit, rampup_length, default_unit="auto"):
+    """Resolve explicit 'iter' | 'epoch' rampup unit with backward-compatible fallback."""
+    if unit is not None and str(unit).strip() != "":
+        normalized = str(unit).strip().lower()
+        if normalized not in ("iter", "epoch"):
+            raise ValueError(f"consistency_rampup_unit must be 'iter' or 'epoch', got {unit!r}")
+        return normalized
+    if default_unit in ("iter", "epoch"):
+        return default_unit
+    # Legacy heuristic preserved only when explicit consistency_rampup_unit is omitted
+    return "iter" if float(rampup_length) > 100.0 else "epoch"
+
+
+def compute_rampup_factor(iter_num, epoch, rampup_length, unit="epoch"):
+    """Evaluate sigmoid_rampup on the explicitly configured axis ('iter' or 'epoch')."""
+    if float(rampup_length) <= 0.0:
+        return 1.0
+    resolved_unit = resolve_rampup_unit(unit, rampup_length)
+    axis_val = float(iter_num) if resolved_unit == "iter" else float(epoch)
+    return sigmoid_rampup(axis_val, float(rampup_length))

@@ -35,6 +35,7 @@ method:
   ema_schedule: "cosine"
   consistency: 0.05
   consistency_rampup: 4000.0
+  consistency_rampup_unit: "iter"
   consistency_rampdown_start: 7800
   consistency_min_factor: 0.25
   consistency_type: "hybrid"

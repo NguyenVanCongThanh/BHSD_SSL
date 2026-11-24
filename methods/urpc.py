@@ -19,7 +19,7 @@ from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE
 from methods.base_method import BaseMethod
 from models.outputs import extract_multiscale_outputs
 from losses import MaskDiceLoss
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 
 
 @METHODS.register("urpc")
@@ -36,6 +36,11 @@ class URPCMethod(BaseMethod):
 
         self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='epoch',
+        )
 
         self.dice_loss = MaskDiceLoss(
             nclass=self.num_classes,
@@ -59,6 +64,11 @@ class URPCMethod(BaseMethod):
         # 1. Forward model across full batch to retrieve multi-scale outputs
         out = self.model(volume_batch)
         main_logits, aux_logits = extract_multiscale_outputs(out)
+        if len(aux_logits) == 0:
+            raise ValueError(
+                "URPCMethod requires a multi-scale backbone returning auxiliary outputs "
+                "(e.g., nnunet3d or 7-stage vnet with deep_supervision=True); got 0 auxiliary heads."
+            )
         all_logits = [main_logits] + aux_logits
 
         target_shape = volume_batch.shape[2:]
@@ -105,14 +115,16 @@ class URPCMethod(BaseMethod):
             loss_consistency = torch.tensor(0.0, device=self.device)
 
         cur_epoch = iter_num / max(len(self.trainloader), 1)
-        cur_weight = self.consistency * sigmoid_rampup(cur_epoch, self.consistency_rampup)
+        cur_weight = self.consistency * compute_rampup_factor(
+            iter_num, cur_epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
         total_loss = loss_supervised + cur_weight * loss_consistency
 
         loss_dict = {
-            "loss_total": float(total_loss.item()),
-            "loss_supervised": float(loss_supervised.item()),
-            "loss_consistency": float(loss_consistency.item()),
-            "consistency_weight": float(cur_weight),
+            "total": float(total_loss.item()),
+            "supervised": float(loss_supervised.item()),
+            "consistency": float(loss_consistency.item()),
+            "weight": float(cur_weight),
             "num_scales": len(upsampled_logits),
         }
         return total_loss, loss_dict

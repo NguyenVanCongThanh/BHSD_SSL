@@ -14,7 +14,13 @@ from pathlib import Path
 import logging
 import torch
 import torch.nn as nn
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+except ImportError:  # pragma: no cover - fallback when tensorboardX is absent
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except ImportError:
+        SummaryWriter = None
 
 from core.config_parser import Config
 from core.batching import resolve_batch_layout
@@ -264,7 +270,7 @@ class BaseMethod(abc.ABC):
         log_dir = os.path.join(self.snapshot_path, 'log')
         if is_main_process():
             os.makedirs(log_dir, exist_ok=True)
-            self.writer = SummaryWriter(log_dir)
+            self.writer = SummaryWriter(log_dir) if SummaryWriter is not None else None
             self._record_resolved_config()
             self.wandb_manager = WandbManager(cfg=self.cfg, fold=self.fold)
             self.wandb_manager.update_summary({'batch_layout': self.batch_layout.to_dict()})

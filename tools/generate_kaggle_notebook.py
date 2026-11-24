@@ -86,7 +86,6 @@ def build_notebook_dict():
             "    \"--model\", MODEL_NAME,\n",
             "    \"--exp\", EXP_NAME,\n",
             "    \"--exp_dir\", EXP_DIR,\n",
-            "    \"--resume\",\n",
             "    \"--root_path\", str(DATA_ROOT),\n",
             "    \"--batch_size\", str(BATCH_SIZE),\n",
             "    \"--labeled_bs\", str(LABELED_BS),\n",

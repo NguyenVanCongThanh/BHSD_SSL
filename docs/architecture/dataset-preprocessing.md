@@ -116,3 +116,26 @@ python3 /home/u001015/notebook/preprocess_bhsd_for_pick.py \
 * Dataset `BHSD_fold0` (.h5) **được mô tả là tái hiện pipeline Option 1; mức tương đương toàn bộ cần kiểm chứng bằng source và dữ liệu**.
 * Spacing được báo cáo khác cả Z và XY: `[5.0, 0.5, 0.5]` so với khoảng `[2.715, 0.488, 0.488]` mm. Không gọi đây là chỉ khác trục Z.
 * Toàn bộ 154 ca có nhãn của Fold 0 và 38 ca kiểm định val hoàn toàn trùng khớp với phân chia Fold 0 của nnUNet, là điều kiện cần được xác minh bằng danh sách ID/hash; việc so sánh còn phụ thuộc không gian metric, inference và ngân sách như [benchmark protocol](../guides/benchmark-protocol.md).
+
+---
+
+## 7. Hợp đồng Metadata & Tái tạo Không gian Gốc (Native-Space Contract)
+
+Để hỗ trợ đánh giá chính xác trong không gian NIfTI gốc (`--eval_space native`), mọi file `.h5` sinh bởi `tools/convert_option1_to_h5.py` (từ cặp `.b2nd` + `.pkl` của nnU-Net Option 1) tuân theo hợp đồng metadata sau trong `h5f.attrs`:
+
+| HDF5 Attribute | Ý nghĩa | Quy ước trục | Bắt buộc cho `--eval_space native` |
+| :--- | :--- | :--- | :---: |
+| `orig_shape` | Kích thước volume NIfTI gốc trước crop | `(Z, Y, X)` | Bắt buộc |
+| `bbox_used` (alias `crop_bbox`) | Khung cắt sọ não `[[z0, z1], [y0, y1], [x0, x1]]` | `(Z, Y, X)` | Bắt buộc |
+| `cropped_shape` | Kích thước sau crop, trước resample | `(Z, Y, X)` | Khuyến nghị (suy ra từ `bbox_used` nếu thiếu) |
+| `final_shape` | Kích thước volume đã lưu trong `.h5` | `(Z, Y, X)` | Khuyến nghị |
+| `orig_spacing` | Khoảng cách voxel gốc (mm) | `(Z, Y, X)` | Bắt buộc cho surface metrics (HD95/ASD) |
+| `target_spacing` | Khoảng cách voxel sau resample (mm) | `(Z, Y, X)` | Bắt buộc cho surface metrics ở preprocessed space |
+| `itk_origin`, `itk_spacing`, `itk_direction`, `affine` | Thông tin định hướng / tọa độ thế giới (ITK/NIfTI) từ `.pkl` | Theo chuẩn ITK / NIfTI | Bảo toàn để đối chiếu & xuất NIfTI gốc |
+
+**Quy ước trục và kiểm định hình học (`evaluation/native_space.py`):**
+1. Mọi mảng volume trong HDF5 và dự đoán sliding-window sử dụng thứ tự trục chuẩn **`(Z, Y, X)`**.
+2. `load_raw_nifti_ground_truth()` chuẩn hóa về `(Z, Y, X)` cho cả `nibabel` (thực hiện `.transpose(2, 1, 0)` từ `(X, Y, Z)`) và `SimpleITK` (`GetArrayFromImage` đã là `(Z, Y, X)`).
+3. `restore_volume_to_native_space()` báo lỗi `ValueError` thay vì im lặng trả về volume chưa tái tạo nếu thiếu `orig_shape` hoặc `bbox_used`/`crop_bbox`.
+4. `restore_case_to_native()` kiểm tra `pred_native.shape == raw_gt.shape` khi có `--raw_gt_dir`, ngăn chặn lệch hình học âm thầm.
+

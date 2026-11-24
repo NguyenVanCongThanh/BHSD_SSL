@@ -38,6 +38,7 @@ method:
   batch_dice: true
   consistency: 0.5
   consistency_rampup: 2500.0
+  consistency_rampup_unit: "iter"
   consistency_rampdown_start: 11000
   consistency_min_factor: 0.25
   consistency_type: "hybrid"

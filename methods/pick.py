@@ -130,10 +130,14 @@ class PICKMethod(BaseMethod):
         total_loss = loss_main + loss_mim + loss_aux
 
         loss_dict = {
+            'total': float(total_loss.item()),
+            'supervised': float((loss_main + loss_aux).item()),
+            'consistency': float(loss_mim.item()),
+            'weight': float(self.lambda_mim),
             'loss_total': float(total_loss.item()),
             'loss_main': float(loss_main.item()),
             'loss_mim': float(loss_mim.item()),
-            'loss_aux': float(loss_aux.item())
+            'loss_aux': float(loss_aux.item()),
         }
         return total_loss, loss_dict
 
@@ -188,10 +192,14 @@ class PICKMethod(BaseMethod):
         total_loss = loss_main + loss_mim + loss_aux
 
         loss_dict = {
+            'total': float(total_loss.item()),
+            'supervised': float((loss_main + loss_aux).item()),
+            'consistency': float(loss_mim.item()),
+            'weight': float(self.lambda_mim),
             'loss_total': float(total_loss.item()),
             'loss_main': float(loss_main.item()),
             'loss_mim': float(loss_mim.item()),
-            'loss_aux': float(loss_aux.item())
+            'loss_aux': float(loss_aux.item()),
         }
         return total_loss, loss_dict
 
@@ -270,9 +278,13 @@ class PICKMethod(BaseMethod):
 
         has_self_train_ckpt = os.path.exists(latest_pth) or os.path.exists(alt_pth)
         if resume and not has_self_train_ckpt and self.wandb_manager is not None and self.wandb_manager.enabled:
-            restored = self.wandb_manager.restore_checkpoint(target_name, self.self_snapshot_path)
-            if restored and os.path.exists(restored):
-                has_self_train_ckpt = True
+            suffix = 'epoch_latest' if policy == 'epoch_boundary' else 'latest'
+            self.wandb_manager.restore_artifact(
+                artifact_name=f"{self.exp_name}_self_fold{self.fold}_{suffix}",
+                dest_dir=self.self_snapshot_path,
+                tag="latest",
+            )
+            has_self_train_ckpt = os.path.exists(latest_pth) or os.path.exists(alt_pth)
 
         # If not resuming existing self-training checkpoint, load pre-trained weights
         if not (resume and has_self_train_ckpt):

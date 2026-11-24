@@ -23,7 +23,7 @@ from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE
 from methods.base_method import BaseMethod
 from methods.ssl_utils import extract_logits, compute_masked_ce_loss
 from losses import MaskDiceLoss
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 
 
 @METHODS.register("fixmatch")
@@ -41,6 +41,11 @@ class FixMatchMethod(BaseMethod):
         self.conf_threshold = float(getattr(self.cfg.method, 'conf_threshold', 0.95))
         self.u_weight = float(getattr(self.cfg.method, 'u_weight', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 4000.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='iter',
+        )
 
         # Strong augmentation hyperparameters
         self.noise_std_range = getattr(self.cfg.method, 'noise_std_range', [0.02, 0.10])
@@ -128,17 +133,20 @@ class FixMatchMethod(BaseMethod):
             conf_ratio = 1.0
 
         # Rampup schedule for unsupervised loss weight
-        ramp_factor = sigmoid_rampup(iter_num, self.consistency_rampup)
+        cur_epoch = iter_num / max(len(self.trainloader), 1)
+        ramp_factor = compute_rampup_factor(
+            iter_num, cur_epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
         current_u_weight = self.u_weight * ramp_factor
         total_loss = loss_supervised + current_u_weight * loss_unsupervised
 
         loss_dict = {
-            "loss_total": float(total_loss.item()),
-            "loss_supervised": float(loss_supervised.item()),
-            "loss_ce": float(loss_ce.item()),
-            "loss_dice": float(loss_dice.item()),
-            "loss_unsupervised": float(loss_unsupervised.item()),
-            "u_weight": float(current_u_weight),
+            "total": float(total_loss.item()),
+            "supervised": float(loss_supervised.item()),
+            "consistency": float(loss_unsupervised.item()),
+            "weight": float(current_u_weight),
+            "ce": float(loss_ce.item()),
+            "dice": float(loss_dice.item()),
             "confidence_ratio": conf_ratio,
         }
         return total_loss, loss_dict

@@ -17,6 +17,7 @@ method:
   base_lr: 0.01
   consistency: 1.0
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
   feedback_steps: 3
   feedback_scale: 0.001
   bg_consistency_weight: 0.1

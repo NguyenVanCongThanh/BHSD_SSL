@@ -18,6 +18,7 @@ method:
   ema_decay: 0.99
   consistency: 1.0
   consistency_rampup: 4000.0
+  consistency_rampup_unit: "iter"
   mc_t: 8                    # T=8 Monte Carlo passes through Teacher
   mc_noise_std: 0.1
   mc_noise_clamp: 0.2

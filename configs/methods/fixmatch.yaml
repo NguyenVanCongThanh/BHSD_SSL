@@ -18,6 +18,7 @@ method:
   conf_threshold: 0.95       # High-confidence threshold for pseudo-label filtering
   u_weight: 1.0              # Unsupervised loss weighting
   consistency_rampup: 4000.0 # Sigmoid rampup over first 4000 iterations
+  consistency_rampup_unit: "iter"
   noise_std_range: [0.02, 0.10]
   intensity_scale_range: [0.8, 1.2]
   cutout_prob: 0.5

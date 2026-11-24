@@ -20,6 +20,7 @@ method:
   conf_threshold: 0.95
   u_weight: 1.0
   consistency_rampup: 4000.0
+  consistency_rampup_unit: "iter"
 
 data:
   patch_size: [32, 160, 160]

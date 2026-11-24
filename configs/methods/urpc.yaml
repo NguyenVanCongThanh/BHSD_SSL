@@ -19,6 +19,7 @@ method:
   weight_decay: 0.00003
   consistency: 1.0
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
 
 logging:
   val_interval: 500

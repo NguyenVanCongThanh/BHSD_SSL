@@ -20,6 +20,7 @@ method:
   ema_decay: 0.99
   consistency: 1.0
   consistency_rampup: 4000.0
+  consistency_rampup_unit: "iter"
   mc_t: 8
 
 data:

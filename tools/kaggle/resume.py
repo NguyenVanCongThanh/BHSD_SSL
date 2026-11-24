@@ -16,11 +16,16 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
     if resume_mode not in ('same-run', 'new-run'):
         raise ValueError('Invalid resume mode')
     if run_path.count('/') == 0:
-        entity = os.environ.get('MEDSSL_WANDB_ENTITY', 'thanhnguyen2005243-ho-chi-minh-city-university-of-technology')
-        # Probe known projects for run ID
         api = wandb.Api()
+        entity = (
+            os.environ.get('MEDSSL_WANDB_ENTITY')
+            or os.environ.get('WANDB_ENTITY')
+            or getattr(api, 'default_entity', None)
+            or 'default'
+        )
+        # Probe known projects for run ID
         candidate = None
-        for proj in ('BHSD_Supervised', 'BHSD_MeanTeacher', 'PICK_BHSD'):
+        for proj in ('BHSD_Supervised', 'BHSD_MeanTeacher', 'BHSD_LeFeD', 'PICK_BHSD'):
             try:
                 p = f"{entity}/{proj}/{run_path}"
                 candidate = api.run(p)
@@ -37,7 +42,13 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
                 default_prefix += '/'
             run_path = default_prefix + run_path
     elif run_path.count('/') == 1:
-        entity = os.environ.get('MEDSSL_WANDB_ENTITY', 'thanhnguyen2005243-ho-chi-minh-city-university-of-technology')
+        api = wandb.Api()
+        entity = (
+            os.environ.get('MEDSSL_WANDB_ENTITY')
+            or os.environ.get('WANDB_ENTITY')
+            or getattr(api, 'default_entity', None)
+            or 'default'
+        )
         run_path = f"{entity}/{run_path}"
     if len(run_path.split('/')) != 3:
         raise ValueError('Expected run ID, project/id, or entity/project/id')
@@ -46,8 +57,8 @@ def prepare_resume(run_path, checkpoint_kind, data_root, exp_dir, num_gpus, resu
         raise RuntimeError('Source run is still running; stop it before resuming')
     cfg = copy.deepcopy(dict(run.config))
     method_name = cfg.get('method', {}).get('name')
-    if method_name not in ('mean_teacher', 'supervised'):
-        raise ValueError('Only Mean Teacher and Supervised resume are supported')
+    if method_name not in ('mean_teacher', 'supervised', 'lefed'):
+        raise ValueError('Only Mean Teacher, Supervised, and LeFeD resume are supported')
     exp = cfg['experiment']
     layout = cfg.get('resolved', {}).get('batch_layout', {})
     if layout.get('world_size', 1) != max(1, num_gpus):

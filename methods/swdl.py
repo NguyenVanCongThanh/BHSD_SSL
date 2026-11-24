@@ -18,7 +18,7 @@ from core.registry import METHODS
 from data.constants import DEFAULT_SUPERVISED_CE_WEIGHT, DEFAULT_SUPERVISED_DICE_WEIGHT
 from methods.base_method import BaseMethod
 from losses import MaskDiceLoss
-from utils.ramps import sigmoid_rampup
+from utils.ramps import compute_rampup_factor, resolve_rampup_unit
 
 DEFAULT_SWDL_DS_WEIGHTS = [0.8, 0.6, 0.4, 0.2, 0.1]
 
@@ -39,6 +39,11 @@ class SWDLMethod(BaseMethod):
 
         self.consistency = float(getattr(self.cfg.method, 'consistency', 1.0))
         self.consistency_rampup = float(getattr(self.cfg.method, 'consistency_rampup', 40.0))
+        self.consistency_rampup_unit = resolve_rampup_unit(
+            getattr(self.cfg.method, 'consistency_rampup_unit', None),
+            self.consistency_rampup,
+            default_unit='epoch',
+        )
         self.feedback_steps = int(getattr(self.cfg.method, 'feedback_steps', 3))
         self.feedback_scale = float(getattr(self.cfg.method, 'feedback_scale', 1e-3))
         self.ds_weights = getattr(self.cfg.method, 'ds_weights', DEFAULT_SWDL_DS_WEIGHTS)
@@ -54,8 +59,10 @@ class SWDLMethod(BaseMethod):
             ddp=self.is_ddp
         )
 
-    def get_current_consistency_weight(self, epoch: float) -> float:
-        return self.consistency * sigmoid_rampup(epoch, self.consistency_rampup)
+    def get_current_consistency_weight(self, epoch: float, iter_num: int = 0) -> float:
+        return self.consistency * compute_rampup_factor(
+            iter_num, epoch, self.consistency_rampup, self.consistency_rampup_unit
+        )
 
     def _feedback_steps(
         self,
@@ -67,7 +74,7 @@ class SWDLMethod(BaseMethod):
         label_batch = sampled_batch['label'].to(self.device)
 
         cur_epoch = iter_num / max(len(self.trainloader), 1)
-        consistency_weight = self.get_current_consistency_weight(cur_epoch)
+        consistency_weight = self.get_current_consistency_weight(cur_epoch, iter_num=iter_num)
 
         en: Optional[List[torch.Tensor]] = None
 
@@ -117,11 +124,11 @@ class SWDLMethod(BaseMethod):
             loss_step = loss_sup + loss_ds + consistency_weight * loss_cons
 
             yield loss_step, {
-                'loss_total': float(loss_step.detach()),
-                'loss_supervised': float(loss_sup.detach()),
-                'loss_deep_supervision': float(loss_ds.detach()),
-                'loss_consistency': float(loss_cons.detach()),
-                'consistency_weight': float(consistency_weight),
+                'total': float(loss_step.detach()),
+                'supervised': float(loss_sup.detach()),
+                'deep_supervision': float(loss_ds.detach()),
+                'consistency': float(loss_cons.detach()),
+                'weight': float(consistency_weight),
             }
 
     def train_step(

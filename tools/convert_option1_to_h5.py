@@ -10,6 +10,7 @@ import os
 import sys
 import glob
 import json
+import pickle
 import argparse
 import numpy as np
 import h5py
@@ -39,7 +40,79 @@ def load_b2nd_array(file_path):
             raise RuntimeError(f"Failed to read blosc2 file {file_path}: {e}")
 
 
-def convert_dataset(input_dir, output_dir, splits_file=None, fold=0):
+def _to_serializable(val):
+    """Convert numpy scalars/arrays and nested tuples into plain JSON/literal-safe Python values."""
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    if isinstance(val, (list, tuple)):
+        return [_to_serializable(x) for x in val]
+    if isinstance(val, dict):
+        return {str(k): _to_serializable(v) for k, v in val.items()}
+    return val
+
+
+def extract_pkl_metadata(pkl_path, final_shape=None, target_spacing=None):
+    """
+    Extract native-space spatial geometry and orientation metadata from nnU-Net v2 case .pkl.
+    Persists canonical keys required by BHSDDataset and evaluation/native_space.py:
+      - orig_shape, bbox_used, crop_bbox, cropped_shape, final_shape
+      - orig_spacing, target_spacing
+      - itk_origin, itk_spacing, itk_direction, affine (when present)
+    """
+    attrs = {}
+    if final_shape is not None:
+        attrs["final_shape"] = repr(tuple(int(x) for x in final_shape))
+    if target_spacing is not None:
+        attrs["target_spacing"] = repr(tuple(float(x) for x in target_spacing))
+
+    if not pkl_path or not os.path.exists(pkl_path):
+        return attrs
+
+    with open(pkl_path, "rb") as f:
+        props = pickle.load(f)
+    if not isinstance(props, dict):
+        return attrs
+
+    orig_shape = props.get("shape_before_cropping", props.get("orig_shape"))
+    if orig_shape is not None:
+        attrs["orig_shape"] = repr(tuple(int(x) for x in orig_shape))
+
+    bbox = props.get("bbox_used_for_cropping", props.get("bbox_used", props.get("crop_bbox")))
+    if bbox is not None:
+        bbox_clean = [[int(lo), int(hi)] for lo, hi in bbox]
+        attrs["bbox_used"] = repr(bbox_clean)
+        attrs["crop_bbox"] = repr(bbox_clean)
+
+    cropped_shape = props.get("shape_after_cropping_and_before_resampling", props.get("cropped_shape"))
+    if cropped_shape is not None:
+        attrs["cropped_shape"] = repr(tuple(int(x) for x in cropped_shape))
+    elif bbox is not None:
+        attrs["cropped_shape"] = repr(tuple(int(hi) - int(lo) for lo, hi in bbox))
+
+    orig_spacing = props.get("spacing", props.get("orig_spacing"))
+    if orig_spacing is not None:
+        attrs["orig_spacing"] = repr(tuple(float(x) for x in orig_spacing))
+
+    # Preserve ITK / NIfTI world-coordinate orientation metadata for physical-space verification/export
+    sitk_stuff = props.get("sitk_stuff") or {}
+    if isinstance(sitk_stuff, dict):
+        if "spacing" in sitk_stuff:
+            attrs["itk_spacing"] = repr(_to_serializable(sitk_stuff["spacing"]))
+        if "origin" in sitk_stuff:
+            attrs["itk_origin"] = repr(_to_serializable(sitk_stuff["origin"]))
+        if "direction" in sitk_stuff:
+            attrs["itk_direction"] = repr(_to_serializable(sitk_stuff["direction"]))
+    if "affine" in props and props["affine"] is not None:
+        attrs["affine"] = repr(_to_serializable(props["affine"]))
+
+    return attrs
+
+
+def convert_dataset(input_dir, output_dir, splits_file=None, fold=0, target_spacing=None):
     os.makedirs(os.path.join(output_dir, "data"), exist_ok=True)
     
     # 1. Discover cases from .b2nd files
@@ -77,10 +150,18 @@ def convert_dataset(input_dir, output_dir, splits_file=None, fold=0):
                 
             img_data = img_data.astype(np.float32)
             seg_data = seg_data.astype(np.uint8)
-            
+            pkl_path = os.path.join(input_dir, f"{case_id}.pkl")
+            h5_attrs = extract_pkl_metadata(
+                pkl_path,
+                final_shape=img_data.shape,
+                target_spacing=target_spacing,
+            )
+
             with h5py.File(out_h5_path, 'w') as h5f:
                 h5f.create_dataset('image', data=img_data, compression='gzip')
                 h5f.create_dataset('label', data=seg_data, compression='gzip')
+                for attr_k, attr_v in h5_attrs.items():
+                    h5f.attrs[attr_k] = attr_v
                 
             converted_cases.append(case_id)
         except Exception as e:
@@ -175,6 +256,14 @@ def main():
         default=0,
         help="Fold index to extract for train/val split (default: 0)",
     )
+    parser.add_argument(
+        "--target_spacing",
+        type=float,
+        nargs=3,
+        default=None,
+        metavar=("Z", "Y", "X"),
+        help="Optional preprocessed target voxel spacing (Z Y X) in mm to persist in HDF5 attrs.",
+    )
     args = parser.parse_args()
 
     if not args.input_dir or not args.output_dir:
@@ -185,6 +274,7 @@ def main():
         output_dir=args.output_dir,
         splits_file=args.splits_file,
         fold=args.fold,
+        target_spacing=tuple(args.target_spacing) if args.target_spacing else None,
     )
 
 

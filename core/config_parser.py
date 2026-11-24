@@ -176,6 +176,8 @@ SECTION_MAPPING = {
     'poly_power': 'method',
     'consistency': 'method',
     'consistency_rampup': 'method',
+    'consistency_rampup_unit': 'method',
+    'consistency-rampup-unit': 'method',
     'lambda_': 'method',
     'lambda_mim': 'method',
     'mask_ratio': 'method',
@@ -344,7 +346,7 @@ KNOWN_SECTION_KEYS = {
     'method': {
         'name', 'base_lr', 'momentum', 'weight_decay', 'lr_scheduler', 'poly_power',
         'max_iteration', 'lr_max_iteration', 'pre_max_iteration', 'self_max_iteration', 'consistency',
-        'consistency_rampup', 'consistency_rampdown_start', 'consistency_min_factor',
+        'consistency_rampup', 'consistency_rampup_unit', 'consistency_rampdown_start', 'consistency_min_factor',
         'consistency_type', 'bg_consistency_weight', 'confidence_thresh',
         'fg_confidence_max_thresh', 'consistency_dice_weight', 'consistency_mse_weight',
         'sup_ce_weight', 'sup_dice_weight', 'clip_norm',
@@ -588,6 +590,12 @@ def validate_config(cfg_dict: Dict[str, Any]) -> None:
     for bool_key in ('batch_dice', 'ds_zero_lowest_scale', 'ds_downsample_target'):
         if bool_key in method and method[bool_key] is not None and not isinstance(method[bool_key], bool):
             raise ValueError(f"method.{bool_key} must be boolean or null, got {method[bool_key]!r}")
+    if 'consistency_rampup_unit' in method and method['consistency_rampup_unit'] is not None:
+        ru = str(method['consistency_rampup_unit']).strip().lower()
+        if ru not in ('iter', 'epoch'):
+            raise ValueError(
+                f"method.consistency_rampup_unit must be 'iter', 'epoch', or null, got {method['consistency_rampup_unit']!r}"
+            )
 
 
 def load_config(

@@ -8,11 +8,33 @@ from dataclasses import dataclass
 from typing import Tuple, Sequence, Optional, List, Dict, Any
 import logging
 import os
-import h5py
+try:
+    import h5py
+except ImportError:  # pragma: no cover - optional when running non-HDF5 unit tests
+    h5py = None
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset, Dataset, Sampler
-from torchvision import transforms
+try:
+    from torchvision import transforms as _tv_transforms
+    _Compose = _tv_transforms.Compose
+except Exception:  # pragma: no cover - fallback when torchvision is absent or ABI-mismatched
+    class _Compose:
+        """Drop-in Compose matching torchvision.transforms.Compose."""
+        def __init__(self, transforms_list):
+            self.transforms = list(transforms_list)
+
+        def __call__(self, img):
+            for t in self.transforms:
+                img = t(img)
+            return img
+
+        def __repr__(self):
+            lines = [f"{self.__class__.__name__}("]
+            for t in self.transforms:
+                lines.append(f"    {t}")
+            lines.append(")")
+            return "\n".join(lines)
 
 from core.config_parser import Config
 from core.batching import BatchLayout
@@ -101,7 +123,7 @@ def build_bhsd_transforms(
     foreground_prob: Optional[float] = None,
     aug_config: Optional[Dict[str, Any]] = None,
     aug_preset: str = "legacy",
-) -> transforms.Compose:
+) -> _Compose:
     """Build 3D data augmentation pipeline for training ('legacy' or 'nnunet')."""
     preset = str(aug_preset or "legacy").strip().lower()
     if preset not in ("legacy", "nnunet"):
@@ -165,7 +187,7 @@ def build_bhsd_transforms(
                 ),
             ])
         aug_list.append(ToTensor())
-        return transforms.Compose(aug_list)
+        return _Compose(aug_list)
 
     aug_list = [
         RandomRotFlip(),
@@ -189,7 +211,7 @@ def build_bhsd_transforms(
         RandomCrop(patch_size, foreground_prob=fg_prob),
         ToTensor()
     ])
-    return transforms.Compose(aug_list)
+    return _Compose(aug_list)
 
 
 def select_stratified_labeled_indices(

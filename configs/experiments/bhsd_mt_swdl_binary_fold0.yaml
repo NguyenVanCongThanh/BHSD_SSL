@@ -24,6 +24,7 @@ method:
   ema_decay: 0.99
   consistency: 1.0
   consistency_rampup: 40.0
+  consistency_rampup_unit: "epoch"
 
 data:
   patch_size: [16, 64, 64]
