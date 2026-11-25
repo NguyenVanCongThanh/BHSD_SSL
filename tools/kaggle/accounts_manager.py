@@ -228,6 +228,8 @@ class AccountsManager:
                 pass
 
         return ""
+
+    def get_executor(self, account_id_or_slug: str):
         """
         Khởi tạo KaggleExecutor trực tiếp trong RAM (Zero-file mode).
         Không sinh file hay thư mục tĩnh nào ra ổ cứng.
