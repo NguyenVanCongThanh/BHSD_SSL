@@ -186,7 +186,7 @@ sequenceDiagram
 ### 3.7. Dataset & Split Management (Quản lý Dữ liệu & Phân chia Tập dữ liệu)
 1. **Catalog Bộ dữ liệu**:
    - Quản lý phiên bản dữ liệu HDF5: Đường dẫn, Checksum, Số lượng bệnh nhân, Thể tích, Kích thước patch training (`[32, 192, 192]`).
-   - Cấu hình tiền xử lý (Preprocessing metadata): Spacing gốc vs Target Spacing (`[5.0, 0.5, 0.5]`), Chuẩn hóa (`zscore_hu` vs `percentile`), Clip range (`[11.0, 88.0]`).
+   - Cấu hình tiền xử lý (Preprocessing metadata): Spacing gốc vs Target Spacing (nếu có trong metadata `.h5`; dataset mặc định `bhsd-fold0-optimal` hiện không lưu spacing), Chuẩn hóa (`zscore_hu` vs `percentile`), Clip range (`[11.0, 88.0]`).
 2. **Kiểm tra Chống Rò rỉ Dữ liệu (Data Leakage & Split Integrity Guard)**:
    - Cơ chế kiểm toán: Đảm bảo toàn bộ lát cắt của cùng một bệnh nhân (Patient-level ID) chỉ nằm trong 1 tập duy nhất (Train Labeled, Train Unlabeled, hoặc Validation).
    - Kiểm tra phân bố 5-fold cross validation: Xác minh tỷ lệ các loại xuất huyết hiếm (đặc biệt là EDH) được phân bổ cân bằng giữa các fold.

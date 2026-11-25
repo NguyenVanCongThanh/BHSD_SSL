@@ -1,6 +1,6 @@
 # Dataset BHSD: preprocessing và đối chiếu nnU-Net
 
-> **Phạm vi bằng chứng:** các số liệu dưới đây là ghi nhận từ môi trường/dataset local `/home/u001015/dataset/BHSD_fold0` đã kiểm tra trước đây. **Lưu ý Kaggle:** dataset `thnhnguynvncng/bhsd-fold0-optimal` trên Kaggle hiện **không có metadata spacing** (`target_spacing` / `orig_spacing`) trong các file `.h5`, nên không dùng được các metric/hiển thị phụ thuộc spacing vật lý (`--surface_metrics`, `negative_fp_ml_mean`, aspect ratio vật lý). Nguồn preprocessing nằm ngoài repo; cần bổ sung commit/hash script, plans/fingerprint, manifest dữ liệu và split hash trước khi tuyên bố tương đương toàn bộ.
+> **Phạm vi bằng chứng:** các số liệu `[5.0, 0.5, 0.5]` dưới đây là ghi nhận từ **dataset cũ** `/home/u001015/dataset/BHSD_fold0` (sử dụng trước ngày 10/11/2026). **Dataset mặc định hiện tại trên Kaggle là `thnhnguynvncng/bhsd-fold0-optimal`**, hiện **không có metadata spacing** (`target_spacing` / `orig_spacing`) trong các file `.h5` (không mặc định suy ra `[5.0, 0.5, 0.5]`), nên không dùng được các metric/hiển thị phụ thuộc spacing vật lý (`--surface_metrics`, `negative_fp_ml_mean`, aspect ratio vật lý). Nguồn preprocessing nằm ngoài repo; cần bổ sung commit/hash script, plans/fingerprint, manifest dữ liệu và split hash trước khi tuyên bố tương đương toàn bộ.
 
 Tài liệu này ghi lại chi tiết các điểm tương đồng, điểm khác biệt và nguyên nhân kỹ thuật giữa tập dữ liệu tiền xử lý **BHSD_fold0** (lưu dưới dạng `.h5` tại `/home/u001015/dataset/BHSD_fold0`) và tập dữ liệu trong **nnUNet Option 1** (`nnUNetPlans_Option1_CTClip` tại `/home/u001015/nnUNet_data/nnUNet_preprocessed/Dataset001_BHSD/`).
 
@@ -155,7 +155,7 @@ python3 /home/u001015/notebook/preprocess_bhsd_for_pick.py \
        --input_dir /path/to/nnUNetPlans_Option1_CTClip_3d_fullres \
        --output_dir /path/to/BHSD_fold0_v2_native_ready \
        --splits_file /path/to/splits_multilabel.json \
-       --target_spacing 5.0 0.5 0.5
+       --target_spacing 2.7148 0.4883 0.4883   # Hoặc 5.0 0.5 0.5 nếu dùng bản spacing05 cũ
    ```
 2. **Kiểm định metadata trên toàn bộ file `.h5` mới sinh:**
    ```bash
