@@ -1,0 +1,51 @@
+# Experiment Preset: BHSD Multi-Class Supervised Baseline with 3D U-Net (UNet3D)
+# 16x-divisible patch [32, 320, 320] matching nnUNetPlans_16GB_T4 / 15GB_T4 spatial window.
+
+experiment:
+  name: "bhsd_supervised_unet3d_fold0"
+  task: "multiclass"
+  num_classes: 6
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_multiclass"
+
+model:
+  name: "unet3d"
+  in_channels: 1
+  has_dropout: true
+  residual: "conv"
+  feat_channels: [32, 64, 128, 256, 512]
+
+method:
+  name: "supervised"
+  optimizer: "sgd"
+  base_lr: 0.01
+  momentum: 0.99
+  nesterov: true
+  weight_decay: 0.00003
+  lr_scheduler: "poly"
+  poly_power: 0.9
+  clip_norm: 12.0
+  max_iteration: 25000
+  deep_supervision: false
+  batch_dice: false
+
+data:
+  patch_size: [32, 320, 320]
+  batch_size: 2
+  labeled_bs: 2
+  labelnum: 154
+  max_samples: 154
+  labeled_sampling: "first"
+  foreground_prob: 0.33
+  aug_preset: "nnunet"
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  val_step_size: 0.5
+  val_gaussian: true
+  val_amp: true

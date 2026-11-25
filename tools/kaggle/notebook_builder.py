@@ -70,6 +70,7 @@ class NotebookBuilder:
             "supervised_vnet7_plain",
             "supervised_vnet5_plain",
             "supervised_vnet5_res",
+            "supervised_unet3d",
         )
         if resume_run and notebook_type not in supported_resume_notebooks:
             raise ValueError(f"--resume-run supports {', '.join(supported_resume_notebooks)}")

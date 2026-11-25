@@ -1,6 +1,6 @@
 # Experiment Preset: BHSD Multi-Class Supervised Benchmark matching nnU-Net v2 PlainConvUNet (Auto-Spacing)
 # Derived from nnUNetv2 ExperimentPlanner for BHSD 192 labeled cases:
-#   - Auto target_spacing: [2.7148, 0.4883, 0.4883] mm (median_shape [60, 465, 418])
+#   - Auto target_spacing: [2.7148, 0.4883, 0.4883] mm (median_shape [61, 512, 512] from nnUNetPlans_16GB_T4 / 15GB_T4)
 #   - 16 GB T4 VRAM target (2x T4 DDP splits global batch_size=2 -> 1 sample/GPU)
 #   - Exact PlainConvUNet parity: strided_conv_in_block=true, conv_bias=true, InstanceNorm3d, LeakyReLU
 # Note: For 8 GB VRAM default nnU-Net plan, use num_stages=6, patch_size=[32, 256, 224], and 5 pool_strides.
@@ -61,7 +61,7 @@ method:
   batch_dice: false
 
 data:
-  patch_size: [40, 320, 256]
+  patch_size: [32, 320, 320]
   batch_size: 2
   labeled_bs: 2
   labelnum: 154

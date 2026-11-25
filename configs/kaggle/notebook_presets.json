@@ -215,6 +215,20 @@
         "extra_cli_lines": [
           "    \"--model\", \"vnet\",\n"
         ]
+      },
+      "unet3d": {
+        "model_name": "unet3d",
+        "batch_size": 2,
+        "labeled_bs": 2,
+        "max_iter": 25000,
+        "val_stride_xy": 160,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "320", "320"],
+        "config_file": "configs/experiments/bhsd_supervised_unet3d_fold0.yaml",
+        "arch_desc": "- **Kiến trúc 3D U-Net (Çiçek et al., MICCAI 2016)**: Sử dụng mô hình `unet3d` 5 mức phân giải (4 lần MaxPool3d 2x2x2, BatchNorm3d, ReLU, residual='conv'), patch size [32, 320, 320] chia hết cho 16 khớp khung nhìn `nnUNetPlans_16GB_T4`.\n",
+        "extra_cli_lines": [
+          "    \"--model\", \"unet3d\",\n"
+        ]
       }
     }
   },
