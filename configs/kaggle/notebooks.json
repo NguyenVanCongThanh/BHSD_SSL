@@ -145,6 +145,22 @@
       ],
       "description": "Huấn luyện Supervised 3D U-Net (unet3d, Patch 32x320x320) trên Dual GPU T4"
     },
+    "supervised_nnunet_v2_auto": {
+      "slug": "kaggle-bhsd-supervised-nnunet-v2-auto-dual-gpu",
+      "title": "kaggle_bhsd_supervised_nnunet_v2_auto_dual_gpu",
+      "code_file": "kaggle_bhsd_supervised_nnunet_v2_auto_dual_gpu.ipynb",
+      "generator_script": "tools/generate_supervised_notebook.py",
+      "language": "python",
+      "kernel_type": "notebook",
+      "is_private": true,
+      "enable_gpu": true,
+      "enable_tpu": false,
+      "enable_internet": true,
+      "dataset_sources": [
+        "thnhnguynvncng/bhsd-fold0-optimal"
+      ],
+      "description": "Huấn luyện Supervised nnU-Net v2 Nguyên Bản (PlainConvUNet 7-Stage, Patch 32x320x320, nnUNetPlans_15GB_T4/16GB_T4) trên Dual GPU T4"
+    },
     "lefed": {
       "slug": "kaggle-bhsd-lefed-dual-gpu",
       "title": "kaggle_bhsd_lefed_dual_gpu",

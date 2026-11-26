@@ -1,0 +1,75 @@
+# Experiment Preset: BHSD Binary Supervised Benchmark matching nnU-Net v2 PlainConvUNet (Auto-Spacing)
+# Binary counterpart to bhsd_supervised_nnunet_v2_auto_fold0.yaml for apple-to-apple comparison
+# against 5-stage V-Net binary baselines (fold 0, seed 1337, 154 labeled cases).
+
+experiment:
+  name: "bhsd_supervised_nnunet_v2_auto_binary_fold0"
+  task: "binary"
+  num_classes: 2
+  fold: 0
+  seed: 1337
+  deterministic: true
+  phase: "all"
+
+dataset: "bhsd_binary"
+
+model:
+  name: "nnunet3d"
+  in_channels: 1
+  base_filters: 32
+  max_filters: 320
+  num_stages: 7
+  has_dropout: false
+  deep_supervision: true
+  anisotropic_kernels: true
+  use_strided_conv: true
+  conv_bias: true
+  strided_conv_in_block: true
+  stage_kernels:
+    - [1, 3, 3]
+    - [1, 3, 3]
+    - [3, 3, 3]
+    - [3, 3, 3]
+    - [3, 3, 3]
+    - [3, 3, 3]
+    - [3, 3, 3]
+  pool_strides:
+    - [1, 2, 2]
+    - [1, 2, 2]
+    - [2, 2, 2]
+    - [2, 2, 2]
+    - [2, 2, 2]
+    - [1, 2, 2]
+
+method:
+  name: "supervised"
+  optimizer: "sgd"
+  base_lr: 0.01
+  momentum: 0.99
+  nesterov: true
+  weight_decay: 0.00003
+  lr_scheduler: "poly"
+  poly_power: 0.9
+  clip_norm: 12.0
+  max_iteration: 25000
+  deep_supervision: true
+  ds_zero_lowest_scale: true
+  ds_downsample_target: true
+  batch_dice: false
+
+data:
+  patch_size: [32, 320, 320]
+  batch_size: 2
+  labeled_bs: 2
+  labelnum: 154
+  max_samples: 154
+  labeled_sampling: "first"
+  foreground_prob: 0.33
+  aug_preset: "nnunet"
+  extended_aug: true
+
+logging:
+  val_interval: 500
+  val_step_size: 0.5
+  val_gaussian: true
+  val_amp: true

@@ -46,6 +46,7 @@ def main():
         "vnet5_plain": "scripts/kaggle_bhsd_supervised_vnet5_plain_dual_gpu.ipynb",
         "vnet5_res": "scripts/kaggle_bhsd_supervised_vnet5_res_dual_gpu.ipynb",
         "unet3d": "scripts/kaggle_bhsd_supervised_unet3d_dual_gpu.ipynb",
+        "nnunet_v2_auto": "scripts/kaggle_bhsd_supervised_nnunet_v2_auto_dual_gpu.ipynb",
     }
     setting_env = os.environ.get("BHSD_SETTING", "").strip().lower()
     if setting_env and setting_env != "default" and setting_env in setting_targets:

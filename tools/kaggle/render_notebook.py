@@ -37,6 +37,7 @@ NOTEBOOK_TYPE_TO_METHOD: Dict[str, Tuple[str, str]] = {
     "supervised_vnet5_plain": ("supervised", "vnet5_plain"),
     "supervised_vnet5_res": ("supervised", "vnet5_res"),
     "supervised_unet3d": ("supervised", "unet3d"),
+    "supervised_nnunet_v2_auto": ("supervised", "nnunet_v2_auto"),
 }
 
 _METHOD_METADATA: Dict[str, Dict[str, Any]] = {

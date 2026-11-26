@@ -229,6 +229,20 @@
         "extra_cli_lines": [
           "    \"--model\", \"unet3d\",\n"
         ]
+      },
+      "nnunet_v2_auto": {
+        "model_name": "nnunet3d",
+        "batch_size": 2,
+        "labeled_bs": 2,
+        "max_iter": 25000,
+        "val_stride_xy": 160,
+        "val_stride_z": 16,
+        "patch_size_eval": ["32", "320", "320"],
+        "config_file": "configs/experiments/bhsd_supervised_nnunet_v2_auto_fold0.yaml",
+        "arch_desc": "- **Kiến trúc nnU-Net v2 Nguyên Bản (`PlainConvUNet` — `nnUNetPlans_15GB_T4` / `16GB_T4`)**: Sử dụng mô hình `nnunet3d` 7 stages (`strided_conv_in_block=true`, `conv_bias=true`, `InstanceNorm3d`, `LeakyReLU`, `features=[32,64,128,256,320,320,320]`), patch size [32, 320, 320], `batch_dice=false`, SGD + Poly LR + `aug_preset=nnunet`.\n",
+        "extra_cli_lines": [
+          "    \"--model\", \"nnunet3d\",\n"
+        ]
       }
     }
   },
