@@ -67,6 +67,8 @@ class VNet(nn.Module):
         stage_multipliers: Optional[Sequence[int]] = None,
         pool_strides: Optional[Sequence[Tuple[int, int, int]]] = None,
         stage_kernels: Optional[Sequence[Tuple[int, int, int]]] = None,
+        overlap_downsample: bool = False,
+        outer_convs: int = 1,
         **kwargs
     ):
         super(VNet, self).__init__()
@@ -105,8 +107,6 @@ class VNet(nn.Module):
             )
             self.is_7stage = True
         else:
-            if deep_supervision:
-                logging.warning("[VNet] 5-stage VNetClassic does not support deep_supervision=True; ignoring.")
             ignored_5stage = [
                 name for name, val in (
                     ("stage_multipliers", stage_multipliers),
@@ -122,6 +122,7 @@ class VNet(nn.Module):
                 )
             res_flag = False if has_residual is None else bool(has_residual)
             self.has_residual = res_flag
+            self.deep_supervision = bool(deep_supervision)
             legacy_drop = LEGACY_DROPOUT_PROB if dropout_prob is None else dropout_prob
             self.encoder = VNetEncoder(
                 n_channels=in_channels,
@@ -133,6 +134,8 @@ class VNet(nn.Module):
                 dropout_prob=legacy_drop,
                 activation=activation,
                 anisotropic_kernels=anisotropic_kernels,
+                overlap_downsample=overlap_downsample,
+                outer_convs=outer_convs,
             )
             self.decoder = VNetDecoder(
                 n_channels=in_channels,
@@ -145,14 +148,22 @@ class VNet(nn.Module):
                 skip_mode=skip_mode,
                 activation=activation,
                 anisotropic_kernels=anisotropic_kernels,
+                deep_supervision=self.deep_supervision,
+                outer_convs=outer_convs,
             )
             self.is_7stage = False
 
-    def forward(self, x: torch.Tensor, **kwargs):
+    def forward(self, x: torch.Tensor, return_all_scales: bool = False, **kwargs):
         if self.is_7stage:
-            return self.model(x, **kwargs)
+            return self.model(x, return_all_scales=return_all_scales, **kwargs)
         features = self.encoder(x)
-        out_seg, feat_de = self.decoder(features)
+        if self.deep_supervision and (self.training or return_all_scales):
+            out_seg, _feat_de, aux = self.decoder(features, return_aux=True)
+            return {
+                "seg": out_seg,
+                "aux": aux,
+            }
+        out_seg, _feat_de = self.decoder(features)
         return out_seg
 
 

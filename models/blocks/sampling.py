@@ -20,15 +20,24 @@ class DownsamplingConvBlock(nn.Module):
         n_filters_in: int,
         n_filters_out: int,
         stride: Union[int, Tuple[int, int, int]] = 2,
-        padding: Union[int, Tuple[int, int, int]] = 0,
+        padding: Optional[Union[int, Tuple[int, int, int]]] = 0,
         normalization: str = "none",
         activation: str = "relu",
         inplace: bool = False,
+        kernel_size: Optional[Union[int, Tuple[int, int, int]]] = None,
     ):
         super(DownsamplingConvBlock, self).__init__()
+        resolved_kernel = stride if kernel_size is None else kernel_size
+        if padding is None:
+            if isinstance(resolved_kernel, int):
+                resolved_padding: Union[int, Tuple[int, int, int]] = resolved_kernel // 2
+            else:
+                resolved_padding = tuple(k // 2 for k in resolved_kernel)
+        else:
+            resolved_padding = padding
         use_bias = str(normalization).lower() in ("none", "", "identity")
         ops = []
-        ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=stride, stride=stride, padding=padding, bias=use_bias))
+        ops.append(nn.Conv3d(n_filters_in, n_filters_out, kernel_size=resolved_kernel, stride=stride, padding=resolved_padding, bias=use_bias))
         norm_layer = get_norm3d(normalization, n_filters_out, affine=True)
         if norm_layer is not None:
             ops.append(norm_layer)
