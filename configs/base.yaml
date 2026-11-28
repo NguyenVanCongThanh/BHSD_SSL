@@ -41,7 +41,7 @@ logging:
   save_wandb_model: true    # Toggle cloud checkpoint upload
   artifact_backend: "huggingface" # "huggingface" (0 byte quota on W&B) | "wandb" | "both"
   use_hf_storage: true      # Upload checkpoints to Hugging Face Model Hub (Free & unlimited)
-  hf_repo_id: "${HF_REPO_ID:-}" # Hugging Face Model repository (configured via HF_REPO_ID env / .env / Kaggle Secrets)
+  hf_repo_id: null          # Auto-resolved from HF_REPO_ID env / .env / Kaggle Secrets when null
   hf_private: true          # Create private repo if not exists
   wandb_project: "PICK_BHSD"
   wandb_entity: null        # W&B team/username (leave null for default account)
