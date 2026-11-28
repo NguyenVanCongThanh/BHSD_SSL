@@ -78,9 +78,14 @@ def migrate_runs(
             if not model_artifacts:
                 continue
 
-            # Identify canonical best and latest artifacts
+            # Identify canonical best and latest artifacts (exclude best artifacts from latest_arts
+            # since W&B also attaches the 'latest' alias to the newest best model version)
             best_arts = [a for a in model_artifacts if 'best' in a.aliases or 'best' in a.name.lower()]
-            latest_arts = [a for a in model_artifacts if 'latest' in a.aliases or 'latest' in a.name.lower()]
+            best_ids = {a.id for a in best_arts}
+            latest_arts = [
+                a for a in model_artifacts
+                if a.id not in best_ids and ('latest' in a.aliases or 'latest' in a.name.lower())
+            ]
 
             target_best = max(best_arts, key=lambda a: int(a.name.rsplit(':v', 1)[1])) if best_arts else None
             target_latest = max(latest_arts, key=lambda a: int(a.name.rsplit(':v', 1)[1])) if latest_arts else None
